@@ -53,66 +53,54 @@ pub(crate) fn terminal_context_menu(
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
     let menu = if cfg!(target_os = "macos") && handoff_enabled {
-        menu.item(action_item("Handoff Agent…", Box::new(crate::HandoffAgent)))
+        menu.item(action_item("移交 Agent…", Box::new(crate::HandoffAgent)))
     } else {
         menu
     };
-    menu.min_w(px(220.0))
-        .item(action_item("Paste", Box::new(crate::Paste)))
-        .item(action_item("Copy", Box::new(crate::Copy)))
-        .item(action_item("Ask AI", Box::new(crate::AskAi)))
-        .item(action_item(
-            "Clear Terminal",
-            Box::new(crate::ClearTerminal),
-        ))
+    menu.min_w(px(240.0))
+        .item(action_item("粘贴", Box::new(crate::Paste)))
+        .item(action_item("复制", Box::new(crate::Copy)))
+        .item(action_item("询问 AI", Box::new(crate::AskAi)))
+        .item(action_item("清空终端", Box::new(crate::ClearTerminal)))
         .separator()
-        .submenu("Split Pane", window, cx, |menu, _window, _cx| {
-            menu.min_w(px(164.0))
-                .item(action_item("Right", Box::new(crate::SplitRight)))
-                .item(action_item("Down", Box::new(crate::SplitDown)))
-                .item(action_item("Left", Box::new(crate::SplitLeft)))
-                .item(action_item("Up", Box::new(crate::SplitUp)))
+        .submenu("拆分分屏", window, cx, |menu, _window, _cx| {
+            menu.min_w(px(190.0))
+                .item(action_item("向右拆分", Box::new(crate::SplitRight)))
+                .item(action_item("向下拆分", Box::new(crate::SplitDown)))
+                .item(action_item("向左拆分", Box::new(crate::SplitLeft)))
+                .item(action_item("向上拆分", Box::new(crate::SplitUp)))
         })
-        .item(action_item(
-            "Toggle Pane Zoom",
-            Box::new(crate::TogglePaneZoom),
-        ))
-        .item(action_item("Close Pane", Box::new(crate::ClosePane)))
+        .item(action_item("切换分屏缩放", Box::new(crate::TogglePaneZoom)))
+        .item(action_item("关闭分屏", Box::new(crate::ClosePane)))
         .separator()
-        .submenu("Surfaces", window, cx, |menu, _window, _cx| {
-            menu.min_w(px(214.0))
-                .item(action_item("New Surface Tab", Box::new(crate::NewSurface)))
+        .submenu("Surface", window, cx, |menu, _window, _cx| {
+            menu.min_w(px(250.0))
+                .item(action_item("新建 Surface 标签", Box::new(crate::NewSurface)))
                 .item(action_item(
-                    "New Surface Pane Right",
+                    "向右新建 Surface 分屏",
                     Box::new(crate::NewSurfaceSplitRight),
                 ))
                 .item(action_item(
-                    "New Surface Pane Down",
+                    "向下新建 Surface 分屏",
                     Box::new(crate::NewSurfaceSplitDown),
                 ))
                 .separator()
+                .item(action_item("下一个 Surface 标签", Box::new(crate::NextSurface)))
                 .item(action_item(
-                    "Next Surface Tab",
-                    Box::new(crate::NextSurface),
-                ))
-                .item(action_item(
-                    "Previous Surface Tab",
+                    "上一个 Surface 标签",
                     Box::new(crate::PreviousSurface),
                 ))
-                .item(action_item(
-                    "Rename Current",
-                    Box::new(crate::RenameSurface),
-                ))
-                .item(action_item("Close Current", Box::new(crate::CloseSurface)))
+                .item(action_item("重命名当前", Box::new(crate::RenameSurface)))
+                .item(action_item("关闭当前", Box::new(crate::CloseSurface)))
         })
         .separator()
-        .item(action_item("Focus Input", Box::new(crate::FocusInput)))
+        .item(action_item("聚焦输入框", Box::new(crate::FocusInput)))
         .item(action_item(
-            "Settings",
+            "设置",
             Box::new(crate::settings_panel::ToggleSettings),
         ))
         .item(action_item(
-            "Command Palette",
+            "命令面板",
             Box::new(crate::command_palette::ToggleCommandPalette),
         ))
 }
