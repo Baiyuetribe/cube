@@ -74,10 +74,10 @@ enum SettingsSection {
 impl SettingsSection {
     fn label(&self) -> &'static str {
         match self {
-            Self::General => "General",
-            Self::Appearance => "Appearance",
-            Self::Keys => "Keys",
-            Self::Configuration => "Config",
+            Self::General => "通用",
+            Self::Appearance => "外观",
+            Self::Keys => "快捷键",
+            Self::Configuration => "配置",
         }
     }
 
@@ -158,18 +158,66 @@ enum SettingsSaveErrorKind {
 }
 
 const BACKGROUND_IMAGE_POSITIONS: &[&str] = &[
-    "top-left",
-    "top-center",
-    "top-right",
-    "center-left",
-    "center",
-    "center-right",
-    "bottom-left",
-    "bottom-center",
-    "bottom-right",
+    "左上", "上中", "右上", "左中", "居中", "右中", "左下", "下中", "右下",
 ];
 
-const BACKGROUND_IMAGE_FITS: &[&str] = &["contain", "cover", "stretch", "none"];
+const BACKGROUND_IMAGE_FITS: &[&str] = &["适应", "铺满", "拉伸", "原始大小"];
+
+fn background_image_position_label(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "top-left" => "左上",
+        "top-center" => "上中",
+        "top-right" => "右上",
+        "center-left" => "左中",
+        "center-right" => "右中",
+        "bottom-left" => "左下",
+        "bottom-center" => "下中",
+        "bottom-right" => "右下",
+        _ => "居中",
+    }
+}
+
+fn background_image_position_value(label: &str) -> &'static str {
+    match label {
+        "左上" => "top-left",
+        "上中" => "top-center",
+        "右上" => "top-right",
+        "左中" => "center-left",
+        "右中" => "center-right",
+        "左下" => "bottom-left",
+        "下中" => "bottom-center",
+        "右下" => "bottom-right",
+        _ => "center",
+    }
+}
+
+fn background_image_fit_label(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "cover" => "铺满",
+        "stretch" => "拉伸",
+        "none" => "原始大小",
+        _ => "适应",
+    }
+}
+
+fn background_image_fit_value(label: &str) -> &'static str {
+    match label {
+        "铺满" => "cover",
+        "拉伸" => "stretch",
+        "原始大小" => "none",
+        _ => "contain",
+    }
+}
+
+fn app_icon_group_label(group: &str) -> &str {
+    match group {
+        "Classic" => "经典",
+        "Peek" => "探头",
+        "Suit" => "西装",
+        "Tail" => "尾巴",
+        other => other,
+    }
+}
 impl SettingsPanel {
     fn clamp_ui_font_size(value: f32) -> f32 {
         value.clamp(MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
@@ -257,18 +305,18 @@ impl SettingsPanel {
 
     fn cursor_style_label(value: &str) -> &'static str {
         match value.trim().to_ascii_lowercase().as_str() {
-            "block" => "Block",
-            "underline" => "Underline",
-            "block_hollow" | "block-hollow" | "hollow" => "Hollow Block",
-            _ => "Bar",
+            "block" => "方块",
+            "underline" => "下划线",
+            "block_hollow" | "block-hollow" | "hollow" => "空心方块",
+            _ => "竖线",
         }
     }
 
     fn cursor_style_from_label(label: &str) -> &'static str {
         match label {
-            "Block" => "block",
-            "Underline" => "underline",
-            "Hollow Block" => "block_hollow",
+            "方块" => "block",
+            "下划线" => "underline",
+            "空心方块" => "block_hollow",
             _ => "bar",
         }
     }
@@ -406,7 +454,7 @@ impl SettingsPanel {
             cx,
         );
         let cursor_style_select = Self::make_string_select(
-            &["Bar", "Block", "Underline", "Hollow Block"],
+            &["竖线", "方块", "下划线", "空心方块"],
             Self::cursor_style_label(&config.terminal.cursor_style),
             window,
             cx,
@@ -415,9 +463,9 @@ impl SettingsPanel {
             let mut s = InputState::new(window, cx);
             s.set_placeholder(
                 if cfg!(target_os = "windows") {
-                    "Auto (Windows Terminal default)"
+                    "自动（Windows Terminal 默认）"
                 } else {
-                    "Auto ($SHELL)"
+                    "自动（$SHELL）"
                 },
                 window,
                 cx,
@@ -507,19 +555,19 @@ impl SettingsPanel {
         });
         let background_image_position_select = Self::make_string_select(
             BACKGROUND_IMAGE_POSITIONS,
-            &config.appearance.background_image_position,
+            background_image_position_label(&config.appearance.background_image_position),
             window,
             cx,
         );
         let background_image_fit_select = Self::make_string_select(
             BACKGROUND_IMAGE_FITS,
-            &config.appearance.background_image_fit,
+            background_image_fit_label(&config.appearance.background_image_fit),
             window,
             cx,
         );
         let custom_theme_name_input = cx.new(|cx| {
             let mut s = InputState::new(window, cx);
-            s.set_placeholder("Save as, e.g. flexoki-amber", window, cx);
+            s.set_placeholder("另存为，例如 flexoki-amber", window, cx);
             s
         });
         let http_proxy_input = cx.new(|cx| {
@@ -682,7 +730,8 @@ impl SettingsPanel {
             window,
             |this, _, ev: &SelectEvent<Vec<String>>, _, cx| {
                 if let SelectEvent::Confirm(Some(value)) = ev {
-                    this.config.appearance.background_image_position = value.clone();
+                    this.config.appearance.background_image_position =
+                        background_image_position_value(value).to_string();
                     cx.emit(AppearancePreview);
                     cx.notify();
                 }
@@ -694,7 +743,8 @@ impl SettingsPanel {
             window,
             |this, _, ev: &SelectEvent<Vec<String>>, _, cx| {
                 if let SelectEvent::Confirm(Some(value)) = ev {
-                    this.config.appearance.background_image_fit = value.clone();
+                    this.config.appearance.background_image_fit =
+                        background_image_fit_value(value).to_string();
                     cx.emit(AppearancePreview);
                     cx.notify();
                 }
@@ -912,13 +962,21 @@ impl SettingsPanel {
         self.background_image_position_select
             .update(cx, |select, cx| {
                 select.set_selected_value(
-                    &self.config.appearance.background_image_position,
+                    &background_image_position_label(
+                        &self.config.appearance.background_image_position,
+                    )
+                    .to_string(),
                     window,
                     cx,
                 );
             });
         self.background_image_fit_select.update(cx, |select, cx| {
-            select.set_selected_value(&self.config.appearance.background_image_fit, window, cx);
+            select.set_selected_value(
+                &background_image_fit_label(&self.config.appearance.background_image_fit)
+                    .to_string(),
+                window,
+                cx,
+            );
         });
         self.background_image_repeat = self.config.appearance.background_image_repeat;
         self.hide_pane_title_bar = self.config.appearance.hide_pane_title_bar;
@@ -951,7 +1009,7 @@ impl SettingsPanel {
             Some(t) if !t.trim().is_empty() => t,
             _ => {
                 self.custom_theme_status =
-                    Some("Error: clipboard is empty. Copy a Ghostty theme first.".into());
+                    Some("错误：剪贴板为空，请先复制一份 Ghostty 主题。".into());
                 cx.notify();
                 return;
             }
@@ -968,7 +1026,7 @@ impl SettingsPanel {
         match con_terminal::TerminalTheme::from_ghostty_format(&name, &text) {
             Some(theme) => {
                 self.custom_theme_status = Some(format!(
-                    "Loaded \"{}\" from the clipboard. {} ANSI colors are ready to preview.",
+                    "已从剪贴板载入“{}”，{} 种 ANSI 颜色可供预览。",
                     display_theme_name(&name),
                     theme.ansi.len()
                 ));
@@ -976,7 +1034,8 @@ impl SettingsPanel {
             }
             None => {
                 self.custom_theme_status = Some(
-                    "Error: couldn't read a Ghostty theme. Include background, foreground, and palette entries.".into()
+                    "错误：无法解析 Ghostty 主题，需包含 background、foreground 和 palette 条目。"
+                        .into(),
                 );
                 self.custom_theme_preview = None;
             }
@@ -989,7 +1048,7 @@ impl SettingsPanel {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Choose a background image".into()),
+            prompt: Some("选择背景图片".into()),
         });
 
         let input = self.background_image_input.clone();
@@ -1026,7 +1085,7 @@ impl SettingsPanel {
 
         // Create directory if needed
         if let Err(e) = std::fs::create_dir_all(&dir) {
-            self.custom_theme_status = Some(format!("Error: {}", e));
+            self.custom_theme_status = Some(format!("错误：{}", e));
             cx.notify();
             return;
         }
@@ -1039,7 +1098,7 @@ impl SettingsPanel {
             Some(t) if !t.trim().is_empty() => t,
             _ => {
                 self.custom_theme_status =
-                    Some("Error: the clipboard changed before save. Load the theme again.".into());
+                    Some("错误：保存前剪贴板内容已改变，请重新载入主题。".into());
                 cx.notify();
                 return;
             }
@@ -1047,7 +1106,7 @@ impl SettingsPanel {
 
         let file_path = dir.join(&preview.name);
         if let Err(e) = std::fs::write(&file_path, &text) {
-            self.custom_theme_status = Some(format!("Error: {}", e));
+            self.custom_theme_status = Some(format!("错误：{}", e));
             cx.notify();
             return;
         }
@@ -1055,7 +1114,7 @@ impl SettingsPanel {
         // Apply the theme
         self.config.terminal.theme = preview.name.clone();
         cx.emit(ThemePreview(preview.name.clone()));
-        self.custom_theme_status = Some(format!("Saved and applied: {}", file_path.display()));
+        self.custom_theme_status = Some(format!("已保存并应用：{}", file_path.display()));
         self.custom_theme_preview = None;
         cx.notify();
     }
@@ -1088,7 +1147,7 @@ impl SettingsPanel {
         };
         let Some(parsed_ui_font_size) = parsed_ui_font_size else {
             return Err(format!(
-                "UI Size must be a number between {:.1} and {:.1}.",
+                "界面字号必须是 {:.1} 到 {:.1} 之间的数字。",
                 MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE
             ));
         };
@@ -1245,9 +1304,7 @@ impl SettingsPanel {
 
     fn save(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if ConfigurationImportStatus::blocks_settings(cx) {
-            self.save_error = Some(
-                "Finish the configuration import or restart Con before saving settings.".into(),
-            );
+            self.save_error = Some("请先完成配置导入或重启 Con，然后再保存设置。".into());
             self.save_error_kind = Some(SettingsSaveErrorKind::Other);
             cx.notify();
             return;
@@ -1495,11 +1552,7 @@ impl SettingsPanel {
             ),
             allow(unused_mut)
         )]
-        let mut container = section_content(
-            "General",
-            "Terminal defaults and shared app behavior.",
-            theme,
-        );
+        let mut container = section_content("通用", "终端默认设置与共享的应用行为。", theme);
 
         #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         if show_updates {
@@ -1511,7 +1564,7 @@ impl SettingsPanel {
                     .flex()
                     .flex_col()
                     .gap(px(8.0))
-                    .child(group_label("Updates", theme))
+                    .child(group_label("更新", theme))
                     .child(
                         card(theme, card_opacity)
                             .child(
@@ -1540,7 +1593,7 @@ impl SettingsPanel {
                                                                 theme
                                                                     .muted_foreground,
                                                             )
-                                                            .child("Channel"),
+                                                            .child("渠道"),
                                                     )
                                                     .child(
                                                         div()
@@ -1564,7 +1617,7 @@ impl SettingsPanel {
                                                                 theme
                                                                     .muted_foreground,
                                                             )
-                                                            .child("Version"),
+                                                            .child("版本"),
                                                     )
                                                     .child(
                                                         div()
@@ -1614,7 +1667,7 @@ impl SettingsPanel {
                                                         theme
                                                             .muted_foreground,
                                                     )
-                                                    .child("Status"),
+                                                    .child("状态"),
                                             )
                                             .child({
                                                 let (summary, detail) =
@@ -1651,8 +1704,8 @@ impl SettingsPanel {
                                                 {
                                                     let label = match &latest_state {
                                                         crate::updater::CheckState::UpdateAvailable { version, .. } =>
-                                                            format!("Download v{version}"),
-                                                        _ => "Download release".to_string(),
+                                                            format!("下载 v{version}"),
+                                                        _ => "下载正式版".to_string(),
                                                     };
                                                     col = col.child(
                                                         div().pt(px(4.0)).child(
@@ -1687,7 +1740,7 @@ impl SettingsPanel {
                                                 Button::new("apply-update")
                                                     .small()
                                                     .primary()
-                                                    .label("Update now")
+                                                    .label("立即更新")
                                                     .on_click(cx.listener(
                                                         |_this, _, _window, _cx| {
                                                             crate::updater::apply_update_in_place();
@@ -1703,7 +1756,7 @@ impl SettingsPanel {
                                                 .small()
                                                 .ghost()
                                                 .disabled(!updater_status.can_check_manually())
-                                                .label("Check for Updates")
+                                                .label("检查更新")
                                                 .on_click(cx.listener(
                                                     |_this, _, _window, _cx| {
                                                         crate::updater::check_for_updates();
@@ -1717,71 +1770,78 @@ impl SettingsPanel {
         }
 
         container
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.0))
-                .child(group_label("Terminal", theme))
-                .child(card(theme, card_opacity).child(row_input_with_hint(
-                    "Default Shell",
-                    "Command used by new panes after restarting Con. Leave blank for automatic detection.",
-                    &self.shell_input,
-                    theme,
-                mobile))),
-        )
-        // Continuity
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.0))
-                .child(group_label("Continuity", theme))
-                .child(card(theme, card_opacity).child(toggle_row(
-                    "Restore Terminal Text",
-                    "Keep terminal output when you reopen Con.",
-                    Switch::new("restore-terminal-text-toggle")
-                        .checked(self.config.appearance.restore_terminal_text)
-                        .small()
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.set_restore_terminal_text(*checked, cx);
-                        })),
-                    theme,
-                mobile))),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.0))
-                .child(group_label("Security", theme))
-                .child(card(theme, card_opacity).child(toggle_row(
-                    "Clipboard Writes",
-                    "Allow terminal programs to copy plain text to the system clipboard.",
-                    Switch::new("clipboard-write-toggle")
-                        .checked(self.config.terminal.clipboard_write)
-                        .small()
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.config.terminal.clipboard_write = *checked;
-                            cx.notify();
-                        })),
-                    theme,
-                mobile))),
-        )
-        // Network / proxy
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.0))
-                .child(group_label("Network", theme))
-                .child(
-                    card(theme, card_opacity)
-                        .child(row_field("HTTP Proxy", &self.http_proxy_input, mobile))
-                        .child(row_separator(theme))
-                        .child(row_field("HTTPS Proxy", &self.https_proxy_input, mobile)),
-                ),
-        )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.0))
+                    .child(group_label("终端", theme))
+                    .child(card(theme, card_opacity).child(row_input_with_hint(
+                        "默认 Shell",
+                        "Con 重启后新建分屏使用的命令。留空则自动检测。",
+                        &self.shell_input,
+                        theme,
+                        mobile,
+                    ))),
+            )
+            // Continuity
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.0))
+                    .child(group_label("连续性", theme))
+                    .child(
+                        card(theme, card_opacity).child(toggle_row(
+                            "恢复终端文本",
+                            "重新打开 Con 时保留终端输出。",
+                            Switch::new("restore-terminal-text-toggle")
+                                .checked(self.config.appearance.restore_terminal_text)
+                                .small()
+                                .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                    this.set_restore_terminal_text(*checked, cx);
+                                })),
+                            theme,
+                            mobile,
+                        )),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.0))
+                    .child(group_label("安全", theme))
+                    .child(
+                        card(theme, card_opacity).child(toggle_row(
+                            "剪贴板写入",
+                            "允许终端程序将纯文本复制到系统剪贴板。",
+                            Switch::new("clipboard-write-toggle")
+                                .checked(self.config.terminal.clipboard_write)
+                                .small()
+                                .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                    this.config.terminal.clipboard_write = *checked;
+                                    cx.notify();
+                                })),
+                            theme,
+                            mobile,
+                        )),
+                    ),
+            )
+            // Network / proxy
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.0))
+                    .child(group_label("网络", theme))
+                    .child(
+                        card(theme, card_opacity)
+                            .child(row_field("HTTP 代理", &self.http_proxy_input, mobile))
+                            .child(row_separator(theme))
+                            .child(row_field("HTTPS 代理", &self.https_proxy_input, mobile)),
+                    ),
+            )
     }
 
     fn move_terminal_fallback(&mut self, index: usize, offset: isize) {
@@ -1811,9 +1871,7 @@ impl SettingsPanel {
                     .py(px(10.0))
                     .text_size(ui_px(cx.theme(), 12.0))
                     .text_color(muted)
-                    .child(
-                        "No preferred fallbacks. Bundled icons and system fallback remain enabled.",
-                    ),
+                    .child("未设置优先回退字体。内置图标字体和系统级联仍然生效。"),
             );
         }
 
@@ -1887,9 +1945,7 @@ impl SettingsPanel {
                 .pb(px(10.0))
                 .text_size(ui_px(cx.theme(), 12.0))
                 .text_color(muted)
-                .child(
-                    "Con's bundled Nerd Font and the system cascade are appended automatically.",
-                ),
+                .child("Con 内置的 Nerd Font 和系统级联字体会自动追加。"),
         )
     }
 
@@ -1953,7 +2009,7 @@ impl SettingsPanel {
         // Build import section
         let custom_theme_name_input = self.custom_theme_name_input.clone();
         let paste_btn = Button::new("paste-theme-btn")
-            .label("Load from Clipboard")
+            .label("从剪贴板载入")
             .icon(Icon::default().path("phosphor/clipboard-text.svg"))
             .small()
             .ghost()
@@ -1961,7 +2017,7 @@ impl SettingsPanel {
                 this.paste_theme_from_clipboard(window, cx);
             }));
         let browse_background_image_btn = Button::new("browse-background-image")
-            .label("Browse…")
+            .label("浏览…")
             .icon(Icon::default().path("phosphor/folder-open.svg"))
             .small()
             .ghost()
@@ -1969,7 +2025,7 @@ impl SettingsPanel {
                 this.browse_background_image(window, cx);
             }));
         let open_catalog_btn = Button::new("theme-catalog-link")
-            .label("Browse Themes")
+            .label("浏览主题")
             .icon(Icon::default().path("phosphor/arrow-square-out.svg"))
             .small()
             .ghost()
@@ -1983,7 +2039,7 @@ impl SettingsPanel {
 
         let preview_actions: Option<AnyElement> = if let Some(card) = preview_card {
             let apply_btn = Button::new("apply-custom-theme")
-                .label("Save & Apply")
+                .label("保存并应用")
                 .icon(Icon::default().path("phosphor/check.svg"))
                 .small()
                 .primary()
@@ -1991,7 +2047,7 @@ impl SettingsPanel {
                     this.apply_custom_theme(cx);
                 }));
             let preview_btn = Button::new("preview-custom-theme")
-                .label("Preview")
+                .label("预览")
                 .icon(Icon::default().path("phosphor/eye.svg"))
                 .small()
                 .ghost()
@@ -2035,14 +2091,14 @@ impl SettingsPanel {
                 div()
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
-                    .child("Import Theme"),
+                    .child("导入主题"),
             )
             .child(
                 div()
                     .text_size(ui_px(theme, 12.0))
                     .line_height(ui_px(theme, 18.0))
                     .text_color(theme.muted_foreground)
-                    .child("Browse community Ghostty themes, copy, and paste here."),
+                    .child("从社区浏览 Ghostty 主题，复制后粘贴到此处。"),
             )
             // Name input
             .child(
@@ -2054,7 +2110,7 @@ impl SettingsPanel {
                         div()
                             .text_size(ui_px(theme, 12.0))
                             .text_color(theme.muted_foreground)
-                            .child("Theme name"),
+                            .child("主题名称"),
                     )
                     .child(Input::new(&custom_theme_name_input)),
             )
@@ -2079,14 +2135,14 @@ impl SettingsPanel {
                     .px(px(10.0))
                     .py(px(8.0))
                     .rounded(px(6.0))
-                    .bg(if status.starts_with("Error") {
+                    .bg(if status.starts_with("错误") {
                         theme.danger.opacity(0.08)
                     } else {
                         theme.success.opacity(0.08)
                     })
                     .text_size(ui_px(theme, 12.0))
                     .line_height(ui_px(theme, 17.0))
-                    .text_color(if status.starts_with("Error") {
+                    .text_color(if status.starts_with("错误") {
                         theme.danger
                     } else {
                         theme.success
@@ -2110,13 +2166,13 @@ impl SettingsPanel {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .child("Terminal Theme"),
+                            .child("终端主题"),
                     )
                     .child(
                         div()
                             .text_size(ui_px(theme, 12.0))
                             .text_color(theme.muted_foreground)
-                            .child(format!("{total_count} themes")),
+                            .child(format!("共 {total_count} 个主题")),
                     ),
             )
             .child(
@@ -2124,7 +2180,7 @@ impl SettingsPanel {
                     .text_size(ui_px(theme, 12.0))
                     .text_color(theme.muted_foreground)
                     .mb(px(10.0))
-                    .child("You can also import community-maintained Ghostty styles."),
+                    .child("也可以导入社区维护的 Ghostty 配色。"),
             )
             .child(builtin_grid);
 
@@ -2149,15 +2205,14 @@ impl SettingsPanel {
                                 div()
                                     .text_size(ui_px(theme, 12.0))
                                     .text_color(theme.muted_foreground)
-                                    .child("Installed"),
+                                    .child("已安装"),
                             ),
                     )
                     .child(user_grid),
             );
         }
 
-        let mut content =
-            section_content("Appearance", "Fonts, themes, and window appearance.", theme);
+        let mut content = section_content("外观", "字体、主题与窗口外观。", theme);
 
         content = content.child(
             card(theme, card_opacity)
@@ -2170,40 +2225,40 @@ impl SettingsPanel {
                 .flex()
                 .flex_col()
                 .gap(px(8.0))
-                .child(group_label("Fonts", theme))
+                .child(group_label("字体", theme))
                 .child(
                     card(theme, card_opacity)
                         .child(font_select_row(
-                            "Terminal Font",
-                            "Terminal and mono UI like code blocks.",
+                            "终端字体",
+                            "终端以及代码块等等宽界面。",
                             &terminal_font_select,
-                            "Search fonts…",
+                            "搜索字体…",
                             theme,
                             cx,
                         ))
                         .child(row_separator(theme))
                         .child(searchable_select_row(
-                            "Add Fallback",
-                            "Preferred fonts for missing CJK, symbols, and other glyphs.",
+                            "添加回退字体",
+                            "用于缺失的 CJK、符号和其他字形。",
                             &terminal_fallback_select,
-                            "Search installed fonts…",
+                            "搜索已安装字体…",
                             theme,
                             mobile,
                         ))
                         .child(terminal_fallback_list)
                         .child(row_separator(theme))
                         .child(font_select_row(
-                            "UI Font",
-                            "Settings, prose, and other UI.",
+                            "界面字体",
+                            "设置、正文及其他界面文字。",
                             &ui_font_select,
-                            "Search fonts…",
+                            "搜索字体…",
                             theme,
                             cx,
                         ))
                         .child(row_separator(theme))
-                        .child(row_field("UI Size", &ui_font_size_input, mobile))
+                        .child(row_field("界面字号", &ui_font_size_input, mobile))
                         .child(row_separator(theme))
-                        .child(row_field("Terminal Size", &font_size_input, mobile)),
+                        .child(row_field("终端字号", &font_size_input, mobile)),
                 ),
         );
 
@@ -2212,11 +2267,11 @@ impl SettingsPanel {
                 .flex()
                 .flex_col()
                 .gap(px(8.0))
-                .child(group_label("Cursor", theme))
+                .child(group_label("光标", theme))
                 .child(
                     card(theme, card_opacity).child(div().px(rems(1.0)).child(select_row(
-                        "Cursor Style",
-                        "Choose how the terminal insertion point is drawn.",
+                        "光标样式",
+                        "选择终端插入点的绘制方式。",
                         &self.cursor_style_select,
                         theme,
                         mobile,
@@ -2229,23 +2284,24 @@ impl SettingsPanel {
                 .flex()
                 .flex_col()
                 .gap(px(8.0))
-                .child(group_label("Transparency", theme))
+                .child(group_label("透明度", theme))
                 .child(
                     card(theme, card_opacity)
                         .child(slider_row(
-                            "Terminal Glass",
-                            "Shared opacity for the terminal, tab bar, sidebar, and input bar.",
+                            "终端玻璃效果",
+                            "终端、标签栏、侧边栏和输入栏共享的不透明度。",
                             &terminal_opacity_slider,
                             terminal_opacity,
                             theme,
-                        mobile))
+                            mobile,
+                        ))
                         .child(row_separator(theme))
                         .child(toggle_row(
-                            "Terminal Blur",
+                            "终端模糊",
                             if cfg!(target_os = "linux") {
-                                "Disabled on Linux until rounded compositor blur regions are available."
+                                "Linux 上暂不可用，等待支持圆角合成模糊区域。"
                             } else {
-                                "Blur the desktop behind the terminal and window chrome."
+                                "模糊终端与窗口边框后的桌面。"
                             },
                             {
                                 let terminal_blur_supported = Self::terminal_blur_supported();
@@ -2268,15 +2324,17 @@ impl SettingsPanel {
                                 toggle
                             },
                             theme,
-                        mobile))
+                            mobile,
+                        ))
                         .child(row_separator(theme))
                         .child(slider_row(
-                            "Panels and Popups",
-                            "Independent opacity for agent panels, popups, and selection surfaces.",
+                            "面板与弹窗",
+                            "面板、弹窗和选择区域使用独立的不透明度。",
                             &ui_opacity_slider,
                             ui_opacity,
                             theme,
-                        mobile)),
+                            mobile,
+                        )),
                 ),
         );
 
@@ -2285,12 +2343,12 @@ impl SettingsPanel {
                 .flex()
                 .flex_col()
                 .gap(px(8.0))
-                .child(group_label("Pane", theme))
+                .child(group_label("分屏", theme))
                 .child(
                     card(theme, card_opacity)
                         .child(toggle_row(
-                            "Vertical Tabs",
-                            "Use the left sidebar for workspace tabs.",
+                            "垂直标签页",
+                            "在左侧边栏显示工作区标签。",
                             Switch::new("vertical-tabs-toggle")
                                 .checked(
                                     self.config.appearance.tabs_orientation
@@ -2307,11 +2365,12 @@ impl SettingsPanel {
                                     cx.notify();
                                 })),
                             theme,
-                        mobile))
+                            mobile,
+                        ))
                         .child(row_separator(theme))
                         .child(toggle_row(
-                            "Hide Pane Title Bar",
-                            "Hide the title bar on split panes.",
+                            "隐藏分屏标题栏",
+                            "隐藏拆分分屏上的标题栏。",
                             Switch::new("hide-pane-title-bar-toggle")
                                 .checked(self.hide_pane_title_bar)
                                 .small()
@@ -2341,11 +2400,12 @@ impl SettingsPanel {
                                     cx.notify();
                                 })),
                             theme,
-                        mobile))
+                            mobile,
+                        ))
                         .child(row_separator(theme))
                         .child(toggle_row(
-                            "Quit on Last Tab Close",
-                            "Close the window when the last tab is closed. When off, a fresh tab opens instead.",
+                            "关闭最后一个标签时退出",
+                            "关闭最后一个标签时关闭窗口。关闭后则改为新开一个标签。",
                             Switch::new("close-to-quit-toggle")
                                 .checked(self.close_to_quit)
                                 .small()
@@ -2356,9 +2416,7 @@ impl SettingsPanel {
                                     if let Err(err) = this.persist_config(cx) {
                                         this.close_to_quit = previous;
                                         this.config.appearance.close_to_quit = previous;
-                                        log::warn!(
-                                            "settings: persist close_to_quit failed: {err}"
-                                        );
+                                        log::warn!("settings: persist close_to_quit failed: {err}");
                                         this.save_error = Some(err.to_string());
                                         this.save_error_kind = Some(SettingsSaveErrorKind::Other);
                                         cx.notify();
@@ -2375,23 +2433,26 @@ impl SettingsPanel {
                                     cx.notify();
                                 })),
                             theme,
-                        mobile))
+                            mobile,
+                        ))
                         .child(row_separator(theme))
                         .child(slider_row(
-                            "Inactive Accent",
-                            "Accent strength for inactive tabs and unfocused pane titles.",
+                            "未激活强调色",
+                            "未激活标签和失焦分屏标题的强调色强度。",
                             &tab_accent_inactive_alpha_slider,
                             tab_accent_inactive_alpha,
                             theme,
-                        mobile))
+                            mobile,
+                        ))
                         .child(row_separator(theme))
                         .child(slider_row(
-                            "Hover Accent",
-                            "Accent strength when hovering inactive tabs.",
+                            "悬停强调色",
+                            "悬停未激活标签时的强调色强度。",
                             &tab_accent_inactive_hover_alpha_slider,
                             tab_accent_inactive_hover_alpha,
                             theme,
-                        mobile)),
+                            mobile,
+                        )),
                 ),
         );
 
@@ -2400,7 +2461,7 @@ impl SettingsPanel {
                 .flex()
                 .flex_col()
                 .gap(px(8.0))
-                .child(group_label("Background Image", theme))
+                .child(group_label("背景图片", theme))
                 .child(
                     card(theme, card_opacity)
                         .child(
@@ -2421,7 +2482,7 @@ impl SettingsPanel {
                                                     div()
                                                         .text_size(ui_px(theme, 12.0))
                                                         .font_weight(FontWeight::MEDIUM)
-                                                        .child("Image Path"),
+                                                        .child("图片路径"),
                                                 )
                                                 .child(
                                                     div()
@@ -2431,7 +2492,7 @@ impl SettingsPanel {
                                                             theme.muted_foreground,
                                                         )
                                                         .child(
-                                                            "Choose a PNG or JPEG. The image is applied per terminal.",
+                                                            "选择 PNG 或 JPEG 图片。图片按终端分别应用。",
                                                         ),
                                                 ),
                                         )
@@ -2455,8 +2516,8 @@ impl SettingsPanel {
                                 .px(rems(1.0))
                                 .child(
                                     select_row(
-                                        "Fit",
-                                        "Choose how the image fills the terminal.",
+                                        "缩放方式",
+                                        "选择图片填充终端的方式。",
                                         &background_image_fit_select,
                                         theme,
                                     mobile),
@@ -2468,8 +2529,8 @@ impl SettingsPanel {
                                 .px(rems(1.0))
                                 .child(
                                     select_row(
-                                        "Position",
-                                        "Anchor if not filling the full surface.",
+                                        "位置",
+                                        "未铺满整个区域时的锚点。",
                                         &background_image_position_select,
                                         theme,
                                     mobile),
@@ -2478,16 +2539,16 @@ impl SettingsPanel {
                         .child(row_separator(theme))
                         .child(
                             toggle_row(
-                                "Repeat",
-                                "Tile if the fit leaves empty space around it.",
+                                "平铺",
+                                "缩放后周围留白时平铺图片。",
                                 image_repeat_toggle,
                                 theme,
                             mobile),
                         )
                         .child(row_separator(theme))
                         .child(slider_row(
-                            "Image Strength",
-                            "Blend more softly or let come forward.",
+                            "图片强度",
+                            "更柔和地混合，或让图片更突出。",
                             &background_image_opacity_slider,
                             background_image_opacity,
                             theme,
@@ -2501,7 +2562,7 @@ impl SettingsPanel {
                                 .line_height(ui_px(theme, 18.0))
                                 .text_color(theme.muted_foreground)
                                 .child(
-                                    "Ghostty renders the image per terminal.",
+                                    "Ghostty 按终端分别渲染该图片。",
                                 ),
                         ),
                 ),
@@ -2532,11 +2593,11 @@ impl SettingsPanel {
 
         let theme = cx.theme();
         let hint = if cfg!(target_os = "macos") {
-            "Changes the Dock and Cmd-Tab icon while con is running."
+            "Con 运行时更改 Dock 和 Cmd-Tab 图标。"
         } else if cfg!(target_os = "windows") {
-            "Changes running window icons. Pinned shortcuts keep the installed icon."
+            "更改运行中窗口的图标。已固定的快捷方式保留安装时的图标。"
         } else {
-            "Previews X11 windows. Save to change the launcher (except Flatpak); your desktop may cache the old icon."
+            "预览 X11 窗口图标。保存后可更改启动器图标（Flatpak 除外）；桌面环境可能缓存旧图标。"
         };
 
         let mut groups = div().flex().flex_col().gap(rems(1.0));
@@ -2548,7 +2609,7 @@ impl SettingsPanel {
                     .gap(rems(0.375))
                     .when(show_heading, |this| {
                         this.child(
-                            group_label(group, theme)
+                            group_label(app_icon_group_label(group), theme)
                                 .px(px(0.0))
                                 .pb(px(0.0))
                                 .font_weight(FontWeight::MEDIUM)
@@ -2563,7 +2624,7 @@ impl SettingsPanel {
             .flex()
             .flex_col()
             .gap(px(8.0))
-            .child(group_label("App Icon", theme))
+            .child(group_label("应用图标", theme))
             .child(
                 card(theme, card_opacity)
                     .child(
@@ -2587,9 +2648,9 @@ impl SettingsPanel {
     ) -> impl IntoElement {
         let icon_id = choice.id.to_string();
         let name = if choice.group == choice.label {
-            choice.label.to_string()
+            app_icon_group_label(choice.label).to_string()
         } else {
-            format!("{} {}", choice.group, choice.label)
+            format!("{} {}", app_icon_group_label(choice.group), choice.label)
         };
         appearance_image_choice(
             format!("app-icon-{icon_id}").into(),
@@ -2598,11 +2659,7 @@ impl SettingsPanel {
             is_sel,
             cx,
         )
-        .accessibility_label(format!(
-            "{}{}",
-            name,
-            if is_sel { ", selected" } else { "" }
-        ))
+        .accessibility_label(format!("{}{}", name, if is_sel { "，已选中" } else { "" }))
         .tooltip(name)
         .on_click(cx.listener(move |this, _, _, cx| {
             this.config.appearance.app_icon = icon_id.clone();
@@ -2779,43 +2836,43 @@ impl SettingsPanel {
 
         // Editable keybinding definitions: (label, field_name)
         let general_keys: &[(&str, &str)] = &[
-            ("New Window", "new_window"),
-            ("New Tab", "new_tab"),
-            ("Next Tab", "next_tab"),
-            ("Previous Tab", "previous_tab"),
-            ("Close Tab", "close_tab"),
-            ("Settings", "settings"),
-            ("Command Palette", "command_palette"),
-            ("Toggle Agent", "toggle_agent"),
-            ("Toggle Input Bar", "toggle_input_bar"),
-            ("Toggle Input / Terminal", "focus_input"),
-            ("Ask AI About Selection", "ask_ai"),
-            ("Cycle Input Mode", "cycle_input_mode"),
-            ("Toggle Pane Scope", "toggle_pane_scope"),
-            ("Toggle Left Sidebar", "toggle_left_panel"),
-            ("Focus Files", "focus_files"),
-            ("Search Files", "search_files"),
-            ("Hide Left Sidebar", "collapse_sidebar"),
-            ("Quit", "quit"),
+            ("新建窗口", "new_window"),
+            ("新建标签", "new_tab"),
+            ("下一个标签", "next_tab"),
+            ("上一个标签", "previous_tab"),
+            ("关闭标签", "close_tab"),
+            ("设置", "settings"),
+            ("命令面板", "command_palette"),
+            ("切换 Agent", "toggle_agent"),
+            ("切换输入栏", "toggle_input_bar"),
+            ("切换输入 / 终端", "focus_input"),
+            ("询问 AI 选中内容", "ask_ai"),
+            ("切换输入模式", "cycle_input_mode"),
+            ("切换分屏范围", "toggle_pane_scope"),
+            ("切换左侧边栏", "toggle_left_panel"),
+            ("聚焦文件", "focus_files"),
+            ("搜索文件", "search_files"),
+            ("隐藏左侧边栏", "collapse_sidebar"),
+            ("退出", "quit"),
         ];
 
         let pane_keys: &[(&str, &str)] = &[
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-            ("Find in Terminal", "find_in_terminal"),
-            ("Split Right", "split_right"),
-            ("Split Down", "split_down"),
-            ("Toggle Pane Zoom", "toggle_pane_zoom"),
-            ("Close Pane", "close_pane"),
+            ("在终端中查找", "find_in_terminal"),
+            ("向右拆分", "split_right"),
+            ("向下拆分", "split_down"),
+            ("切换分屏缩放", "toggle_pane_zoom"),
+            ("关闭分屏", "close_pane"),
         ];
 
         let surface_keys: &[(&str, &str)] = &[
-            ("New Surface Tab", "new_surface"),
-            ("New Surface Pane Right", "new_surface_split_right"),
-            ("New Surface Pane Down", "new_surface_split_down"),
-            ("Next Surface Tab", "next_surface"),
-            ("Previous Surface Tab", "previous_surface"),
-            ("Rename Surface", "rename_surface"),
-            ("Close Surface", "close_surface"),
+            ("新建 Surface 标签", "new_surface"),
+            ("向右新建 Surface 分屏", "new_surface_split_right"),
+            ("向下新建 Surface 分屏", "new_surface_split_down"),
+            ("下一个 Surface 标签", "next_surface"),
+            ("上一个 Surface 标签", "previous_surface"),
+            ("重命名 Surface", "rename_surface"),
+            ("关闭 Surface", "close_surface"),
         ];
 
         let build_card = |keys: &[(&str, &str)],
@@ -2835,7 +2892,7 @@ impl SettingsPanel {
                     div()
                         .text_xs()
                         .font_weight(FontWeight::MEDIUM)
-                        .child("Press shortcut…")
+                        .child("按下快捷键…")
                         .into_any_element()
                 } else {
                     crate::keycaps::keycaps_for_binding(&value, theme)
@@ -2850,7 +2907,7 @@ impl SettingsPanel {
                             .icon(Icon::default().path("phosphor/arrow-clockwise.svg"))
                             .ghost()
                             .small()
-                            .tooltip("Reset to default")
+                            .tooltip("恢复默认")
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.reset_keybinding(&reset_field, cx);
                             })),
@@ -2952,7 +3009,7 @@ impl SettingsPanel {
                         .text_sm()
                         .line_height(rems(1.25))
                         .text_color(theme.foreground)
-                        .child("Select Tab by Number"),
+                        .child("按数字选择标签"),
                 )
                 .child(
                     div()
@@ -2972,11 +3029,11 @@ impl SettingsPanel {
         #[cfg(target_os = "macos")]
         let fixed_tab_card = fixed_tab_card
             .child(row_separator(theme))
-            .child(key_row("Minimize Window", "cmd-m", theme))
+            .child(key_row("最小化窗口", "cmd-m", theme))
             .child(row_separator(theme))
-            .child(key_row("Next Window", "cmd-`", theme))
+            .child(key_row("下一个窗口", "cmd-`", theme))
             .child(row_separator(theme))
-            .child(key_row("Previous Window", "cmd-shift-`", theme));
+            .child(key_row("上一个窗口", "cmd-shift-`", theme));
 
         let global_summon_badge = if global_summon_recording {
             div()
@@ -2989,7 +3046,7 @@ impl SettingsPanel {
                 .text_color(theme.primary)
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
-                .child("Press shortcut…")
+                .child("按下快捷键…")
                 .into_any_element()
         } else if !global_summon_value.trim().is_empty() {
             crate::keycaps::keycaps_for_binding(&global_summon_value, theme)
@@ -3004,7 +3061,7 @@ impl SettingsPanel {
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme.muted_foreground)
-                .child("Not set")
+                .child("未设置")
                 .into_any_element()
         };
 
@@ -3029,7 +3086,7 @@ impl SettingsPanel {
                             div()
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
-                                .child("Global Hotkey"),
+                                .child("全局快捷键"),
                         )
                         .child(
                             div()
@@ -3037,7 +3094,7 @@ impl SettingsPanel {
                                 .line_height(rems(1.125))
                                 .text_color(theme.muted_foreground)
                                 .child(
-                                    "Show Con from anywhere in macOS. Press it again while Con is frontmost to hide the app.",
+                                    "可在 macOS 任意位置唤起 Con。Con 处于前台时再次按下则以隐藏。",
                                 ),
                         ),
                 )
@@ -3090,7 +3147,7 @@ impl SettingsPanel {
                             div()
                                 .text_xs()
                                 .font_weight(FontWeight::MEDIUM)
-                                .child("Shortcut"),
+                                .child("快捷键"),
                         )
                         .child(
                             div()
@@ -3098,9 +3155,9 @@ impl SettingsPanel {
                                 .line_height(rems(1.125))
                                 .text_color(theme.muted_foreground)
                                 .child(if global_summon_enabled {
-                                    "Use a low-conflict system shortcut. Option-Space is familiar, but may collide with launchers."
+                                    "使用冲突较少的系统快捷键。Option-Space 较为熟悉，但可能与启动器冲突。"
                                 } else {
-                                    "Off by default to avoid conflicts with other global shortcuts."
+                                    "默认关闭，以避免与其他全局快捷键冲突。"
                                 }),
                         ),
                 )
@@ -3141,7 +3198,7 @@ impl SettingsPanel {
                 .text_color(theme.primary)
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
-                .child("Press shortcut…")
+                .child("按下快捷键…")
                 .into_any_element()
         } else if !quick_terminal_value.trim().is_empty() {
             crate::keycaps::keycaps_for_binding(&quick_terminal_value, theme)
@@ -3156,7 +3213,7 @@ impl SettingsPanel {
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme.muted_foreground)
-                .child("Not set")
+                .child("未设置")
                 .into_any_element()
         };
 
@@ -3182,14 +3239,14 @@ impl SettingsPanel {
                                 div()
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .child("Quick Terminal"),
+                                    .child("快速终端"),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .line_height(rems(1.125))
                                     .text_color(theme.muted_foreground)
-                                    .child("Show a dedicated floating Con window that slides down from the top of the screen."),
+                                    .child("显示一个从屏幕顶部滑下的专属浮动 Con 窗口。"),
                             ),
                     )
                     .child(
@@ -3238,14 +3295,14 @@ impl SettingsPanel {
                                 div()
                                     .text_xs()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .child("Shortcut"),
+                                    .child("快捷键"),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .line_height(rems(1.125))
                                     .text_color(theme.muted_foreground)
-                                    .child("Use a low-conflict macOS shortcut. Cmd-Backslash matches the requested default."),
+                                    .child("使用冲突较少的 macOS 快捷键。Cmd-Backslash 为请求的默认值。"),
                             ),
                     )
                     .child(
@@ -3274,17 +3331,17 @@ impl SettingsPanel {
             .flex()
             .flex_col()
             .gap(px(8.0))
-            .child(group_label("Global", theme))
+            .child(group_label("全局", theme))
             .child(global_summon_card);
         #[cfg(target_os = "macos")]
         let shortcut_groups = shortcut_groups.child(quick_terminal_card);
         let shortcut_groups = shortcut_groups
             .child(div().h(px(8.0)))
-            .child(group_label("General", theme))
+            .child(group_label("通用", theme))
             .child(general_card);
 
         let reset_all_btn = Button::new("keybindings-reset-all")
-            .label("Reset All")
+            .label("全部重置")
             .icon(Icon::default().path("phosphor/arrow-clockwise.svg"))
             .small()
             .ghost()
@@ -3293,8 +3350,8 @@ impl SettingsPanel {
             }));
 
         section_content_with_trailing(
-            "Keyboard Shortcuts",
-            "Click a shortcut to record a new key combination.",
+            "键盘快捷键",
+            "点击快捷键即可录制新的组合键。",
             Some(reset_all_btn.into_any_element()),
             theme,
         )
@@ -3304,7 +3361,7 @@ impl SettingsPanel {
                 .flex()
                 .flex_col()
                 .gap(px(8.0))
-                .child(group_label("Fixed Shortcuts", theme))
+                .child(group_label("固定快捷键", theme))
                 .child(fixed_tab_card),
         )
         .child(
@@ -3312,7 +3369,7 @@ impl SettingsPanel {
                 .flex()
                 .flex_col()
                 .gap(px(8.0))
-                .child(group_label("Panes", theme))
+                .child(group_label("分屏", theme))
                 .child(pane_card),
         )
         .child(
@@ -3320,7 +3377,7 @@ impl SettingsPanel {
                 .flex()
                 .flex_col()
                 .gap(px(8.0))
-                .child(group_label("Surfaces", theme))
+                .child(group_label("Surface", theme))
                 .child(surface_card),
         )
         .child(
@@ -3328,7 +3385,7 @@ impl SettingsPanel {
                 .flex()
                 .flex_col()
                 .gap(px(8.0))
-                .child(group_label("Terminal", theme))
+                .child(group_label("终端", theme))
                 .child(
                     card(theme, card_opacity)
                         // Terminal clipboard uses ⌘C/V on macOS and the
@@ -3337,7 +3394,7 @@ impl SettingsPanel {
                         // the shell). `secondary-` would collapse to
                         // Ctrl-only on Windows, so we branch explicitly.
                         .child(key_row(
-                            "Copy",
+                            "复制",
                             if cfg!(target_os = "macos") {
                                 "cmd-c"
                             } else {
@@ -3347,7 +3404,7 @@ impl SettingsPanel {
                         ))
                         .child(row_separator(theme))
                         .child(key_row(
-                            "Paste",
+                            "粘贴",
                             if cfg!(target_os = "macos") {
                                 "cmd-v"
                             } else {
@@ -3356,7 +3413,7 @@ impl SettingsPanel {
                             theme,
                         ))
                         .child(row_separator(theme))
-                        .child(key_row("Select All", "secondary-a", theme)),
+                        .child(key_row("全选", "secondary-a", theme)),
                 ),
         )
     }
@@ -3573,7 +3630,7 @@ impl Render for SettingsPanel {
                     .text_size(ui_px(theme, 13.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.foreground)
-                    .child("Settings"),
+                    .child("设置"),
             );
         if self.standalone && cfg!(target_os = "macos") {
             header_title_area = header_title_area
@@ -3649,7 +3706,7 @@ impl Render for SettingsPanel {
                                         let (icon, label, tone) = if has_unsaved_changes {
                                             (
                                                 "phosphor/warning.svg",
-                                                "Unsaved",
+                                                "未保存",
                                                 theme.warning.opacity(if theme.is_dark() {
                                                     0.96
                                                 } else {
@@ -3659,7 +3716,7 @@ impl Render for SettingsPanel {
                                         } else {
                                             (
                                                 "phosphor/check-circle-fill.svg",
-                                                "Saved",
+                                                "已保存",
                                                 theme.foreground.opacity(if theme.is_dark() {
                                                     0.52
                                                 } else {
@@ -3710,7 +3767,7 @@ impl Render for SettingsPanel {
                                             .w(px(28.0 * header_density))
                                             .rounded(px(7.0 * header_density))
                                             .tooltip(format!(
-                                                "Open {}",
+                                                "打开 {}",
                                                 con_paths::CONFIG_FILE_NAME
                                             ))
                                             .child(
@@ -3733,7 +3790,7 @@ impl Render for SettingsPanel {
                                             .px(px(10.0 * header_density))
                                             .rounded(px(8.0 * header_density))
                                             .gap(px(5.0 * header_density))
-                                            .tooltip("Save settings")
+                                            .tooltip("保存设置")
                                             .child(
                                                 svg()
                                                     .path("phosphor/check.svg")
@@ -3747,7 +3804,7 @@ impl Render for SettingsPanel {
                                                     .font_weight(FontWeight::MEDIUM)
                                                     .text_color(save_button_tint)
                                                     .whitespace_nowrap()
-                                                    .child("Save"),
+                                                    .child("保存"),
                                             )
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 this.save(window, cx);
@@ -3798,7 +3855,7 @@ impl Render for SettingsPanel {
                                         } else {
                                             0.76
                                         }))
-                                        .child("Save changes before closing?"),
+                                        .child("关闭前保存更改？"),
                                 ),
                         )
                         .child(
@@ -3823,7 +3880,7 @@ impl Render for SettingsPanel {
                                                 .font_weight(FontWeight::MEDIUM)
                                                 .text_color(theme.muted_foreground)
                                                 .whitespace_nowrap()
-                                                .child("Keep Editing"),
+                                                .child("继续编辑"),
                                         )
                                         .on_click(cx.listener(|this, _, _window, cx| {
                                             this.keep_editing_after_close_prompt(cx);
@@ -3844,7 +3901,7 @@ impl Render for SettingsPanel {
                                                 .font_weight(FontWeight::MEDIUM)
                                                 .text_color(theme.danger.opacity(0.86))
                                                 .whitespace_nowrap()
-                                                .child("Discard"),
+                                                .child("放弃"),
                                         )
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.discard_and_close(window, cx);
@@ -3872,7 +3929,7 @@ impl Render for SettingsPanel {
                                                 .font_weight(FontWeight::MEDIUM)
                                                 .text_color(save_button_tint)
                                                 .whitespace_nowrap()
-                                                .child("Save and Close"),
+                                                .child("保存并关闭"),
                                         )
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.save_and_close(window, cx);
@@ -3887,7 +3944,7 @@ impl Render for SettingsPanel {
                     if self.save_error_kind == Some(SettingsSaveErrorKind::KeybindingConflict) {
                         err.to_string()
                     } else {
-                        format!("Save failed: {err}")
+                        format!("保存失败：{err}")
                     };
                 div()
                     .id("settings-save-error")
@@ -3988,22 +4045,19 @@ fn update_summary_and_detail(
 ) -> (String, String) {
     use crate::updater::CheckState;
     match state {
-        CheckState::Checking => (
-            "Checking for updates…".to_string(),
-            "Fetching the release feed.".to_string(),
-        ),
+        CheckState::Checking => ("正在检查更新…".to_string(), "正在获取发布源。".to_string()),
         CheckState::UpdateAvailable { version, .. } => (
-            format!("Update available: {version}"),
-            "A newer build has been published.".to_string(),
+            format!("有可用更新：{version}"),
+            "已发布更新的版本。".to_string(),
         ),
         CheckState::UpToDate => (
-            "Up to date".to_string(),
+            "已是最新版本".to_string(),
             format!(
-                "Running {} — latest published build.",
+                "当前运行 {} — 最新发布的版本。",
                 crate::app_display_version()
             ),
         ),
-        CheckState::Error(e) => ("Update check failed".to_string(), e.clone()),
+        CheckState::Error(e) => ("检查更新失败".to_string(), e.clone()),
         CheckState::Idle => (status.summary().to_string(), status.detail().to_string()),
     }
 }
@@ -4038,10 +4092,7 @@ fn appearance_image_choice(
     let label_id = format!("{debug_id}-label");
     let selected_id = format!("{debug_id}-selected");
     Button::new(id)
-        .accessibility_label(format!(
-            "{label}{}",
-            if selected { ", selected" } else { "" }
-        ))
+        .accessibility_label(format!("{label}{}", if selected { "，已选中" } else { "" }))
         .tooltip(label.to_string())
         .custom(
             ButtonCustomVariant::new(cx)
@@ -4644,7 +4695,7 @@ fn keybinding_conflict_message(kb: &con_core::config::KeybindingConfig) -> Optio
     let conflicts = kb.shortcut_conflicts(&reserved_keybinding_shortcuts());
     let conflict = conflicts.first()?;
     Some(format!(
-        "Shortcut conflict: {} is assigned to {}. Pick a different shortcut before saving.",
+        "快捷键冲突：{} 已被分配给 {}。请在保存前更换快捷键。",
         conflict.binding,
         human_join(&conflict.actions)
     ))
@@ -4676,10 +4727,10 @@ fn human_join(items: &[String]) -> String {
     match items {
         [] => String::new(),
         [one] => one.clone(),
-        [first, second] => format!("{first} and {second}"),
+        [first, second] => format!("{first} 和 {second}"),
         _ => {
-            let mut text = items[..items.len() - 1].join(", ");
-            text.push_str(", and ");
+            let mut text = items[..items.len() - 1].join("、");
+            text.push_str("和");
             text.push_str(&items[items.len() - 1]);
             text
         }
@@ -4875,9 +4926,9 @@ mod tests {
                 panel
             });
             view.simulate_resize(gpui::size(gpui::px(width), gpui::px(680.0)));
-            let row = view.debug_bounds("settings-row-Terminal Font").unwrap();
+            let row = view.debug_bounds("settings-row-终端字体").unwrap();
             let name = view
-                .debug_bounds("settings-selected-font-Terminal Font")
+                .debug_bounds("settings-selected-font-终端字体")
                 .unwrap();
             assert!(name.size.height > gpui::px(0.0));
             assert!(name.left() >= row.left() && name.right() <= row.right());
@@ -4979,23 +5030,23 @@ mod tests {
             );
 
             let http_label = view
-                .debug_bounds("settings-field-HTTP Proxy-label")
+                .debug_bounds("settings-field-HTTP 代理-label")
                 .expect("HTTP proxy label");
             let https_label = view
-                .debug_bounds("settings-field-HTTPS Proxy-label")
+                .debug_bounds("settings-field-HTTPS 代理-label")
                 .expect("HTTPS proxy label");
             let http_control = view
-                .debug_bounds("settings-field-HTTP Proxy-control")
+                .debug_bounds("settings-field-HTTP 代理-control")
                 .expect("HTTP proxy control");
             let https_control = view
-                .debug_bounds("settings-field-HTTPS Proxy-control")
+                .debug_bounds("settings-field-HTTPS 代理-control")
                 .expect("HTTPS proxy control");
 
             let clipboard_row = view
-                .debug_bounds("settings-toggle-Clipboard Writes")
+                .debug_bounds("settings-toggle-剪贴板写入")
                 .expect("clipboard row");
             let clipboard_hint = view
-                .debug_bounds("settings-toggle-Clipboard Writes-hint")
+                .debug_bounds("settings-toggle-剪贴板写入-hint")
                 .expect("clipboard hint");
             assert!(clipboard_hint.size.height > gpui::px(0.0));
             assert!(
@@ -5004,7 +5055,7 @@ mod tests {
             );
 
             let group = view
-                .debug_bounds("settings-group-Network")
+                .debug_bounds("settings-group-网络")
                 .expect("Network heading");
             label_heights.push((font_size, width, group.size.height));
             if width >= 600.0 {
@@ -5024,9 +5075,9 @@ mod tests {
             });
             let ordered_sections = [
                 "settings-terminal-theme",
-                "settings-group-Fonts",
-                "settings-group-Cursor",
-                "settings-group-App Icon",
+                "settings-group-字体",
+                "settings-group-光标",
+                "settings-group-应用图标",
             ]
             .map(|selector| view.debug_bounds(selector).expect("appearance section"));
             for pair in ordered_sections.windows(2) {
@@ -5036,11 +5087,11 @@ mod tests {
                 );
             }
             let controls = [
-                "settings-field-UI Size-control",
-                "settings-field-Terminal Size-control",
-                "settings-control-Add Fallback",
-                "settings-control-Cursor Style",
-                "settings-control-Terminal Glass",
+                "settings-field-界面字号-control",
+                "settings-field-终端字号-control",
+                "settings-control-添加回退字体",
+                "settings-control-光标样式",
+                "settings-control-终端玻璃效果",
             ]
             .map(|selector| view.debug_bounds(selector).expect("appearance control"));
             for control in &controls[1..] {
@@ -5055,19 +5106,19 @@ mod tests {
             }
             for (row_selector, hint_selector, control_selector) in [
                 (
-                    "settings-row-Add Fallback",
-                    "settings-hint-Add Fallback",
-                    "settings-control-Add Fallback",
+                    "settings-row-添加回退字体",
+                    "settings-hint-添加回退字体",
+                    "settings-control-添加回退字体",
                 ),
                 (
-                    "settings-row-Cursor Style",
-                    "settings-hint-Cursor Style",
-                    "settings-control-Cursor Style",
+                    "settings-row-光标样式",
+                    "settings-hint-光标样式",
+                    "settings-control-光标样式",
                 ),
                 (
-                    "settings-row-Terminal Glass",
-                    "settings-hint-Terminal Glass",
-                    "settings-control-Terminal Glass",
+                    "settings-row-终端玻璃效果",
+                    "settings-hint-终端玻璃效果",
+                    "settings-control-终端玻璃效果",
                 ),
             ] {
                 let row = view.debug_bounds(row_selector).expect("appearance row");

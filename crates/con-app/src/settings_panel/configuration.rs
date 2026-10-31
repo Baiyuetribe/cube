@@ -55,7 +55,7 @@ impl SettingsPanel {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Choose a Ghostty configuration".into()),
+            prompt: Some("选择 Ghostty 配置文件".into()),
         });
         cx.spawn_in(window, async move |this, window| {
             let source = paths.await.ok()?.ok()??.into_iter().next()?;
@@ -74,9 +74,8 @@ impl SettingsPanel {
             return;
         }
         if self.has_unsaved_changes(cx) {
-            self.configuration_import = ConfigurationImport::Error(
-                "Save or discard your Settings changes before importing.".into(),
-            );
+            self.configuration_import =
+                ConfigurationImport::Error("请先保存或放弃设置更改，再进行导入。".into());
             cx.notify();
             return;
         }
@@ -104,9 +103,7 @@ impl SettingsPanel {
                     #[cfg(not(target_os = "macos"))]
                     {
                         let _ = (selected, current);
-                        anyhow::bail!(
-                            "Settings import requires the native Ghostty backend on macOS."
-                        )
+                        anyhow::bail!("设置导入需要 macOS 上的原生 Ghostty 后端。")
                     }
                 })
                 .await;
@@ -131,8 +128,7 @@ impl SettingsPanel {
         }
         if self.has_unsaved_changes(cx) {
             self.configuration_import = ConfigurationImport::Error(
-                "Settings changed after preparation. Save or discard them, then import again."
-                    .into(),
+                "准备完成后设置又发生了变化。请保存或放弃更改后重新导入。".into(),
             );
             cx.notify();
             return;
@@ -179,7 +175,7 @@ impl SettingsPanel {
                     let path = Config::config_path();
                     std::fs::create_dir_all(
                         path.parent()
-                            .ok_or_else(|| anyhow::anyhow!("Missing config directory"))?,
+                            .ok_or_else(|| anyhow::anyhow!("缺少配置目录"))?,
                     )?;
                     let mut options = std::fs::OpenOptions::new();
                     options.write(true).create_new(true);
@@ -223,104 +219,138 @@ impl SettingsPanel {
             .and_then(|s| s.backup.clone());
         let muted = cx.theme().muted_foreground;
         let warning = cx.theme().warning;
-        let page = section_content(
-            "Configuration",
-            "Your terminal settings, in one place.",
-            cx.theme(),
-        )
-        .w_full()
-        .min_w_0()
-        .whitespace_normal()
-        .child(
-            card(cx.theme(), self.card_opacity())
-                .p(px(16.0))
-                .w_full()
-                .min_w_0()
-                .gap_3()
-                .child(
-                    div()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child("Current configuration"),
-                )
-                .child(
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(Config::config_path().display().to_string()),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap_2()
-                        .child(
-                            Button::new("configuration-open")
-                                .with_variant(gpui_component::button::ButtonVariant::Secondary)
-                                .small()
-                                .label("Open File")
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.open_configuration_file(cx)),
-                                ),
-                        )
-                        .child(
-                            Button::new("configuration-folder")
-                                .with_variant(gpui_component::button::ButtonVariant::Secondary)
-                                .small()
-                                .label("Open Folder")
-                                .on_click(|_, _, cx| {
-                                    cx.reveal_path(&con_paths::app_config_dir());
-                                }),
-                        ),
-                ),
-        );
+        let page = section_content("配置", "集中管理你的终端设置。", cx.theme())
+            .w_full()
+            .min_w_0()
+            .whitespace_normal()
+            .child(
+                card(cx.theme(), self.card_opacity())
+                    .p(px(16.0))
+                    .w_full()
+                    .min_w_0()
+                    .gap_3()
+                    .child(div().font_weight(FontWeight::MEDIUM).child("当前配置"))
+                    .child(
+                        div()
+                            .w_full()
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(Config::config_path().display().to_string()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(
+                                Button::new("configuration-open")
+                                    .with_variant(gpui_component::button::ButtonVariant::Secondary)
+                                    .small()
+                                    .label("打开文件")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.open_configuration_file(cx)
+                                    })),
+                            )
+                            .child(
+                                Button::new("configuration-folder")
+                                    .with_variant(gpui_component::button::ButtonVariant::Secondary)
+                                    .small()
+                                    .label("打开文件夹")
+                                    .on_click(|_, _, cx| {
+                                        cx.reveal_path(&con_paths::app_config_dir());
+                                    }),
+                            ),
+                    ),
+            );
         let mut content = card(cx.theme(), self.card_opacity())
-            .p(px(16.0)).w_full().min_w_0().gap_3()
-            .child(div().flex().flex_col().gap_2()
-                .child(div().font_weight(FontWeight::MEDIUM).child("Import from Ghostty"))
-                .child(div().text_sm().text_color(muted).child("Replace terminal settings. Keep Con’s AI, app shortcuts, and other Con-specific settings. Ghostty files stay unchanged.")));
+            .p(px(16.0))
+            .w_full()
+            .min_w_0()
+            .gap_3()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("从 Ghostty 导入"),
+                    )
+                    .child(div().text_sm().text_color(muted).child(
+                        "替换终端设置，保留 Con 的应用快捷键和其他专属设置。Ghostty 文件不会改动。",
+                    )),
+            );
 
         if restart {
-            content = content.child(div().text_color(warning).child("Imported. Restart Con to use the new configuration. Existing terminal sessions have not changed."));
+            content = content.child(
+                div()
+                    .text_color(warning)
+                    .child("已导入。重启 Con 后生效。现有终端会话不受影响。"),
+            );
             if let Some(backup) = backup {
                 content = content
                     .child(
                         div()
                             .text_sm()
                             .text_color(muted)
-                            .child(format!("Previous configuration: {}", backup.display())),
+                            .child(format!("原配置：{}", backup.display())),
                     )
                     .child(
                         Button::new("configuration-backup")
                             .ghost()
                             .small()
-                            .label("Show Backup")
+                            .label("显示备份")
                             .on_click(move |_, _, cx| cx.reveal_path(&backup)),
                     );
             }
-            content = content.child(div().flex().child(Button::new("configuration-restart").primary().small().label("Restart Con…")
-                .on_click(|_, window, cx| {
-                    let answer = window.prompt(PromptLevel::Warning, "Restart Con?", Some("Running terminal commands and agent tasks will stop. Save any unsaved editor files before restarting."), &["Cancel", "Restart Con"], cx);
-                    cx.spawn(async move |cx| {
-                        if answer.await.ok() == Some(1) {
-                            cx.update(|cx| cx.restart());
-                        }
-                    }).detach();
-                })));
+            content = content.child(
+                div().flex().child(
+                    Button::new("configuration-restart")
+                        .primary()
+                        .small()
+                        .label("重启 Con…")
+                        .on_click(|_, window, cx| {
+                            let answer = window.prompt(
+                                PromptLevel::Warning,
+                                "重启 Con？",
+                                Some(
+                                    "正在运行的终端命令将中断。重启前请保存编辑器中未保存的文件。",
+                                ),
+                                &["取消", "重启 Con"],
+                                cx,
+                            );
+                            cx.spawn(async move |cx| {
+                                if answer.await.ok() == Some(1) {
+                                    cx.update(|cx| cx.restart());
+                                }
+                            })
+                            .detach();
+                        }),
+                ),
+            );
             return page.child(content);
         }
 
         if !cfg!(target_os = "macos") {
-            return page.child(content.child(div().text_sm().text_color(muted).child("Settings import is currently available on macOS. Other platforms support a portable subset of Ghostty settings.")));
+            return page.child(
+                content.child(
+                    div().text_sm().text_color(muted).child(
+                        "设置导入目前仅在 macOS 上可用，其他平台支持 Ghostty 设置的便携子集。",
+                    ),
+                ),
+            );
         }
         if !matches!(self.configuration_import, ConfigurationImport::Ready { .. }) {
             if let Some(sources) = &self.configuration_sources {
                 if sources.is_empty() {
-                    content =
-                        content.child(div().text_sm().text_color(muted).child(
-                            "No default Ghostty configuration found. Choose a file to import.",
-                        ));
+                    content = content.child(
+                        div()
+                            .text_sm()
+                            .text_color(muted)
+                            .child("未找到默认的 Ghostty 配置，请手动选择文件导入。"),
+                    );
                 }
                 for (index, source) in sources.iter().enumerate() {
                     let source = source.clone();
@@ -340,7 +370,7 @@ impl SettingsPanel {
                                 Button::new(("configuration-source", index))
                                     .primary()
                                     .small()
-                                    .label("Import This File")
+                                    .label("导入此文件")
                                     .disabled(blocked)
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.prepare_configuration_import(source.clone(), cx)
@@ -358,7 +388,7 @@ impl SettingsPanel {
                         Button::new("configuration-choose")
                             .with_variant(gpui_component::button::ButtonVariant::Secondary)
                             .small()
-                            .label("Choose File…")
+                            .label("选择文件…")
                             .disabled(blocked)
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.choose_configuration_source(window, cx)
@@ -368,7 +398,7 @@ impl SettingsPanel {
                         Button::new("configuration-rescan")
                             .ghost()
                             .small()
-                            .label("Refresh")
+                            .label("刷新")
                             .disabled(blocked)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.configuration_sources = None;
@@ -380,15 +410,25 @@ impl SettingsPanel {
         match &self.configuration_import {
             ConfigurationImport::Idle => {}
             ConfigurationImport::Preparing => {
-                content = content.child("Preparing and validating configuration…");
+                content = content.child("正在准备并校验配置…");
             }
             ConfigurationImport::Applying => {
-                content = content.child("Saving configuration…");
+                content = content.child("正在保存配置…");
             }
             ConfigurationImport::Error(error) => {
-                content = content.child(div().flex().flex_col().gap_2()
-                    .child(div().text_sm().text_color(warning).child(error.clone()))
-                    .child(div().text_sm().text_color(muted).child("Resolve the reported issue and retry, or choose another configuration file.")));
+                content = content.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(div().text_sm().text_color(warning).child(error.clone()))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(muted)
+                                .child("请解决上述问题后重试，或选择其他配置文件。"),
+                        ),
+                );
             }
             ConfigurationImport::Ready { source, prepared } => {
                 let includes = prepared
@@ -396,11 +436,11 @@ impl SettingsPanel {
                     .native_entries()
                     .iter()
                     .any(|entry| entry.key == "config-file");
-                content = content.child(div().font_weight(FontWeight::MEDIUM).child("Ready to import"))
+                content = content.child(div().font_weight(FontWeight::MEDIUM).child("可以导入"))
                     .child(div().text_sm().text_color(muted).child(source.display().to_string()))
-                    .child(div().text_sm().child("Con will back up the current file and replace its terminal settings. Restart to apply. Shell commands configured by this file may run in new terminal sessions."));
+                    .child(div().text_sm().child("Con 会备份当前文件并替换其终端设置，重启后生效。该文件配置的 shell 命令可能在新终端会话中执行。"));
                 if includes {
-                    content = content.child(div().text_sm().text_color(warning).child("This configuration includes other files. Edit native terminal settings in those copied files; Settings cannot override them."));
+                    content = content.child(div().text_sm().text_color(warning).child("此配置包含其他文件。原生终端设置需在复制后的文件中修改，设置界面无法覆盖。"));
                 }
                 content = content.child(
                     div()
@@ -411,7 +451,7 @@ impl SettingsPanel {
                             Button::new("configuration-confirm")
                                 .primary()
                                 .small()
-                                .label("Import Configuration")
+                                .label("导入配置")
                                 .disabled(blocked)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.commit_configuration_import(cx)
@@ -421,7 +461,7 @@ impl SettingsPanel {
                             Button::new("configuration-cancel")
                                 .ghost()
                                 .small()
-                                .label("Cancel")
+                                .label("取消")
                                 .disabled(blocked)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.configuration_import = ConfigurationImport::Idle;

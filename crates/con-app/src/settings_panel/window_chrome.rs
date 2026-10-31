@@ -5,7 +5,7 @@ use gpui_component::{TITLE_BAR_HEIGHT, TitleBar};
 pub(super) const SETTINGS_HEADER_HEIGHT: Pixels = px(44.0);
 
 pub(crate) fn settings_titlebar_options() -> TitlebarOptions {
-    floating_titlebar_options("Settings".into())
+    floating_titlebar_options("设置".into())
 }
 
 /// Transparent-titlebar chrome for standalone secondary windows (Settings,

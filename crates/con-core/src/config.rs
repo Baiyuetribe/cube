@@ -695,48 +695,48 @@ impl KeybindingConfig {
 
     pub fn active_shortcuts(&self) -> Vec<(&'static str, &str)> {
         let mut shortcuts = vec![
-            ("New Window", self.new_window.as_str()),
-            ("New Tab", self.new_tab.as_str()),
-            ("Next Tab", self.next_tab.as_str()),
-            ("Previous Tab", self.previous_tab.as_str()),
-            ("Close Tab", self.close_tab.as_str()),
-            ("Close Pane", self.close_pane.as_str()),
-            ("Toggle Pane Zoom", self.toggle_pane_zoom.as_str()),
-            ("Settings", self.settings.as_str()),
-            ("Command Palette", self.command_palette.as_str()),
-            ("Toggle Input Bar", self.toggle_input_bar.as_str()),
-            ("Toggle Input / Terminal", self.focus_input.as_str()),
-            ("Cycle Input Mode", self.cycle_input_mode.as_str()),
-            ("Split Right", self.split_right.as_str()),
-            ("Split Down", self.split_down.as_str()),
-            ("Toggle Pane Scope", self.toggle_pane_scope.as_str()),
-            ("Toggle Left Sidebar", self.toggle_left_panel.as_str()),
-            ("Focus Files", self.focus_files.as_str()),
-            ("Search Files", self.search_files.as_str()),
+            ("新建窗口", self.new_window.as_str()),
+            ("新建标签", self.new_tab.as_str()),
+            ("下一个标签", self.next_tab.as_str()),
+            ("上一个标签", self.previous_tab.as_str()),
+            ("关闭标签", self.close_tab.as_str()),
+            ("关闭分屏", self.close_pane.as_str()),
+            ("切换分屏缩放", self.toggle_pane_zoom.as_str()),
+            ("设置", self.settings.as_str()),
+            ("命令面板", self.command_palette.as_str()),
+            ("切换输入栏", self.toggle_input_bar.as_str()),
+            ("切换输入 / 终端", self.focus_input.as_str()),
+            ("切换输入模式", self.cycle_input_mode.as_str()),
+            ("向右拆分", self.split_right.as_str()),
+            ("向下拆分", self.split_down.as_str()),
+            ("切换分屏范围", self.toggle_pane_scope.as_str()),
+            ("切换左侧边栏", self.toggle_left_panel.as_str()),
+            ("聚焦文件", self.focus_files.as_str()),
+            ("搜索文件", self.search_files.as_str()),
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-            ("Find in Terminal", self.find_in_terminal.as_str()),
-            ("Collapse/Expand Sidebar", self.collapse_sidebar.as_str()),
-            ("New Surface Tab", self.new_surface.as_str()),
+            ("在终端中查找", self.find_in_terminal.as_str()),
+            ("折叠/展开侧边栏", self.collapse_sidebar.as_str()),
+            ("新建 Surface 标签", self.new_surface.as_str()),
             (
-                "New Surface Pane Right",
+                "向右新建 Surface 分屏",
                 self.new_surface_split_right.as_str(),
             ),
             (
-                "New Surface Pane Down",
+                "向下新建 Surface 分屏",
                 self.new_surface_split_down.as_str(),
             ),
-            ("Next Surface Tab", self.next_surface.as_str()),
-            ("Previous Surface Tab", self.previous_surface.as_str()),
-            ("Rename Surface", self.rename_surface.as_str()),
-            ("Close Surface", self.close_surface.as_str()),
-            ("Quit", self.quit.as_str()),
+            ("下一个 Surface 标签", self.next_surface.as_str()),
+            ("上一个 Surface 标签", self.previous_surface.as_str()),
+            ("重命名 Surface", self.rename_surface.as_str()),
+            ("关闭 Surface", self.close_surface.as_str()),
+            ("退出", self.quit.as_str()),
         ];
 
         if self.global_summon_enabled {
-            shortcuts.push(("Summon / Hide Con", self.global_summon.as_str()));
+            shortcuts.push(("唤起 / 隐藏 Con", self.global_summon.as_str()));
         }
         if self.quick_terminal_enabled {
-            shortcuts.push(("Quick Terminal", self.quick_terminal.as_str()));
+            shortcuts.push(("快速终端", self.quick_terminal.as_str()));
         }
 
         shortcuts
@@ -1602,8 +1602,8 @@ restore_terminal_text = false
         assert_eq!(config.keybindings.search_files, "secondary-shift-f");
 
         let shortcuts = config.keybindings.active_shortcuts();
-        assert!(shortcuts.contains(&("Focus Files", expected_focus)));
-        assert!(shortcuts.contains(&("Search Files", "secondary-shift-f")));
+        assert!(shortcuts.contains(&("聚焦文件", expected_focus)));
+        assert!(shortcuts.contains(&("搜索文件", "secondary-shift-f")));
     }
 
     #[test]
@@ -1617,14 +1617,10 @@ restore_terminal_text = false
             target_os = "windows"
         )) {
             assert_eq!(config.keybindings.find_in_terminal, "secondary-f");
-            assert!(shortcuts.contains(&("Find in Terminal", "secondary-f")));
+            assert!(shortcuts.contains(&("在终端中查找", "secondary-f")));
         } else {
             assert!(config.keybindings.find_in_terminal.is_empty());
-            assert!(
-                !shortcuts
-                    .iter()
-                    .any(|(label, _)| *label == "Find in Terminal")
-            );
+            assert!(!shortcuts.iter().any(|(label, _)| *label == "在终端中查找"));
         }
     }
 
@@ -1641,8 +1637,8 @@ restore_terminal_text = false
         assert_eq!(config.keybindings.previous_surface, expected_previous);
 
         let shortcuts = config.keybindings.active_shortcuts();
-        assert!(shortcuts.contains(&("Next Surface Tab", expected_next)));
-        assert!(shortcuts.contains(&("Previous Surface Tab", expected_previous)));
+        assert!(shortcuts.contains(&("下一个 Surface 标签", expected_next)));
+        assert!(shortcuts.contains(&("上一个 Surface 标签", expected_previous)));
     }
 
     #[cfg(target_os = "macos")]
@@ -1720,8 +1716,8 @@ search_files = "alt-f"
         assert_eq!(config.keybindings.search_files, "alt-f");
 
         let shortcuts = config.keybindings.active_shortcuts();
-        assert!(shortcuts.contains(&("Focus Files", "alt-e")));
-        assert!(shortcuts.contains(&("Search Files", "alt-f")));
+        assert!(shortcuts.contains(&("聚焦文件", "alt-e")));
+        assert!(shortcuts.contains(&("搜索文件", "alt-f")));
     }
 
     #[test]
@@ -1894,7 +1890,7 @@ quick_terminal = "cmd-\\"
         assert_eq!(conflicts.len(), 1);
         assert_eq!(
             conflicts[0].actions,
-            vec!["New Tab".to_string(), "Command Palette".to_string()]
+            vec!["新建标签".to_string(), "命令面板".to_string()]
         );
     }
 
@@ -1913,7 +1909,7 @@ quick_terminal = "cmd-\\"
         assert_eq!(conflicts.len(), 1);
         assert_eq!(
             conflicts[0].actions,
-            vec!["New Tab".to_string(), "Command Palette".to_string()]
+            vec!["新建标签".to_string(), "命令面板".to_string()]
         );
     }
 
@@ -1928,7 +1924,7 @@ quick_terminal = "cmd-\\"
         assert_eq!(conflicts.len(), 1);
         assert_eq!(
             conflicts[0].actions,
-            vec!["New Tab".to_string(), "Command Palette".to_string()]
+            vec!["新建标签".to_string(), "命令面板".to_string()]
         );
     }
 
@@ -1952,12 +1948,12 @@ quick_terminal = "cmd-\\"
 
         let conflicts = config
             .keybindings
-            .shortcut_conflicts(&[("Minimize Window", "secondary-m")]);
+            .shortcut_conflicts(&[("最小化窗口", "secondary-m")]);
 
         assert_eq!(conflicts.len(), 1);
         assert_eq!(
             conflicts[0].actions,
-            vec!["Command Palette".to_string(), "Minimize Window".to_string()]
+            vec!["命令面板".to_string(), "最小化窗口".to_string()]
         );
     }
 

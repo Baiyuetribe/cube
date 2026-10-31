@@ -1819,32 +1819,32 @@ pub(crate) fn bind_app_keybindings(cx: &mut App, kb: &KeybindingConfig) {
 
 pub(crate) fn fixed_app_keybinding_shortcuts() -> Vec<(&'static str, &'static str)> {
     let shortcuts = vec![
-        ("Next Tab", "secondary-shift-]"),
-        ("Previous Tab", "secondary-shift-["),
-        ("Select Tab 1", "secondary-1"),
-        ("Select Tab 2", "secondary-2"),
-        ("Select Tab 3", "secondary-3"),
-        ("Select Tab 4", "secondary-4"),
-        ("Select Tab 5", "secondary-5"),
-        ("Select Tab 6", "secondary-6"),
-        ("Select Tab 7", "secondary-7"),
-        ("Select Tab 8", "secondary-8"),
-        ("Select Tab 9", "secondary-9"),
+        ("下一个标签", "secondary-shift-]"),
+        ("上一个标签", "secondary-shift-["),
+        ("选择标签 1", "secondary-1"),
+        ("选择标签 2", "secondary-2"),
+        ("选择标签 3", "secondary-3"),
+        ("选择标签 4", "secondary-4"),
+        ("选择标签 5", "secondary-5"),
+        ("选择标签 6", "secondary-6"),
+        ("选择标签 7", "secondary-7"),
+        ("选择标签 8", "secondary-8"),
+        ("选择标签 9", "secondary-9"),
     ];
 
     #[cfg(target_os = "macos")]
     let shortcuts = {
         let mut shortcuts = shortcuts;
         shortcuts.extend([
-            ("Hide Con", "cmd-h"),
-            ("Hide Other Apps", "cmd-alt-h"),
-            ("Show All Apps", "cmd-alt-shift-h"),
-            ("Next Window", "cmd-`"),
-            ("Next Window", "cmd->"),
-            ("Previous Window", "cmd-shift-`"),
-            ("Previous Window", "cmd-~"),
-            ("Previous Window", "cmd-<"),
-            ("Minimize Window", "cmd-m"),
+            ("隐藏 Con", "cmd-h"),
+            ("隐藏其他应用", "cmd-alt-h"),
+            ("显示所有应用", "cmd-alt-shift-h"),
+            ("下一个窗口", "cmd-`"),
+            ("下一个窗口", "cmd->"),
+            ("上一个窗口", "cmd-shift-`"),
+            ("上一个窗口", "cmd-~"),
+            ("上一个窗口", "cmd-<"),
+            ("最小化窗口", "cmd-m"),
         ]);
         shortcuts
     };

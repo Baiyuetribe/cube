@@ -114,8 +114,8 @@ impl UpdaterStatus {
 
     pub fn summary(self) -> &'static str {
         match self {
-            Self::Active => "Auto-update enabled",
-            Self::Disabled(_) => "Auto-update unavailable",
+            Self::Active => "自动更新已启用",
+            Self::Disabled(_) => "自动更新不可用",
         }
     }
 
@@ -123,38 +123,34 @@ impl UpdaterStatus {
         match self {
             Self::Active => {
                 if cfg!(target_os = "macos") {
-                    "Sparkle is loaded and polling this release channel."
+                    "Sparkle 已加载，正在轮询该发布渠道。"
                 } else {
                     // Windows + Linux: notify-only checker that polls
                     // the same Sparkle-shaped appcast XML and re-runs
                     // install.ps1 / install.sh on apply.
-                    "Periodic checks against the release feed; the in-app installer applies the update."
+                    "定期检查发布源，由应用内安装器完成更新。"
                 }
             }
-            Self::Disabled(UpdaterDisabledReason::ChannelDoesNotPoll) => {
-                "Development builds do not poll for updates."
-            }
+            Self::Disabled(UpdaterDisabledReason::ChannelDoesNotPoll) => "开发版本不检查更新。",
             Self::Disabled(UpdaterDisabledReason::NotBundled) => {
-                "Updates only work from the bundled app, not cargo run."
+                "更新仅在打包后的应用内可用，cargo run 不可用。"
             }
             Self::Disabled(UpdaterDisabledReason::MissingFrameworksPath) => {
-                "The app bundle has no Frameworks directory."
+                "应用包中没有 Frameworks 目录。"
             }
             Self::Disabled(UpdaterDisabledReason::MissingSparkleFramework) => {
-                "Sparkle.framework is not embedded in the app bundle."
+                "应用包中未嵌入 Sparkle.framework。"
             }
             Self::Disabled(UpdaterDisabledReason::FailedToLoadSparkleFramework) => {
-                "Sparkle.framework exists but failed to load."
+                "Sparkle.framework 存在但加载失败。"
             }
             Self::Disabled(UpdaterDisabledReason::MissingFeedUrl) => {
-                "SUFeedURL is missing from the app bundle metadata."
+                "应用包元数据中缺少 SUFeedURL。"
             }
             Self::Disabled(UpdaterDisabledReason::ControllerInitFailed) => {
-                "Sparkle failed to initialize its updater controller."
+                "Sparkle 无法初始化其更新控制器。"
             }
-            Self::Disabled(UpdaterDisabledReason::InitPanicked) => {
-                "Updater initialization panicked and was disabled."
-            }
+            Self::Disabled(UpdaterDisabledReason::InitPanicked) => "更新器初始化异常，已禁用。",
         }
     }
 }
@@ -406,9 +402,7 @@ pub fn apply_update_in_place() {
         }
         Err(e) => {
             log::error!("updater: failed to spawn install.ps1: {e}");
-            set_latest(CheckState::Error(format!(
-                "could not launch installer: {e}"
-            )));
+            set_latest(CheckState::Error(format!("无法启动安装程序：{e}")));
         }
     }
 }
@@ -545,9 +539,7 @@ pub fn apply_update_in_place() {
         }
         Err(e) => {
             log::error!("updater: failed to spawn install.sh: {e}");
-            set_latest(CheckState::Error(format!(
-                "could not launch installer: {e}"
-            )));
+            set_latest(CheckState::Error(format!("无法启动安装程序：{e}")));
         }
     }
 }
