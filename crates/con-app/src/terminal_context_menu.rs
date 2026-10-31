@@ -75,7 +75,10 @@ pub(crate) fn terminal_context_menu(
         .separator()
         .submenu("Surface", window, cx, |menu, _window, _cx| {
             menu.min_w(px(250.0))
-                .item(action_item("新建 Surface 标签", Box::new(crate::NewSurface)))
+                .item(action_item(
+                    "新建 Surface 标签",
+                    Box::new(crate::NewSurface),
+                ))
                 .item(action_item(
                     "向右新建 Surface 分屏",
                     Box::new(crate::NewSurfaceSplitRight),
@@ -85,7 +88,10 @@ pub(crate) fn terminal_context_menu(
                     Box::new(crate::NewSurfaceSplitDown),
                 ))
                 .separator()
-                .item(action_item("下一个 Surface 标签", Box::new(crate::NextSurface)))
+                .item(action_item(
+                    "下一个 Surface 标签",
+                    Box::new(crate::NextSurface),
+                ))
                 .item(action_item(
                     "上一个 Surface 标签",
                     Box::new(crate::PreviousSurface),

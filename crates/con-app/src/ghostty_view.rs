@@ -200,8 +200,8 @@ pub struct GhosttyProcessExited;
 /// Emitted when the terminal gains focus.
 pub struct GhosttyFocusChanged;
 /// Emitted when Ghostty requests a new split from this surface.
-pub struct GhosttySplitRequested(pub GhosttySplitDirection);
-pub struct GhosttyCwdChanged(pub Option<String>);
+pub struct GhosttySplitRequested(#[allow(dead_code)] pub GhosttySplitDirection);
+pub struct GhosttyCwdChanged(#[allow(dead_code)] pub Option<String>);
 pub struct GhosttyProgressChanged;
 
 impl EventEmitter<crate::terminal_file_link::TerminalFileLink> for GhosttyView {}

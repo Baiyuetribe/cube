@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::context::{
+use crate::pane_state::{
     PaneFrontState, PaneMode, PaneRuntimeState, PaneScopeKind, tmux_session_from_action_record,
 };
 
@@ -804,7 +804,7 @@ mod tests {
         PaneAttachmentKind, PaneControlCapability, PaneControlState, PaneVisibleTargetKind,
         TmuxControlMode, fallback_visible_target, format_control_attachments, format_target_stack,
     };
-    use crate::context::{
+    use crate::pane_state::{
         PaneActionKind, PaneActionRecord, PaneConfidence, PaneEvidenceSource, PaneFrontState,
         PaneMode, PaneRuntimeScope, PaneRuntimeState, PaneScopeKind,
     };
@@ -827,7 +827,7 @@ mod tests {
                 kind: PaneScopeKind::Multiplexer,
                 label: Some("work".to_string()),
                 host: None,
-                confidence: crate::context::PaneConfidence::Advisory,
+                confidence: crate::pane_state::PaneConfidence::Advisory,
                 evidence_source: PaneEvidenceSource::ShellProbe,
             }],
             last_verified_tmux_session: Some("work".to_string()),
@@ -872,7 +872,7 @@ mod tests {
                 kind: PaneScopeKind::Shell,
                 label: None,
                 host: None,
-                confidence: crate::context::PaneConfidence::Strong,
+                confidence: crate::pane_state::PaneConfidence::Strong,
                 evidence_source: PaneEvidenceSource::ShellIntegration,
             }),
             evidence: Vec::new(),
@@ -880,7 +880,7 @@ mod tests {
                 kind: PaneScopeKind::Shell,
                 label: None,
                 host: None,
-                confidence: crate::context::PaneConfidence::Strong,
+                confidence: crate::pane_state::PaneConfidence::Strong,
                 evidence_source: PaneEvidenceSource::ShellIntegration,
             }],
             recent_actions: Vec::new(),
@@ -926,14 +926,14 @@ mod tests {
                     kind: PaneScopeKind::Multiplexer,
                     label: Some("work".to_string()),
                     host: None,
-                    confidence: crate::context::PaneConfidence::Advisory,
+                    confidence: crate::pane_state::PaneConfidence::Advisory,
                     evidence_source: PaneEvidenceSource::ShellProbe,
                 },
                 PaneRuntimeScope {
                     kind: PaneScopeKind::Shell,
                     label: None,
                     host: None,
-                    confidence: crate::context::PaneConfidence::Advisory,
+                    confidence: crate::pane_state::PaneConfidence::Advisory,
                     evidence_source: PaneEvidenceSource::ShellProbe,
                 },
             ],

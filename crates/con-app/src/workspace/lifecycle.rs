@@ -3,48 +3,11 @@ use super::*;
 use crate::editor_tab_actions::reusable_editor_tab_index;
 use crate::file_tree_view::OpenFileInEditorTab;
 
-fn ready_ui_events<T>(receive: impl FnMut() -> Option<T>) -> impl Iterator<Item = T> {
-    std::iter::from_fn(receive).take(64)
-}
-
 fn horizontal_tab_strip_target(orientation: TabsOrientation, tab_count: usize) -> f32 {
     if orientation == TabsOrientation::Horizontal && tab_count > 1 {
         1.0
     } else {
         0.0
-    }
-}
-
-#[cfg(test)]
-mod event_fairness_tests {
-    use super::ready_ui_events;
-    use std::collections::VecDeque;
-
-    #[test]
-    fn continuously_ready_producer_cannot_extend_the_ui_turn() {
-        let mut produced = 0;
-        let received: Vec<_> = ready_ui_events(|| {
-            produced += 1;
-            Some(produced)
-        })
-        .collect();
-        assert_eq!(received.len(), 64);
-        assert_eq!(produced, 64);
-        assert_eq!(received[0], 1);
-        assert_eq!(received[63], 64);
-    }
-
-    #[test]
-    fn bounded_turns_preserve_order_and_leave_backlog_in_the_queue() {
-        let mut queue: VecDeque<_> = (0..150).collect();
-        let first: Vec<_> = ready_ui_events(|| queue.pop_front()).collect();
-        assert_eq!(first, (0..64).collect::<Vec<_>>());
-        assert_eq!(queue.len(), 86);
-        let second: Vec<_> = ready_ui_events(|| queue.pop_front()).collect();
-        assert_eq!(second, (64..128).collect::<Vec<_>>());
-        let last: Vec<_> = ready_ui_events(|| queue.pop_front()).collect();
-        assert_eq!(last, (128..150).collect::<Vec<_>>());
-        assert!(ready_ui_events(|| queue.pop_front()).next().is_none());
     }
 }
 
@@ -92,16 +55,8 @@ impl ConWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let agent_panel_open = session.agent_panel_open;
-        let agent_panel_width = session
-            .agent_panel_width
-            .unwrap_or(AGENT_PANEL_DEFAULT_WIDTH);
         let window_width = window.bounds().size.width.as_f32();
-        let agent_panel_outer_width = if agent_panel_open {
-            agent_panel_width.min(max_agent_panel_width(window_width)) + 1.0
-        } else {
-            0.0
-        };
+        let agent_panel_outer_width = 0.0;
         let initial_sidebar_width = SessionSidebar::clamped_panel_width(
             session.left_panel_width.unwrap_or(PANEL_MIN_WIDTH * 1.25),
             max_sidebar_panel_width(window_width, agent_panel_outer_width),
@@ -209,41 +164,23 @@ impl ConWorkspace {
                 effective.background_opacity as f32,
             )
         };
-        let harness = AgentHarness::new(&config).unwrap_or_else(|e| {
-            log::error!(
-                "Failed to create agent harness: {}. Agent features disabled.",
-                e
-            );
-            panic!("Fatal: agent harness initialization failed: {}", e);
-        });
-        harness.prewarm_input_classification();
-        let shell_suggestion_engine = harness.suggestion_engine(180);
-        let tab_summary_engine = harness.tab_summary_engine();
+        let runtime = std::sync::Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .expect("failed to build tokio runtime"),
+        );
         let session_save_tx = spawn_session_save_worker();
         let (control_request_tx, control_request_rx) = crossbeam_channel::unbounded();
-        let (shell_suggestion_tx, shell_suggestion_rx) = crossbeam_channel::unbounded();
-        let (tab_summary_tx, tab_summary_rx) = crossbeam_channel::unbounded();
-        let (skill_scan_tx, skill_scan_rx) = crossbeam_channel::unbounded();
-        let control_socket = match con_core::spawn_control_socket_server(
-            harness.runtime_handle(),
-            control_request_tx,
-        ) {
-            Ok(handle) => Some(handle),
-            Err(err) => {
-                log::error!("Failed to start con control socket: {}", err);
-                None
-            }
-        };
-        let model_registry = ModelRegistry::new();
-        if model_registry.needs_refresh() {
-            let registry_for_fetch = model_registry.clone();
-            harness.spawn_detached(async move {
-                if let Err(e) = registry_for_fetch.fetch().await {
-                    log::warn!("Failed to refresh model registry: {}", e);
+        let control_socket =
+            match con_core::spawn_control_socket_server(runtime.clone(), control_request_tx) {
+                Ok(handle) => Some(handle),
+                Err(err) => {
+                    log::error!("Failed to start con control socket: {}", err);
+                    None
                 }
-            });
-        }
-
+            };
         let restore_terminal_text = config.appearance.restore_terminal_text;
         let handoff_menu_entry_enabled = config.experimental.handoff;
         let initial_working_directory = RefCell::new(initial_working_directory);
@@ -279,30 +216,6 @@ impl ConWorkspace {
             .iter()
             .enumerate()
             .map(|(i, tab_state)| {
-                // Restore per-tab conversation, with migration from global conversation_id
-                let agent_session = if let Some(conv_id) = &tab_state.conversation_id {
-                    match Conversation::load(conv_id) {
-                        Ok(conv) => AgentSession::with_conversation(conv),
-                        Err(_) => AgentSession::new(),
-                    }
-                } else if i == 0 {
-                    // Migration: first tab gets the old session-level conversation
-                    if let Some(conv_id) = &session.conversation_id {
-                        match Conversation::load(conv_id) {
-                            Ok(conv) => AgentSession::with_conversation(conv),
-                            Err(_) => AgentSession::new(),
-                        }
-                    } else {
-                        AgentSession::new()
-                    }
-                } else {
-                    AgentSession::new()
-                };
-                let panel_state = {
-                    let conv = agent_session.conversation().clone();
-                    let conv = conv.lock();
-                    PanelState::from_conversation(&conv)
-                };
                 let pane_tree = if let Some(layout) = &tab_state.layout {
                     let mut restore_terminal =
                         |restore_cwd: Option<&str>,
@@ -329,20 +242,10 @@ impl ConWorkspace {
                         tab_state.title.clone()
                     },
                     user_label: tab_state.user_label.clone(),
-                    ai_label: None,
-                    ai_icon: None,
                     agent_cli: None,
                     color: tab_state.color,
-                    summary_id: i as u64,
-                    summary_epoch: 0,
                     needs_attention: false,
-                    session: agent_session,
-                    agent_routing: if tab_state.agent_routing.is_empty() {
-                        Self::default_agent_routing(&config.agent)
-                    } else {
-                        tab_state.agent_routing.clone()
-                    },
-                    panel_state,
+                    summary_id: i as u64,
                     runtime_trackers: RefCell::new(HashMap::new()),
                     runtime_cache: RefCell::new(HashMap::new()),
                     shell_history: Self::restore_shell_history(tab_state),
@@ -355,16 +258,10 @@ impl ConWorkspace {
                 pane_tree: PaneTree::new(terminal),
                 title: "Terminal".to_string(),
                 user_label: None,
-                ai_label: None,
-                ai_icon: None,
                 agent_cli: None,
                 color: None,
-                summary_id: 0,
-                summary_epoch: 0,
                 needs_attention: false,
-                session: AgentSession::new(),
-                agent_routing: Self::default_agent_routing(&config.agent),
-                panel_state: PanelState::new(),
+                summary_id: 0,
                 runtime_trackers: RefCell::new(HashMap::new()),
                 runtime_cache: RefCell::new(HashMap::new()),
                 shell_history: HashMap::new(),
@@ -382,8 +279,8 @@ impl ConWorkspace {
                     let is_editor_only = tab.pane_tree.pane_terminals().is_empty();
                     let presentation = smart_tab_presentation(
                         tab.user_label.as_deref(),
-                        tab.ai_label.as_deref(),
-                        tab.ai_icon.map(|k| k.svg_path()),
+                        None,
+                        None,
                         tab.agent_cli,
                         None,
                         Some(tab.title.as_str()),
@@ -422,19 +319,8 @@ impl ConWorkspace {
             Self::merge_shell_histories(global_shell_history, &persisted_history);
         let global_input_history =
             Self::restore_global_input_history(&session, &persisted_history, &global_shell_history);
-        // Take the active tab's restored panel state for the AgentPanel
-        let initial_panel_state =
-            std::mem::replace(&mut tabs[active_tab].panel_state, PanelState::new());
-        let agent_panel = cx.new(|cx| {
-            let mut panel = AgentPanel::with_state(initial_panel_state, window, cx);
-            panel.set_auto_approve(config.agent.auto_approve_tools, cx);
-            panel
-        });
         let input_bar = cx.new(|cx| InputBar::new(window, cx));
-        let registry = model_registry.clone();
-        let oauth_runtime = harness.runtime_handle();
-        let settings_panel =
-            cx.new(|cx| SettingsPanel::new(&config, registry, oauth_runtime, window, cx));
+        let settings_panel = cx.new(|cx| SettingsPanel::new(&config, window, cx));
         let command_palette = cx.new(|cx| CommandPalette::new(window, cx));
         let initial_recent_inputs = global_input_history
             .iter()
@@ -442,14 +328,6 @@ impl ConWorkspace {
             .take(80)
             .cloned()
             .collect::<Vec<_>>();
-        agent_panel.update(cx, |panel, cx| {
-            panel.set_ui_opacity(effective_ui_opacity, cx);
-            panel.set_assistant_avatar_asset(
-                con_core::config::agent_avatar_asset(&config.appearance.agent_avatar),
-                cx,
-            );
-            panel.set_recent_inputs(initial_recent_inputs.clone(), cx);
-        });
         input_bar.update(cx, |bar, cx| {
             bar.set_recent_commands(initial_recent_inputs, cx);
         });
@@ -485,39 +363,6 @@ impl ConWorkspace {
             .detach();
         cx.subscribe_in(&command_palette, window, Self::on_palette_dismissed)
             .detach();
-        cx.subscribe_in(&agent_panel, window, Self::on_new_conversation)
-            .detach();
-        cx.subscribe_in(&agent_panel, window, Self::on_load_conversation)
-            .detach();
-        cx.subscribe_in(&agent_panel, window, Self::on_delete_conversation)
-            .detach();
-        cx.subscribe_in(&agent_panel, window, Self::on_inline_input_submit)
-            .detach();
-        cx.subscribe_in(
-            &agent_panel,
-            window,
-            Self::on_inline_skill_autocomplete_changed,
-        )
-        .detach();
-        cx.subscribe_in(&agent_panel, window, Self::on_cancel_request)
-            .detach();
-        cx.subscribe_in(&agent_panel, window, Self::on_set_auto_approve)
-            .detach();
-        cx.subscribe_in(&agent_panel, window, Self::on_select_session_provider)
-            .detach();
-        cx.subscribe_in(&agent_panel, window, Self::on_select_session_model)
-            .detach();
-        cx.subscribe_in(&agent_panel, window, Self::on_rerun_from_message)
-            .detach();
-        let mut panel_activity = agent_panel.read(cx).state().activity();
-        cx.observe(&agent_panel, move |workspace, panel, cx| {
-            let activity = panel.read(cx).state().activity();
-            if activity != panel_activity {
-                panel_activity = activity;
-                workspace.refresh_cached_tab_presentation(cx);
-            }
-        })
-        .detach();
         cx.subscribe_in(&sidebar, window, Self::on_sidebar_select)
             .detach();
         cx.subscribe_in(&sidebar, window, Self::on_sidebar_new_session)
@@ -715,87 +560,17 @@ impl ConWorkspace {
             }
         });
 
-        // Poll all tabs' agent sessions.
+        // Poll terminal presentation and control-plane requests.
         cx.spawn(async move |this, cx| {
-            // Backstop interval for the AI-summary trigger below.
-            // See the comment on `last_summary_poll` use site.
-            let summary_poll_interval = std::time::Duration::from_secs(3);
             let agent_cli_poll_interval = std::time::Duration::from_millis(300);
-            let mut last_summary_poll = std::time::Instant::now();
             let mut last_agent_cli_refresh: Option<std::time::Instant> = None;
             loop {
                 let mut got_event = false;
 
                 this.update(cx, |workspace, cx| {
-                    // Drain events from every tab's session
-                    for tab_idx in 0..workspace.tabs.len() {
-                        let is_active = tab_idx == workspace.active_tab;
-
-                        // Bound each producer's turn so a streaming backlog cannot
-                        // monopolize AppKit/GPUI input dispatch. Leave queued events
-                        // intact and preserve their order for the next turn.
-                        let events = workspace.tabs[tab_idx].session.events().clone();
-                        for event in ready_ui_events(|| events.try_recv().ok()) {
-                            got_event = true;
-                            let suppress_event =
-                                workspace.handle_pending_control_agent_event(tab_idx, &event);
-                            if suppress_event {
-                                continue;
-                            }
-                            if is_active {
-                                workspace.handle_harness_event(event, cx);
-                            } else {
-                                workspace.tabs[tab_idx].panel_state.apply_event(event);
-                                workspace.tabs[tab_idx].needs_attention = true;
-                            }
-                        }
-
-                        // Terminal exec requests — route to the tab that owns the session
-                        while let Ok(req) = workspace.tabs[tab_idx]
-                            .session
-                            .terminal_exec_requests()
-                            .try_recv()
-                        {
-                            got_event = true;
-                            workspace.handle_terminal_exec_request_for_tab(tab_idx, req, cx);
-                        }
-
-                        // Pane queries — route to the tab that owns the session
-                        while let Ok(req) =
-                            workspace.tabs[tab_idx].session.pane_requests().try_recv()
-                        {
-                            got_event = true;
-                            workspace.handle_pane_request_for_tab(tab_idx, req, cx);
-                        }
-                    }
-
                     while let Ok(request) = workspace.control_request_rx.try_recv() {
                         got_event = true;
                         workspace.handle_control_request(request, cx);
-                    }
-
-                    while let Ok(result) = workspace.shell_suggestion_rx.try_recv() {
-                        got_event = true;
-                        workspace.apply_shell_suggestion(result, cx);
-                    }
-
-                    while let Ok((generation, summary_epoch, summary)) =
-                        workspace.tab_summary_rx.try_recv()
-                    {
-                        got_event = true;
-                        workspace.apply_tab_summary(generation, summary_epoch, summary, cx);
-                    }
-
-                    while let Ok(result) = workspace.skill_scan_rx.try_recv() {
-                        got_event = true;
-                        let completion = workspace.harness.complete_skill_scan(result);
-                        let applied = completion.applied();
-                        if let Some(job) = completion.follow_up_job() {
-                            workspace.spawn_skill_scan_job(job);
-                        }
-                        if applied {
-                            cx.notify();
-                        }
                     }
 
                     if workspace.pump_ghostty_views(cx) {
@@ -810,13 +585,6 @@ impl ConWorkspace {
                             last_agent_cli_refresh = Some(now);
                         }
                         cx.notify();
-                    }
-                    if last_summary_poll.elapsed() >= summary_poll_interval {
-                        // Title frames and metadata wakes are not terminal
-                        // content changes. Summary screen reads have their own
-                        // bounded cadence, never the presentation/animation rate.
-                        workspace.request_tab_summaries(cx);
-                        last_summary_poll = std::time::Instant::now();
                     }
                     let now = std::time::Instant::now();
                     if should_refresh_agent_cli(last_agent_cli_refresh, now, Duration::from_secs(1))
@@ -882,8 +650,8 @@ impl ConWorkspace {
         let initial_tab_strip_target =
             horizontal_tab_strip_target(config.appearance.tabs_orientation, tabs.len());
         let last_ghostty_wake_generation = ghostty_app.wake_generation();
-        let next_tab_summary_id_init = tabs.len() as u64;
 
+        let next_tab_summary_id_init = tabs.len() as u64;
         let mut workspace = Self {
             config: config.clone(),
             sidebar,
@@ -911,21 +679,14 @@ impl ConWorkspace {
             background_image_position,
             background_image_fit,
             background_image_repeat,
-            agent_panel,
             input_bar,
             settings_panel,
             settings_window: None,
             settings_window_panel: None,
             command_palette,
-            handoff_window: None,
-            model_registry,
-            harness,
-            shell_suggestion_engine,
             global_shell_history,
             global_input_history,
             pane_scope_picker_open: false,
-            agent_panel_open,
-            agent_panel_motion: SidebarMotion::new(if agent_panel_open { 1.0 } else { 0.0 }),
             #[cfg(target_os = "macos")]
             caption_dock: frame::CaptionLayout::new(0.0),
             #[cfg(target_os = "macos")]
@@ -937,7 +698,6 @@ impl ConWorkspace {
             } else {
                 0.0
             }),
-            agent_panel_width,
             tab_strip_motion: MotionValue::new(initial_tab_strip_target),
             tab_slot_motion: Default::default(),
             input_bar_visible: session.input_bar_visible,
@@ -946,17 +706,12 @@ impl ConWorkspace {
             ghostty_hidden: false,
             #[cfg(target_os = "macos")]
             native_tab_handoff_pending: false,
-            agent_panel_drag: None,
             sidebar_drag: None,
             terminal_theme,
             ghostty_app,
             last_ghostty_wake_generation,
             #[cfg(target_os = "macos")]
             chrome_transition_underlay_until: None,
-            #[cfg(target_os = "macos")]
-            agent_panel_snap_guard_until: None,
-            #[cfg(target_os = "macos")]
-            agent_panel_release_cover_until: None,
             #[cfg(target_os = "linux")]
             linux_window_shape_signature: None,
             pending_create_pane_requests: Vec::new(),
@@ -965,17 +720,16 @@ impl ConWorkspace {
             surface_rename: None,
             control_request_rx,
             control_socket,
-            pending_control_agent_requests: HashMap::new(),
-            shell_suggestion_rx,
-            shell_suggestion_tx,
-            tab_summary_engine,
-            tab_summary_rx,
-            tab_summary_tx,
-            skill_scan_rx,
-            skill_scan_tx,
-            tab_summary_generation: 0,
             next_tab_summary_id: next_tab_summary_id_init,
-            next_control_agent_request_id: 1,
+            runtime,
+            agent_panel_open: false,
+            agent_panel_width: 0.0,
+            agent_panel_motion: SidebarMotion::new(0.0),
+            agent_panel_drag: None,
+            #[cfg(target_os = "macos")]
+            agent_panel_snap_guard_until: None,
+            #[cfg(target_os = "macos")]
+            agent_panel_release_cover_until: None,
             window_handle: window.window_handle(),
             workspace_handle: cx.weak_entity(),
             window_close_prepared: false,
@@ -1016,13 +770,6 @@ impl ConWorkspace {
             workspace.sync_native_color_scheme(window, cx);
             cx.observe_window_appearance(window, Self::sync_native_color_scheme)
                 .detach();
-        }
-
-        if let Some(cwd) = workspace
-            .try_active_terminal()
-            .and_then(|t| t.current_dir(cx))
-        {
-            workspace.request_skill_scan_for_cwd(&cwd);
         }
 
         workspace
@@ -1305,7 +1052,7 @@ impl ConWorkspace {
         let pane_tree = &self.tabs[self.active_tab].pane_tree;
         let surface_terminals = pane_tree.surface_terminals();
         let focused_id = pane_tree.focused_pane_id();
-        let (mode, is_broadcast, is_focused, selected_ids) = {
+        let (_mode, is_broadcast, is_focused, selected_ids) = {
             let input_bar = self.input_bar.read(cx);
             (
                 input_bar.mode(),
@@ -1319,7 +1066,7 @@ impl ConWorkspace {
             .map(|(pane_id, _, _)| *pane_id)
             .collect::<HashSet<_>>();
 
-        let target_ids: HashSet<usize> = if mode == InputMode::Agent || is_focused {
+        let target_ids: HashSet<usize> = if is_focused {
             [focused_id].into_iter().collect()
         } else if is_broadcast {
             all_ids
@@ -1504,30 +1251,6 @@ impl ConWorkspace {
             return;
         }
         self.sync_active_tab_native_view_visibility_after_layout(window, cx);
-    }
-
-    pub(super) fn request_skill_scan_for_cwd(&mut self, cwd: &str) {
-        let Some(job) = self.harness.request_skill_scan(cwd) else {
-            return;
-        };
-
-        self.spawn_skill_scan_job(job);
-    }
-
-    pub(super) fn spawn_skill_scan_job(&self, job: SkillScanJob) {
-        let failed_result = job.failed_result();
-        let tx = self.skill_scan_tx.clone();
-        self.harness.spawn_detached(async move {
-            match tokio::task::spawn_blocking(move || job.scan()).await {
-                Ok(result) => {
-                    let _ = tx.send(result);
-                }
-                Err(err) => {
-                    log::warn!("Skill scan task failed: {}", err);
-                    let _ = tx.send(failed_result);
-                }
-            }
-        });
     }
 
     pub(super) fn pump_ghostty_views(&mut self, cx: &mut Context<Self>) -> bool {

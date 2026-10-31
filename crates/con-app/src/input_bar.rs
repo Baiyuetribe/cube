@@ -20,42 +20,6 @@ fn input_bar_rendered_height_for_rows(rows: usize, mono_scale: f32) -> f32 {
     (INPUT_BAR_MIN_HEIGHT + rows.saturating_sub(1) as f32 * INPUT_BAR_ROW_HEIGHT) * mono_scale
 }
 
-/// Append terminal-selection context to the agent input as a fenced code
-/// block. The fence grows when the selection itself contains backticks so
-/// the block never terminates early.
-pub(crate) fn append_ask_ai_context(current: &str, context: &str) -> String {
-    let longest_backtick_run = context
-        .split(|ch| ch != '`')
-        .map(str::len)
-        .max()
-        .unwrap_or(0);
-    let fence = "`".repeat((longest_backtick_run + 1).max(3));
-
-    let mut updated = String::new();
-    let trimmed_current = current.trim_end();
-    if !trimmed_current.is_empty() {
-        updated.push_str(trimmed_current);
-        updated.push('\n');
-    }
-    updated.push_str(&fence);
-    updated.push('\n');
-    updated.push_str(context);
-    updated.push('\n');
-    updated.push_str(&fence);
-    updated.push('\n');
-    updated
-}
-
-pub(crate) fn text_end_position(text: &str) -> Position {
-    let line = text.matches('\n').count() as u32;
-    let character = text
-        .rsplit('\n')
-        .next()
-        .map(|last| last.chars().count() as u32)
-        .unwrap_or(0);
-    Position::new(line, character)
-}
-
 actions!(
     input_bar,
     [
@@ -83,15 +47,13 @@ impl EventEmitter<TogglePaneScopePicker> for InputBar {}
 pub enum InputMode {
     Smart,
     Shell,
-    Agent,
 }
 
 impl InputMode {
     fn next(self) -> Self {
         match self {
             Self::Smart => Self::Shell,
-            Self::Shell => Self::Agent,
-            Self::Agent => Self::Smart,
+            Self::Shell => Self::Smart,
         }
     }
 
@@ -99,7 +61,6 @@ impl InputMode {
         match self {
             Self::Smart => "input-mode-smart.png",
             Self::Shell => "input-mode-shell.png",
-            Self::Agent => "input-mode-agent.png",
         }
     }
 
@@ -107,7 +68,6 @@ impl InputMode {
         match self {
             Self::Smart => "Smart mode",
             Self::Shell => "Shell mode",
-            Self::Agent => "Agent mode",
         }
     }
 }
@@ -137,6 +97,7 @@ pub struct SkillEntry {
 enum SuggestionSource {
     Path,
     History,
+    #[allow(dead_code)]
     Ai,
 }
 
@@ -148,7 +109,6 @@ enum PaneScopeMode {
 }
 
 pub struct InputBar {
-    agent_input_state: Entity<TextareaState>,
     shell_input_state: Entity<TextareaState>,
     mode: InputMode,
     cwd: String,
@@ -216,10 +176,7 @@ impl InputBar {
     }
 
     fn current_input_state(&self) -> Entity<TextareaState> {
-        match self.mode {
-            InputMode::Agent => self.agent_input_state.clone(),
-            InputMode::Smart | InputMode::Shell => self.shell_input_state.clone(),
-        }
+        self.shell_input_state.clone()
     }
 
     fn truncate_label(text: &str, truncate_at: usize, ellipsis_threshold: usize) -> String {
@@ -412,12 +369,6 @@ impl InputBar {
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let agent_input_state = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .placeholder("Ask anything…")
-                .auto_grow(1, INPUT_BAR_MAX_ROWS)
-                .submit_on_enter(true)
-        });
         let shell_input_state = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .placeholder("Type a command or ask AI…")
@@ -443,12 +394,10 @@ impl InputBar {
                 let key = event.keystroke.key.clone();
                 let _ = this.handle_history_navigation_key(key.as_str(), window, cx);
             }),
-            Self::subscribe_input_state(&agent_input_state, window, cx),
             Self::subscribe_input_state(&shell_input_state, window, cx),
         ];
 
         Self {
-            agent_input_state,
             shell_input_state,
             mode: InputMode::Smart,
             cwd: "~".to_string(),
@@ -534,14 +483,6 @@ impl InputBar {
         {
             self.pane_scope_mode = PaneScopeMode::Broadcast;
         }
-        cx.notify();
-    }
-
-    pub fn set_skills(&mut self, skills: Vec<SkillEntry>, cx: &mut Context<Self>) {
-        if self.skills == skills {
-            return;
-        }
-        self.skills = skills;
         cx.notify();
     }
 
@@ -638,10 +579,6 @@ impl InputBar {
 
     pub fn set_path_inline_suggestion(&mut self, prefix: &str, suggestion: &str) {
         self.set_inline_suggestion(prefix, suggestion, SuggestionSource::Path);
-    }
-
-    pub fn set_ai_inline_suggestion(&mut self, prefix: &str, suggestion: &str) {
-        self.set_inline_suggestion(prefix, suggestion, SuggestionSource::Ai);
     }
 
     pub fn accept_inline_suggestion(
@@ -835,36 +772,6 @@ impl InputBar {
         cx.notify();
     }
 
-    /// Switch to Agent mode and append quoted context (e.g. a terminal
-    /// selection) to the input, leaving the cursor at the end so the user
-    /// can type their question right away.
-    pub fn ask_ai_with_context(
-        &mut self,
-        context: Option<&str>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.mode != InputMode::Agent {
-            self.set_mode(InputMode::Agent, window, cx);
-        }
-        self.clear_completion_ui();
-
-        if let Some(context) = context.map(str::trim_end).filter(|text| !text.is_empty()) {
-            let state = self.current_input_state();
-            let current = state.read(cx).value().to_string();
-            let updated = append_ask_ai_context(&current, context);
-            let end = text_end_position(&updated);
-            state.update(cx, |s, cx| {
-                s.set_value(&updated, window, cx);
-                s.set_cursor_position(end, window, cx);
-            });
-        }
-
-        cx.emit(InputScopeChanged);
-        cx.emit(InputEdited);
-        cx.notify();
-    }
-
     pub fn pane_infos(&self) -> Vec<PaneInfo> {
         self.panes.clone()
     }
@@ -1050,9 +957,8 @@ impl InputBar {
 
     fn placeholder(&self) -> &str {
         match self.mode {
-            InputMode::Smart => "Type a command or ask AI…",
+            InputMode::Smart => "Type a command…",
             InputMode::Shell => "Run a command…",
-            InputMode::Agent => "Ask anything…",
         }
     }
 
@@ -1276,7 +1182,7 @@ impl Render for InputBar {
 
         // ── Pane target control — scales to many panes without growing the row ──
         let all_selected = self.all_panes_selected();
-        let pane_row = if has_multiple_panes && self.mode != InputMode::Agent {
+        let pane_row = if has_multiple_panes {
             let (scope_label, scope_icon) = self.pane_scope_summary();
             let scope_is_expanded =
                 all_selected || matches!(self.pane_scope_mode, PaneScopeMode::Custom);
@@ -1357,11 +1263,7 @@ impl Render for InputBar {
         // ── Send button — inside container, right edge ──
         let send_button = crate::input_chrome::send_button("send-button", has_text, theme, cx)
             .accessibility_label("Submit input")
-            .tooltip(if self.mode == InputMode::Agent {
-                "Send message"
-            } else {
-                "Run input"
-            })
+            .tooltip("Run input")
             .debug_selector(|| "command-send-button".into())
             .on_click(cx.listener(|this, _, window, cx| {
                 cx.emit(SubmitInput);
@@ -1369,22 +1271,13 @@ impl Render for InputBar {
                     .update(cx, |state, cx| state.focus(window, cx));
             }));
 
-        // Shell input is terminal chrome; natural-language agent input uses
-        // the UI font so its prose reads like the agent panel.
-        let input_font = if self.mode == InputMode::Agent {
-            theme.font_family.clone()
-        } else {
-            theme.mono_font_family.clone()
-        };
-        let input_text_size = match self.mode {
-            InputMode::Agent => mono_px(theme, 14.0),
-            _ => mono_px(theme, 13.0),
-        };
+        // Shell input is terminal chrome; always use the terminal font.
+        let input_font = theme.mono_font_family.clone();
+        let input_text_size = mono_px(theme, 13.0);
         // Switching between UI and mono fonts must not change the line box.
         let input_line_height = rems(1.25);
         let input_vertical_offset = px(0.0);
-        let show_inline_suggestion = self.mode != InputMode::Agent
-            && input_cursor == input_value.len()
+        let show_inline_suggestion = input_cursor == input_value.len()
             && !input_value.is_empty()
             && !input_value.contains('\n')
             && !input_value.trim_start().starts_with('/')
@@ -1407,11 +1300,8 @@ impl Render for InputBar {
             .clone()
             .unwrap_or_default()
             .replace(' ', "\u{00A0}");
-        let command_overlay_runs = if self.mode != InputMode::Agent {
-            Self::command_overlay_runs(&input_value, theme, input_text_size, input_line_height)
-        } else {
-            None
-        };
+        let command_overlay_runs =
+            Self::command_overlay_runs(&input_value, theme, input_text_size, input_line_height);
         let hide_native_command_text =
             Self::should_hide_native_command_text(&input_value, command_overlay_runs.is_some());
 
@@ -1650,8 +1540,8 @@ impl Render for InputBar {
 #[cfg(test)]
 mod tests {
     use super::{
-        INPUT_BAR_MAX_ROWS, InputBar, SkillEntry, SubmitInput, append_ask_ai_context,
-        input_bar_content_rows, input_bar_rendered_height_for_rows, text_end_position,
+        INPUT_BAR_MAX_ROWS, InputBar, SubmitInput, input_bar_content_rows,
+        input_bar_rendered_height_for_rows,
     };
     use gpui::{Entity, Focusable as _, VisualTestContext};
     use gpui_component::input::Position;
@@ -1708,37 +1598,6 @@ mod tests {
     }
 
     #[gpui::test]
-    fn enter_completion_does_not_depend_on_newline_cleanup_at_selection(
-        cx: &mut gpui::TestAppContext,
-    ) {
-        let (bar, cx, submit_count) = test_input_bar(cx);
-        cx.update(|window, cx| {
-            bar.update(cx, |bar, cx| {
-                bar.set_skills(
-                    vec![SkillEntry {
-                        name: "build".into(),
-                        description: "Build the project".into(),
-                    }],
-                    cx,
-                );
-                bar.current_input_state().update(cx, |state, cx| {
-                    state.set_value("/bu", window, cx);
-                    state.set_cursor_position(Position::new(0, 1), window, cx);
-                });
-            });
-        });
-        cx.simulate_keystrokes("shift-right enter");
-        cx.update(|window, cx| {
-            assert_eq!(
-                bar.read(cx).current_input_state().read(cx).value(),
-                "/build "
-            );
-            assert_eq!(submit_count.get(), 0, "completion must win over submission");
-            assert!(bar.read(cx).focus_handle(cx).is_focused(window));
-        });
-    }
-
-    #[gpui::test]
     fn path_completion_rejects_a_middle_cursor_without_mutating_input(
         cx: &mut gpui::TestAppContext,
     ) {
@@ -1786,13 +1645,9 @@ mod tests {
         con_core::release_channel::init();
         cx.update(gpui_component::init);
         let mut mode_row_top = [None, None];
-        for (mode, pane_count) in [
-            super::InputMode::Smart,
-            super::InputMode::Shell,
-            super::InputMode::Agent,
-        ]
-        .into_iter()
-        .flat_map(|mode| [1, 2].map(|pane_count| (mode, pane_count)))
+        for (mode, pane_count) in [super::InputMode::Smart, super::InputMode::Shell]
+            .into_iter()
+            .flat_map(|mode| [1, 2].map(|pane_count| (mode, pane_count)))
         {
             for (cache_index, cached) in [false, true].into_iter().enumerate() {
                 let (_, view) = cx.add_window_view(|window, cx| {
@@ -1852,7 +1707,7 @@ mod tests {
                     );
                     assert!(input.right() <= send.left(), "input overlaps send button");
                     assert!(send.right() <= px(width), "send button outside viewport");
-                    if pane_count > 1 && mode != super::InputMode::Agent {
+                    if pane_count > 1 {
                         let scope = view
                             .debug_bounds("command-pane-scope")
                             .expect("pane scope control");
@@ -1904,36 +1759,5 @@ mod tests {
     #[test]
     fn native_command_text_hides_when_single_line_overlay_is_available() {
         assert!(InputBar::should_hide_native_command_text("echo one", true));
-    }
-
-    #[test]
-    fn ask_ai_context_wraps_selection_in_fence() {
-        assert_eq!(
-            append_ask_ai_context("", "error: it broke"),
-            "```\nerror: it broke\n```\n"
-        );
-    }
-
-    #[test]
-    fn ask_ai_context_appends_after_existing_input() {
-        assert_eq!(
-            append_ask_ai_context("why does this fail?  ", "error: it broke"),
-            "why does this fail?\n```\nerror: it broke\n```\n"
-        );
-    }
-
-    #[test]
-    fn ask_ai_context_fence_grows_past_embedded_backticks() {
-        let context = "see ```rust\ncode\n```";
-        let updated = append_ask_ai_context("", context);
-        assert!(updated.starts_with("````\n"));
-        assert!(updated.ends_with("\n````\n"));
-    }
-
-    #[test]
-    fn text_end_position_counts_lines_and_last_column() {
-        assert_eq!(text_end_position(""), Position::new(0, 0));
-        assert_eq!(text_end_position("ask"), Position::new(0, 3));
-        assert_eq!(text_end_position("a\n```\nxy\n```\n"), Position::new(4, 0));
     }
 }

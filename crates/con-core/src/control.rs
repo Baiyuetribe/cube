@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
-use con_agent::{PaneCreateLocation, TmuxExecLocation};
+use con_terminal::{PaneCreateLocation, TmuxExecLocation};
 
 /// Default control endpoint location.
 ///
@@ -107,36 +107,6 @@ pub struct ControlMethodInfo {
 
 const CONTROL_METHODS: &[(&str, &str)] = &[
     (
-        "handoffs.agents",
-        "List installed local agents and handoff capabilities.",
-    ),
-    (
-        "handoffs.open",
-        "Open Agent Handoff for the active terminal (macOS).",
-    ),
-    (
-        "handoffs.sources",
-        "List exact local sessions for the selected agent (macOS).",
-    ),
-    (
-        "handoffs.prepare",
-        "Prepare a filtered handoff preview for a handoff job.",
-    ),
-    ("handoffs.list", "List durable handoffs for a directory."),
-    ("handoffs.get", "Read handoff state and preview."),
-    (
-        "handoffs.start",
-        "Open a one-shot native agent startup helper in a new surface.",
-    ),
-    (
-        "handoffs.respond",
-        "Explicitly confirm delivery, receipt, or stopped work.",
-    ),
-    (
-        "handoffs.cancel",
-        "Cancel preparation or request a visible stop confirmation.",
-    ),
-    (
         "system.identify",
         "Return app identity, active tab, socket path, and method inventory.",
     ),
@@ -215,22 +185,6 @@ const CONTROL_METHODS: &[(&str, &str)] = &[
     ("tmux.capture", "Capture content from a tmux pane target."),
     ("tmux.send_keys", "Send keys to a tmux pane target."),
     ("tmux.run", "Launch a command via tmux."),
-    (
-        "agent.ask",
-        "Send a prompt to a tab's built-in agent session and wait for the response.",
-    ),
-    (
-        "agent.new_conversation",
-        "Start a fresh built-in agent conversation for a tab.",
-    ),
-    (
-        "agent.open_panel_for_request",
-        "Open the agent panel via the agent-request path (drives motion state) and return panel state.",
-    ),
-    (
-        "agent.panel_state",
-        "Return the current agent panel open/visible state.",
-    ),
 ];
 
 pub fn control_methods() -> Vec<ControlMethodInfo> {
@@ -261,20 +215,10 @@ pub struct TabInfo {
     pub pane_count: usize,
     pub focused_pane_id: usize,
     pub needs_attention: bool,
-    pub conversation_id: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AgentAskResult {
-    pub tab_index: usize,
-    pub conversation_id: String,
-    pub prompt: String,
-    pub message: con_agent::Message,
 }
 
 #[derive(Debug, Clone)]
 pub enum ControlCommand {
-    Handoff(crate::handoff::HandoffRpc),
     SystemIdentify,
     SystemCapabilities,
     TabsList,
@@ -405,29 +349,11 @@ pub enum ControlCommand {
         cwd: Option<String>,
         detached: bool,
     },
-    AgentAsk {
-        tab_index: Option<usize>,
-        prompt: String,
-        auto_approve_tools: bool,
-        timeout_secs: Option<u64>,
-    },
-    AgentNewConversation {
-        tab_index: Option<usize>,
-    },
-    /// Open the agent panel via the "Ask AI" / agent-request path (drives motion state).
-    AgentOpenPanelForRequest {
-        tab_index: Option<usize>,
-    },
-    /// Return the current agent panel open/visible state.
-    AgentPanelState {
-        tab_index: Option<usize>,
-    },
 }
 
 impl ControlCommand {
     pub fn method_name(&self) -> &'static str {
         match self {
-            Self::Handoff(command) => command.method(),
             Self::SystemIdentify => "system.identify",
             Self::SystemCapabilities => "system.capabilities",
             Self::TabsList => "tabs.list",
@@ -456,16 +382,11 @@ impl ControlCommand {
             Self::TmuxCapture { .. } => "tmux.capture",
             Self::TmuxSendKeys { .. } => "tmux.send_keys",
             Self::TmuxRun { .. } => "tmux.run",
-            Self::AgentAsk { .. } => "agent.ask",
-            Self::AgentNewConversation { .. } => "agent.new_conversation",
-            Self::AgentOpenPanelForRequest { .. } => "agent.open_panel_for_request",
-            Self::AgentPanelState { .. } => "agent.panel_state",
         }
     }
 
     pub fn params_json(&self) -> Value {
         match self {
-            Self::Handoff(command) => command.params(),
             Self::SystemIdentify | Self::SystemCapabilities | Self::TabsList | Self::TabsNew => {
                 json!({})
             }
@@ -690,29 +611,10 @@ impl ControlCommand {
                 "cwd": cwd,
                 "detached": detached,
             }),
-            Self::AgentAsk {
-                tab_index,
-                prompt,
-                auto_approve_tools,
-                timeout_secs,
-            } => json!({
-                "tab_index": tab_index,
-                "prompt": prompt,
-                "auto_approve_tools": auto_approve_tools,
-                "timeout_secs": timeout_secs,
-            }),
-            Self::AgentNewConversation { tab_index } => json!({ "tab_index": tab_index }),
-            Self::AgentOpenPanelForRequest { tab_index } => json!({ "tab_index": tab_index }),
-            Self::AgentPanelState { tab_index } => json!({ "tab_index": tab_index }),
         }
     }
 
     pub fn from_rpc(method: &str, params: Value) -> Result<Self, ControlError> {
-        if method.starts_with("handoffs.") {
-            return crate::handoff::HandoffRpc::parse(method, params)
-                .map(Self::Handoff)
-                .map_err(|error| ControlError::invalid_params(error.to_string()));
-        }
         match method {
             "system.identify" => Ok(Self::SystemIdentify),
             "system.capabilities" => Ok(Self::SystemCapabilities),
@@ -914,33 +816,6 @@ impl ControlCommand {
                     window_name: params.window_name,
                     cwd: params.cwd,
                     detached: params.detached,
-                })
-            }
-            "agent.ask" => {
-                let params: AgentAskParams = decode_params(params)?;
-                Ok(Self::AgentAsk {
-                    tab_index: params.tab_index,
-                    prompt: params.prompt,
-                    auto_approve_tools: params.auto_approve_tools,
-                    timeout_secs: params.timeout_secs,
-                })
-            }
-            "agent.new_conversation" => {
-                let params: TabScopedParams = decode_params(params)?;
-                Ok(Self::AgentNewConversation {
-                    tab_index: params.tab_index,
-                })
-            }
-            "agent.open_panel_for_request" => {
-                let params: TabScopedParams = decode_params(params)?;
-                Ok(Self::AgentOpenPanelForRequest {
-                    tab_index: params.tab_index,
-                })
-            }
-            "agent.panel_state" => {
-                let params: TabScopedParams = decode_params(params)?;
-                Ok(Self::AgentPanelState {
-                    tab_index: params.tab_index,
                 })
             }
             _ => Err(ControlError::method_not_found(method)),
@@ -1742,15 +1617,6 @@ impl TmuxRunParams {
     fn target(&self) -> PaneTarget {
         PaneTarget::new(self.pane_index, self.pane_id)
     }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-struct AgentAskParams {
-    tab_index: Option<usize>,
-    prompt: String,
-    auto_approve_tools: bool,
-    timeout_secs: Option<u64>,
 }
 
 fn decode_params<T>(params: Value) -> Result<T, ControlError>

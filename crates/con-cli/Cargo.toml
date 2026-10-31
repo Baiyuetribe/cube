@@ -9,8 +9,8 @@ name = "con-cli"
 path = "src/main.rs"
 
 [dependencies]
-con-agent.workspace = true
 con-core.workspace = true
+con-terminal.workspace = true
 con-paths.workspace = true
 con-process.workspace = true
 serde.workspace = true

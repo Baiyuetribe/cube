@@ -3,15 +3,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use con_agent::{PaneCreateLocation, TmuxExecLocation};
 use con_core::{
     ControlCommand, JSON_RPC_VERSION, JsonRpcRequest, JsonRpcResponse, PaneTarget, SurfaceTarget,
     control_socket_path,
 };
+use con_terminal::{PaneCreateLocation, TmuxExecLocation};
 use serde_json::{Value, json};
 
 mod configuration;
-mod handoff;
 mod pty_bridge;
 use pty_bridge::{PtyBridgeArgs, run_pty_bridge};
 mod ssh;
@@ -49,19 +48,10 @@ enum Command {
         #[command(subcommand)]
         command: TmuxCommand,
     },
-    Agent {
-        #[command(subcommand)]
-        command: AgentCommand,
-    },
     /// Import or export configuration without connecting to a running Con app.
     Config {
         #[command(subcommand)]
         command: configuration::ConfigurationCommand,
-    },
-    /// Hand off a task between installed agents, preserving the current worktree.
-    Handoff {
-        #[command(subcommand)]
-        command: handoff::HandoffCommand,
     },
     PtyBridge(PtyBridgeArgs),
 }
@@ -105,14 +95,6 @@ enum TmuxCommand {
     Capture(TmuxCaptureArgs),
     SendKeys(TmuxSendKeysArgs),
     Run(TmuxRunArgs),
-}
-
-#[derive(Subcommand)]
-enum AgentCommand {
-    Ask(AgentAskArgs),
-    NewConversation(TabArgs),
-    OpenPanelForRequest(TabArgs),
-    PanelState(TabArgs),
 }
 
 #[derive(Args, Clone, Default)]
@@ -665,49 +647,7 @@ fn main() -> Result<()> {
                 print_result(&result, cli.json, render_pretty_json)?;
             }
         },
-        Command::Agent { command } => match command {
-            AgentCommand::Ask(args) => {
-                let result = send_command(
-                    &socket_path,
-                    ControlCommand::AgentAsk {
-                        tab_index: args.tab.tab,
-                        prompt: join_words(args.prompt),
-                        auto_approve_tools: args.auto_approve_tools,
-                        timeout_secs: args.timeout,
-                    },
-                )?;
-                print_result(&result, cli.json, render_agent_ask)?;
-            }
-            AgentCommand::NewConversation(args) => {
-                let result = send_command(
-                    &socket_path,
-                    ControlCommand::AgentNewConversation {
-                        tab_index: args.tab,
-                    },
-                )?;
-                print_result(&result, cli.json, render_new_conversation)?;
-            }
-            AgentCommand::OpenPanelForRequest(args) => {
-                let result = send_command(
-                    &socket_path,
-                    ControlCommand::AgentOpenPanelForRequest {
-                        tab_index: args.tab,
-                    },
-                )?;
-                print_result(&result, cli.json, render_pretty_json)?;
-            }
-            AgentCommand::PanelState(args) => {
-                let result = send_command(
-                    &socket_path,
-                    ControlCommand::AgentPanelState {
-                        tab_index: args.tab,
-                    },
-                )?;
-                print_result(&result, cli.json, render_pretty_json)?;
-            }
-        },
         Command::Config { command } => configuration::run(command)?,
-        Command::Handoff { command } => handoff::run(command, &socket_path, cli.json)?,
         Command::PtyBridge(args) => run_pty_bridge(args)?,
     }
 
@@ -1195,28 +1135,6 @@ fn render_tmux_capture(value: &Value) -> Result<()> {
         .and_then(Value::as_str)
         .unwrap_or("");
     print!("{content}");
-    Ok(())
-}
-
-fn render_agent_ask(value: &Value) -> Result<()> {
-    let content = value
-        .get("message")
-        .and_then(|message| message.get("content"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    print!("{content}");
-    if !content.ends_with('\n') && !content.is_empty() {
-        println!();
-    }
-    Ok(())
-}
-
-fn render_new_conversation(value: &Value) -> Result<()> {
-    println!(
-        "Started new conversation {} on tab {}",
-        value["conversation_id"].as_str().unwrap_or(""),
-        value["tab_index"].as_u64().unwrap_or(0)
-    );
     Ok(())
 }
 

@@ -201,13 +201,7 @@ impl Render for ConWorkspace {
         let is_modal_open = self.is_modal_open(cx);
         let has_skill_popup = !self.input_bar.read(cx).filtered_skills(cx).is_empty();
         let has_path_popup = self.input_bar.read(cx).has_path_completion_candidates();
-        let has_inline_skill_popup = self.agent_panel_open
-            && !self.input_bar_visible
-            && !self
-                .agent_panel
-                .read(cx)
-                .filtered_inline_skills(cx)
-                .is_empty();
+        let _has_inline_skill_popup = false;
         let needs_ghostty_hidden = false;
 
         // A palette action can hand focus to a newly opened inline editor.
@@ -289,45 +283,15 @@ impl Render for ConWorkspace {
                 })
                 .unwrap_or_else(|| "~".to_string());
 
-            let skill_entries: Vec<crate::input_bar::SkillEntry> = self
-                .harness
-                .skill_summaries()
-                .into_iter()
-                .map(|(name, desc)| crate::input_bar::SkillEntry {
-                    name,
-                    description: desc,
-                })
-                .collect();
             self.input_bar.update(cx, |bar, cx| {
                 bar.set_panes(pane_infos, focused_pane_id, window, cx);
                 bar.set_cwd(display_cwd, cx);
-                bar.set_skills(skill_entries.clone(), cx);
             });
             // Up/Down is command-bar recall, not shell suggestion ranking. Keep it
             // backed by the global submitted-input history across all modes.
             let recent_commands = self.recent_input_history(80);
             self.input_bar
                 .update(cx, |bar, cx| bar.set_recent_commands(recent_commands, cx));
-
-            // Sync model name, inline input, and skills to agent panel
-            let active_agent_config = self.active_tab_agent_config();
-            let model_name = AgentHarness::active_model_name_for(&active_agent_config);
-            let provider = active_agent_config.provider.clone();
-            let available_models = self.provider_models_for_config(&active_agent_config);
-            let show_inline = !self.input_bar_visible && self.agent_panel_open;
-            self.agent_panel.update(cx, |panel, cx| {
-                panel.set_session_provider_options(
-                    AgentPanel::configured_session_providers(&active_agent_config),
-                    window,
-                    cx,
-                );
-                panel.set_provider_name(provider, window, cx);
-                panel.set_model_name(model_name, cx);
-                panel.set_session_model_options(available_models, window, cx);
-                panel.set_show_inline_input(show_inline, cx);
-                panel.set_skills(skill_entries, cx);
-                panel.set_recent_inputs(self.recent_input_history(80), cx);
-            });
         }
 
         // Resolve boolean state here so all reveal paths (keyboard, Files,
@@ -442,7 +406,7 @@ impl Render for ConWorkspace {
             .min(max_agent_panel_width(window_width));
         #[cfg(not(target_os = "macos"))]
         let animated_panel_width = effective_agent_panel_width * agent_panel_progress;
-        let agent_panel_reserved_for_layout = self.agent_panel_open || agent_panel_progress > 0.0;
+        let _agent_panel_reserved_for_layout = self.agent_panel_open || agent_panel_progress > 0.0;
         let agent_panel_outer_width = (effective_agent_panel_width + 1.0) * agent_panel_progress;
         let vertical_tabs_enabled = self.vertical_tabs_enabled();
         let show_left_panel = self.left_panel_open || left_panel_progress > 0.0;
@@ -1098,125 +1062,6 @@ impl Render for ConWorkspace {
             );
         }
 
-        let render_agent_panel = agent_panel_reserved_for_layout;
-
-        if render_agent_panel {
-            let panel_width = agent_panel_outer_width;
-
-            main_area = main_area.child(
-                div()
-                    .relative()
-                    .w(px(panel_width))
-                    .min_w_0()
-                    .h_full()
-                    .overflow_hidden()
-                    .flex_shrink_0()
-                    .flex()
-                    .flex_row()
-                    .map(|panel| {
-                        #[cfg(target_os = "macos")]
-                        {
-                            let split = self.has_active_tab()
-                                && self.tabs[self.active_tab].pane_tree.pane_count() > 1;
-                            let (top, bottom) = frame::agent_vertical_insets(
-                                canvas_depth,
-                                split,
-                                frame::input_reserved_height(
-                                    full_input_bar_height,
-                                    self.input_bar_visible,
-                                    input_bar_progress,
-                                    canvas_depth,
-                                ),
-                                tab_strip_progress,
-                                caption.header,
-                            );
-                            panel.pt(px(top)).pb(px(bottom)).bg(top_bar_surface_color)
-                        }
-                        #[cfg(not(target_os = "macos"))]
-                        {
-                            panel.bg(agent_panel_surface_color)
-                        }
-                    })
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .right_0()
-                            .h(px(1.0))
-                            .bg(chrome_edge_color),
-                    )
-                    .child(
-                        div()
-                            .id("agent-panel-divider")
-                            .relative()
-                            .w(px(if cfg!(target_os = "macos") { 0.0 } else { 1.0 }))
-                            .h_full()
-                            .flex_shrink_0()
-                            .child(
-                                div()
-                                    .absolute()
-                                    .top_0()
-                                    .bottom_0()
-                                    .left_0()
-                                    .w(px(1.0))
-                                    .bg(chrome_edge_color),
-                            )
-                            .child(
-                                div()
-                                    .absolute()
-                                    .top_0()
-                                    .bottom_0()
-                                    .left(px(if cfg!(target_os = "macos") { 0.0 } else { -2.0 }))
-                                    .w(px(5.0))
-                                    .cursor_col_resize()
-                                    .bg(theme.transparent)
-                                    .hover(|s| s.bg(chrome_resize_hover_color))
-                                    .on_mouse_down(
-                                        MouseButton::Left,
-                                        cx.listener(
-                                            move |this, event: &MouseDownEvent, _window, cx| {
-                                                if this.agent_panel_motion.is_animating() {
-                                                    return;
-                                                }
-                                                this.release_active_terminal_mouse_selection(cx);
-                                                this.agent_panel_drag = Some((
-                                                    f32::from(event.position.x),
-                                                    effective_agent_panel_width,
-                                                ));
-                                                cx.notify();
-                                            },
-                                        ),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .w(px(effective_agent_panel_width
-                                + if cfg!(target_os = "macos") { 1.0 } else { 0.0 }))
-                            .flex_shrink_0()
-                            .min_w_0()
-                            .h_full()
-                            .map(|panel| {
-                                #[cfg(target_os = "macos")]
-                                {
-                                    panel.relative().overflow_hidden()
-                                }
-                                #[cfg(not(target_os = "macos"))]
-                                {
-                                    panel
-                                }
-                            })
-                            .child(
-                                self.agent_panel
-                                    .clone()
-                                    .cached(StyleRefinement::default().size_full())
-                                    .into_any_element(),
-                            ),
-                    ),
-            );
-        }
-
         // Top bar — compact titlebar for one tab, full strip for many
         let top_bar_height = self.current_top_bar_height();
 
@@ -1389,7 +1234,6 @@ impl Render for ConWorkspace {
             )
             .on_action(cx.listener(Self::quit))
             .on_action(cx.listener(Self::minimize))
-            .on_action(cx.listener(Self::toggle_agent_panel))
             .on_action(cx.listener(Self::toggle_input_bar))
             .on_action(cx.listener(Self::collapse_sidebar))
             .on_action(cx.listener(Self::toggle_settings))
@@ -1429,7 +1273,6 @@ impl Render for ConWorkspace {
             .on_action(cx.listener(Self::close_surface))
             .on_action(cx.listener(Self::focus_input))
             .on_action(cx.listener(Self::ask_ai))
-            .on_action(cx.listener(Self::open_agent_handoff))
             .on_action(cx.listener(Self::editor_move_left))
             .on_action(cx.listener(Self::editor_move_right))
             .on_action(cx.listener(Self::editor_move_up))
@@ -1852,13 +1695,6 @@ impl Render for ConWorkspace {
             cx,
         ) {
             root = root.child(picker);
-        }
-
-        if has_inline_skill_popup
-            && let Some(popup) =
-                self.render_inline_skill_popup(elevated_ui_surface_opacity, window, cx)
-        {
-            root = root.child(popup);
         }
 
         let settings_visible = self.settings_panel.read(cx).is_overlay_visible();

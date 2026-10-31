@@ -41,12 +41,8 @@ impl ConWorkspace {
         }
     }
 
-    /// Public-ish hook so the workspace can re-ask the AI summarizer
-    /// after recording a new shell command. Separate from the
-    /// `&mut self` mutation above so the borrow checker is happy.
-    pub(super) fn after_shell_command_recorded(&self, cx: &App) {
-        self.request_tab_summaries(cx);
-    }
+    /// Hook kept for call-site symmetry after recording a new shell command.
+    pub(super) fn after_shell_command_recorded(&self, _cx: &App) {}
 
     pub(super) fn record_input_history(&mut self, input: &str) {
         let trimmed = input.trim();
@@ -65,15 +61,6 @@ impl ConWorkspace {
         while self.global_input_history.len() > MAX_GLOBAL_INPUT_HISTORY {
             self.global_input_history.pop_front();
         }
-    }
-
-    pub(super) fn recent_shell_commands(&self, limit: usize) -> Vec<String> {
-        self.global_shell_history
-            .iter()
-            .rev()
-            .take(limit)
-            .map(|entry| entry.command.clone())
-            .collect()
     }
 
     pub(super) fn recent_input_history(&self, limit: usize) -> Vec<String> {
@@ -119,10 +106,7 @@ impl ConWorkspace {
                 entry.as_str() != prefix
                     && entry.starts_with(prefix)
                     && (mode == InputMode::Shell
-                        || matches!(
-                            self.harness.classify_input(entry, is_remote),
-                            InputKind::ShellCommand(_)
-                        ))
+                        || con_terminal::looks_like_command(entry, is_remote))
             })
             .cloned()
     }
@@ -261,7 +245,6 @@ impl ConWorkspace {
     ) {
         if !self.has_active_tab() {
             log::debug!(target: "con::suggestions", "skip suggestion: no active tab");
-            self.shell_suggestion_engine.cancel();
             self.input_bar
                 .update(cx, |bar, _cx| bar.clear_completion_ui());
             return;
@@ -285,7 +268,6 @@ impl ConWorkspace {
                 trimmed.starts_with('/'),
                 target_ids.len()
             );
-            self.shell_suggestion_engine.cancel();
             self.input_bar
                 .update(cx, |bar, _cx| bar.clear_completion_ui());
             return;
@@ -306,7 +288,6 @@ impl ConWorkspace {
         if let Some(path_match) =
             self.local_path_completion_for_prefix(self.active_tab, pane_id, &text, cx)
         {
-            self.shell_suggestion_engine.cancel();
             match path_match {
                 LocalPathCompletion::Inline(path_match) => {
                     log::debug!(
@@ -343,7 +324,6 @@ impl ConWorkspace {
                 text,
                 history_match
             );
-            self.shell_suggestion_engine.cancel();
             self.input_bar.update(cx, |bar, _cx| {
                 bar.set_history_inline_suggestion(&text, &history_match);
             });
@@ -352,238 +332,6 @@ impl ConWorkspace {
 
         self.input_bar
             .update(cx, |bar, _cx| bar.clear_completion_ui());
-
-        let shell_probe_too_short = mode == InputMode::Smart && trimmed.chars().count() < 2;
-        let is_shell_mode = match mode {
-            InputMode::Shell => true,
-            InputMode::Smart => {
-                if shell_probe_too_short {
-                    log::debug!(
-                        target: "con::suggestions",
-                        "skip ai suggestion: smart-mode probe too short prefix={:?}",
-                        text
-                    );
-                    false
-                } else {
-                    matches!(
-                        self.harness.classify_input(&text, is_remote),
-                        InputKind::ShellCommand(_)
-                    )
-                }
-            }
-            InputMode::Agent => false,
-        };
-
-        if !is_shell_mode {
-            log::debug!(
-                target: "con::suggestions",
-                "skip ai suggestion: input classified as non-shell prefix={:?}",
-                text
-            );
-            self.shell_suggestion_engine.cancel();
-            self.input_bar
-                .update(cx, |bar, _cx| bar.clear_path_completion_candidates());
-            return;
-        }
-
-        if !self.harness.config().suggestion_model.enabled {
-            log::debug!(
-                target: "con::suggestions",
-                "skip ai suggestion: disabled in config prefix={:?}",
-                text
-            );
-            self.shell_suggestion_engine.cancel();
-            self.input_bar
-                .update(cx, |bar, _cx| bar.clear_path_completion_candidates());
-            return;
-        }
-
-        let suggestion_tx = self.shell_suggestion_tx.clone();
-        let prefix = text.clone();
-        let callback_prefix = prefix.clone();
-        let tab_idx = self.active_tab;
-        let recent_commands = self.recent_shell_commands(6);
-        self.shell_suggestion_engine.request(
-            &prefix,
-            SuggestionContext {
-                cwd,
-                recent_commands,
-            },
-            move |completion| {
-                let _ = suggestion_tx.send(ShellSuggestionResult {
-                    tab_idx,
-                    pane_id,
-                    prefix: callback_prefix.clone(),
-                    completion,
-                });
-            },
-        );
-    }
-
-    pub(super) fn apply_shell_suggestion(
-        &mut self,
-        result: ShellSuggestionResult,
-        cx: &mut Context<Self>,
-    ) {
-        if result.tab_idx != self.active_tab {
-            log::debug!(
-                target: "con::suggestions",
-                "drop ai suggestion for inactive tab={} active={}",
-                result.tab_idx,
-                self.active_tab
-            );
-            return;
-        }
-
-        let (text, mode, target_ids) = self.input_bar.update(cx, |bar, cx| {
-            (bar.current_text(cx), bar.mode(), bar.target_pane_ids())
-        });
-
-        if matches!(mode, InputMode::Agent)
-            || target_ids.as_slice() != [result.pane_id]
-            || text.trim().starts_with('/')
-            || text.contains('\n')
-        {
-            log::debug!(
-                target: "con::suggestions",
-                "drop ai suggestion prefix={:?}: text/mode/target changed",
-                result.prefix
-            );
-            return;
-        }
-
-        let input_changed = text != result.prefix;
-
-        let pane_tree = &self.tabs[self.active_tab].pane_tree;
-        let cwd = pane_tree
-            .pane_terminals()
-            .into_iter()
-            .find_map(|(id, terminal)| (id == result.pane_id).then(|| terminal.current_dir(cx)))
-            .flatten();
-
-        let is_remote = self
-            .tabs
-            .get(self.active_tab)
-            .and_then(|tab| {
-                tab.pane_tree
-                    .pane_terminals()
-                    .into_iter()
-                    .find_map(|(id, terminal)| {
-                        (id == result.pane_id).then(|| {
-                            self.effective_remote_host_for_tab(self.active_tab, &terminal, cx)
-                                .is_some()
-                        })
-                    })
-            })
-            .unwrap_or(false);
-
-        if self
-            .history_completion_for_prefix(&text, cwd.as_deref(), mode, is_remote)
-            .is_some()
-        {
-            log::debug!(
-                target: "con::suggestions",
-                "drop ai suggestion prefix={:?}: history match became available",
-                result.prefix
-            );
-            return;
-        }
-
-        if input_changed {
-            let full_suggestion = if result.completion.starts_with(&result.prefix) {
-                result.completion.clone()
-            } else {
-                format!("{}{}", result.prefix, result.completion)
-            };
-
-            if !full_suggestion.starts_with(&text) || full_suggestion == text {
-                log::debug!(
-                    target: "con::suggestions",
-                    "drop ai suggestion prefix={:?}: text changed to incompatible prefix {:?}",
-                    result.prefix,
-                    text
-                );
-                return;
-            }
-
-            log::debug!(
-                target: "con::suggestions",
-                "apply ai suggestion prefix={:?} current={:?} completion={:?}",
-                result.prefix,
-                text,
-                full_suggestion
-            );
-            self.input_bar.update(cx, |bar, _cx| {
-                bar.set_ai_inline_suggestion(&text, &full_suggestion);
-            });
-            cx.notify();
-            return;
-        }
-
-        log::debug!(
-            target: "con::suggestions",
-            "apply ai suggestion prefix={:?} completion={:?}",
-            result.prefix,
-            result.completion
-        );
-        self.input_bar.update(cx, |bar, _cx| {
-            bar.set_ai_inline_suggestion(&result.prefix, &result.completion);
-        });
-        cx.notify();
-    }
-
-    /// Result delivered by [`TabSummaryEngine`] — locate the tab by
-    /// `summary_id` (NOT index, since reorders / closes shift the
-    /// indexes), update its `ai_label` / `ai_icon`, and republish to
-    /// the sidebar.
-    pub(super) fn apply_tab_summary(
-        &mut self,
-        generation: u64,
-        summary_epoch: u64,
-        summary: TabSummary,
-        cx: &mut Context<Self>,
-    ) {
-        if generation != self.tab_summary_generation
-            || !self.harness.config().suggestion_model.enabled
-        {
-            return;
-        }
-        let Some(tab) = self
-            .tabs
-            .iter_mut()
-            .find(|t| t.summary_id == summary.tab_id)
-        else {
-            // Tab was closed while the request was in flight.
-            return;
-        };
-        if !tab_summary_epoch_matches(summary_epoch, tab.summary_epoch) {
-            log::debug!(
-                target: "con::tab_summary",
-                "tab_summary drop stale tab_id={} request_epoch={} current_epoch={}",
-                summary.tab_id,
-                summary_epoch,
-                tab.summary_epoch,
-            );
-            return;
-        }
-        let label = summary.label.trim().to_string();
-        let icon = summary.icon;
-        let label_changed = tab.ai_label.as_deref() != Some(label.as_str());
-        let icon_changed = tab.ai_icon != Some(icon);
-        if !label_changed && !icon_changed {
-            return;
-        }
-        tab.ai_label = Some(label);
-        tab.ai_icon = Some(icon);
-        log::debug!(
-            target: "con::tab_summary",
-            "tab_summary applied tab_id={} label={:?} icon={:?}",
-            summary.tab_id,
-            tab.ai_label,
-            tab.ai_icon,
-        );
-        self.sync_sidebar(cx);
-        cx.notify();
     }
 
     #[cfg(test)]
@@ -604,73 +352,5 @@ impl ConWorkspace {
     #[cfg(test)]
     pub(super) fn should_defer_top_chrome_refresh_when_tab_strip_appears_for_tests() -> bool {
         Self::should_defer_top_chrome_refresh_when_tab_strip_appears()
-    }
-
-    pub(super) fn request_tab_summaries(&self, cx: &App) {
-        log::trace!(target: "con::activity", "summary_poll");
-        if !self.harness.config().suggestion_model.enabled {
-            return;
-        }
-        let started = std::time::Instant::now();
-        let tx = self.tab_summary_tx.clone();
-        let generation = self.tab_summary_generation;
-        for (i, tab) in self.tabs.iter().enumerate() {
-            let summary_epoch = tab.summary_epoch;
-            let Some(terminal) = tab.pane_tree.try_focused_terminal().cloned() else {
-                continue;
-            };
-            // The terminal's recent scrollback is the only signal we
-            // get for commands the user typed *directly* into the
-            // pane (Con doesn't intercept those into shell_history).
-            // Pull a small tail and pass it to the model — same lines
-            // the user can see right now.
-            let recent_output = terminal.recent_lines(24, cx);
-            let req = TabSummaryRequest {
-                tab_id: tab.summary_id,
-                cwd: terminal.current_dir(cx),
-                title: terminal.title_name(cx),
-                ssh_host: self.effective_remote_host_for_tab(i, &terminal, cx),
-                recent_commands: {
-                    let mut histories: Vec<_> = tab.shell_history.iter().collect();
-                    histories.sort_by_key(|(pane_id, _)| *pane_id);
-                    histories
-                        .into_iter()
-                        .flat_map(|(_, q)| q.iter().rev())
-                        .map(|entry| entry.command.clone())
-                        .take(8)
-                        .collect()
-                },
-                recent_output,
-                agent_cli: tab.agent_cli,
-            };
-            let tx = tx.clone();
-            self.tab_summary_engine.request(req, move |summary| {
-                let _ = tx.send((generation, summary_epoch, summary));
-            });
-        }
-        let elapsed = started.elapsed();
-        if elapsed > std::time::Duration::from_millis(50) {
-            log::warn!(
-                target: "con::perf",
-                "tab summary sampling blocked UI for {:.1}ms (tabs={})",
-                elapsed.as_secs_f64() * 1000.0,
-                self.tabs.len(),
-            );
-        }
-    }
-}
-
-fn tab_summary_epoch_matches(request_epoch: u64, current_epoch: u64) -> bool {
-    request_epoch == current_epoch
-}
-
-#[cfg(test)]
-mod tests {
-    use super::tab_summary_epoch_matches;
-
-    #[test]
-    fn tab_summary_epoch_rejects_late_response_after_context_change() {
-        assert!(tab_summary_epoch_matches(7, 7));
-        assert!(!tab_summary_epoch_matches(7, 8));
     }
 }

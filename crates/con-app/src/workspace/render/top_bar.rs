@@ -2811,22 +2811,6 @@ impl ConWorkspace {
             }
         }
 
-        #[cfg(target_os = "macos")]
-        if self.handoff_button_visible(cx) {
-            tab_controls = tab_controls.child(
-                chrome_button(
-                    "handoff-agent",
-                    "phosphor/handshake.svg",
-                    None,
-                    "Handoff Agent",
-                    Some(Box::new(crate::HandoffAgent)),
-                    cx,
-                )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.open_agent_handoff(&crate::HandoffAgent, window, cx);
-                })),
-            );
-        }
         if !caption_docked {
             tab_controls = tab_controls.child(
                 chrome_button(
@@ -2881,26 +2865,6 @@ impl ConWorkspace {
             )
             .on_click(cx.listener(|this, _, window, cx| {
                 this.toggle_input_bar(&crate::ToggleInputBar, window, cx);
-            })),
-        );
-
-        // Agent panel toggle
-        let agent_panel_tooltip = if self.agent_panel_open {
-            "Hide agent panel"
-        } else {
-            "Show agent panel"
-        };
-        tab_controls = tab_controls.child(
-            chrome_button(
-                "toggle-agent-panel",
-                "phosphor/square-half-fill.svg",
-                Some(self.agent_panel_open),
-                agent_panel_tooltip,
-                Some(Box::new(ToggleAgentPanel)),
-                cx,
-            )
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.toggle_agent_panel(&ToggleAgentPanel, window, cx);
             })),
         );
 

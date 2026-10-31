@@ -1,4 +1,3 @@
-use super::chrome::agent_panel_motion_target_for_agent_request;
 use super::{
     ActivationFocusTarget, ActivePaneFocusTarget, EditorFileCloseOutcome, EditorLineBoundary,
     FileTreeFocusSource, WorkspaceCloseIntent, activation_focus_target_for_reassertion,
@@ -162,25 +161,21 @@ fn editor_only_tabs_focus_editor_when_no_terminal_exists() {
 }
 
 #[test]
-fn window_activation_focus_prefers_input_bar_then_agent_then_editor_then_terminal() {
+fn window_activation_focus_prefers_input_bar_then_editor_then_terminal() {
     assert_eq!(
-        activation_focus_target_for_reassertion(true, true, true, true),
+        activation_focus_target_for_reassertion(true, true, true),
         ActivationFocusTarget::InputBar
     );
     assert_eq!(
-        activation_focus_target_for_reassertion(false, true, true, true),
-        ActivationFocusTarget::AgentInlineInput
-    );
-    assert_eq!(
-        activation_focus_target_for_reassertion(false, false, true, false),
+        activation_focus_target_for_reassertion(false, true, false),
         ActivationFocusTarget::ActiveEditor
     );
     assert_eq!(
-        activation_focus_target_for_reassertion(false, false, false, true),
+        activation_focus_target_for_reassertion(false, false, true),
         ActivationFocusTarget::ActiveEditor
     );
     assert_eq!(
-        activation_focus_target_for_reassertion(false, false, false, false),
+        activation_focus_target_for_reassertion(false, false, false),
         ActivationFocusTarget::Terminal
     );
 }
@@ -199,17 +194,6 @@ fn editor_file_close_outcome_closes_single_empty_editor_pane_container() {
         editor_file_close_outcome(1, true),
         EditorFileCloseOutcome::ReplaceEditorPaneWithTerminal
     );
-}
-
-#[test]
-fn agent_request_opening_panel_drives_panel_motion_to_visible() {
-    // Always drives to 1.0 regardless of current open state, so a stale
-    // agent_panel_open flag (set without motion) is corrected on next request.
-    assert_eq!(
-        agent_panel_motion_target_for_agent_request(false),
-        Some(1.0)
-    );
-    assert_eq!(agent_panel_motion_target_for_agent_request(true), Some(1.0));
 }
 
 #[test]
@@ -1014,11 +998,9 @@ fn top_bar_clickables_explicitly_consume_left_mouse_down() {
     assert!(normalized.contains(".occlude()"));
     assert!(normalized.contains(".on_mouse_down(MouseButton::Left,|_,_,cx|cx.stop_propagation())"));
     for control_id in [
-        "handoff-agent",
         "tab-new",
         "toggle-left-sidebar",
         "toggle-input-bar",
-        "toggle-agent-panel",
         "toggle-settings",
     ] {
         assert!(

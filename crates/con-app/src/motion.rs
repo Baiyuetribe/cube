@@ -130,6 +130,8 @@ impl MotionValue {
         };
     }
 
+    /// Force a transition from `from` to `target` regardless of the current value.
+    #[cfg(test)]
     pub fn restart(&mut self, from: f32, target: f32, duration: Duration) {
         let start = if duration.is_zero() { target } else { from };
         self.current = start;

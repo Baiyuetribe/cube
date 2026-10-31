@@ -6,7 +6,6 @@ use std::rc::Rc;
 pub(crate) const CARD_GAP: f32 = 5.0;
 pub(crate) const PANE_INSET: f32 = (CARD_GAP - 1.0) * 0.5;
 pub(crate) const CANVAS_INSET: f32 = CARD_GAP - PANE_INSET;
-pub(crate) const AGENT_CONTENT_INSET: f32 = 2.0;
 // Keep the resize target wider than its visible gutter without shifting its center.
 pub(crate) const PANE_RESIZE_HIT_WIDTH: f32 = 7.0;
 pub(crate) const PANE_RADIUS: f32 = 8.0;
@@ -56,6 +55,7 @@ pub(crate) fn pane_card_geometry(split: bool, depth: f32) -> (f32, f32) {
     (PANE_INSET * depth, PANE_RADIUS * depth)
 }
 
+#[cfg(test)]
 pub(super) fn agent_vertical_insets(
     depth: f32,
     split: bool,
@@ -125,23 +125,6 @@ fn card_material_quad(
 }
 
 /// Workspace card fill whose corners follow [`window_concentric_corners`].
-pub(crate) fn card_fill(radius: f32, color: Hsla) -> impl IntoElement {
-    gpui::canvas(
-        |bounds, window, _| {
-            crate::terminal_geometry::snap_terminal_bounds(bounds, window.scale_factor())
-        },
-        move |_, bounds, window, _| {
-            let mut quad = gpui::fill(bounds, color);
-            quad.corner_radii = window_concentric_corners(bounds, radius, window);
-            window.paint_quad(quad);
-        },
-    )
-    .absolute()
-    .size_full()
-    .top_0()
-    .left_0()
-}
-
 /// A card corner that meets the window's rounded corner shares its centre:
 /// its radius is the window radius less the card's clearance from both edges.
 pub(crate) fn window_concentric_corners(

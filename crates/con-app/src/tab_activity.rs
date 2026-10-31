@@ -82,11 +82,13 @@ pub(crate) struct TabActivity {
 }
 
 /// A standalone marker sharing the tabs' retained animation renderer.
+#[allow(dead_code)]
 pub(crate) struct BusyIndicator {
     layer: gpui::Entity<TabActivity>,
 }
 
 impl BusyIndicator {
+    #[allow(dead_code)]
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
             layer: cx.new(|cx| TabActivity::new(window, cx)),

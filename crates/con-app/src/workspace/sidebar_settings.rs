@@ -153,16 +153,6 @@ impl ConWorkspace {
             .enumerate()
             .map(|(idx, tab)| (tab.summary_id, idx))
             .collect();
-        let mut remapped_pending = HashMap::new();
-        for (old_idx, pending) in std::mem::take(&mut self.pending_control_agent_requests) {
-            if let Some(summary_id) = old_order.get(old_idx)
-                && let Some(&new_idx) = new_positions.get(summary_id)
-            {
-                remapped_pending.insert(new_idx, pending);
-            }
-        }
-        self.pending_control_agent_requests = remapped_pending;
-
         for pending in &mut self.pending_create_pane_requests {
             if let Some(summary_id) = old_order.get(pending.tab_idx)
                 && let Some(&new_idx) = new_positions.get(summary_id)
@@ -250,16 +240,6 @@ impl ConWorkspace {
             .enumerate()
             .map(|(idx, tab)| (tab.summary_id, idx))
             .collect();
-        let mut remapped_pending = HashMap::new();
-        for (old_idx, pending) in std::mem::take(&mut self.pending_control_agent_requests) {
-            if let Some(summary_id) = old_order.get(old_idx)
-                && let Some(&new_idx) = new_positions.get(summary_id)
-            {
-                remapped_pending.insert(new_idx, pending);
-            }
-        }
-        self.pending_control_agent_requests = remapped_pending;
-
         for pending in &mut self.pending_create_pane_requests {
             if let Some(summary_id) = old_order.get(pending.tab_idx)
                 && let Some(&new_idx) = new_positions.get(summary_id)
@@ -331,8 +311,8 @@ impl ConWorkspace {
             };
         let initial = tab_rename_initial_label(
             tab.user_label.as_deref(),
-            tab.ai_label.as_deref(),
-            tab.ai_icon.map(|kind| kind.svg_path()),
+            None,
+            None,
             tab.agent_cli,
             hostname.as_deref(),
             title.as_deref(),
@@ -627,8 +607,8 @@ impl ConWorkspace {
             };
         let mut presentation = smart_tab_presentation(
             tab.user_label.as_deref(),
-            tab.ai_label.as_deref(),
-            tab.ai_icon.map(|k| k.svg_path()),
+            None,
+            None,
             tab.agent_cli,
             hostname.as_deref(),
             title.as_deref(),
@@ -690,7 +670,6 @@ impl ConWorkspace {
         cx: &mut Context<Self>,
     ) {
         match event.action_id.as_str() {
-            "handoff-agent" => self.open_agent_handoff(&crate::HandoffAgent, window, cx),
             "new-window" => {
                 cx.dispatch_action(&crate::NewWindow);
             }
@@ -701,9 +680,6 @@ impl ConWorkspace {
             #[cfg(target_os = "macos")]
             "quick-terminal" => {
                 cx.dispatch_action(&crate::ToggleQuickTerminal);
-            }
-            "toggle-agent" => {
-                self.toggle_agent_panel(&ToggleAgentPanel, window, cx);
             }
             "settings" => {
                 self.toggle_settings(&settings_panel::ToggleSettings, window, cx);
@@ -874,66 +850,10 @@ impl ConWorkspace {
         let restore_terminal_text_was_enabled = self.config.appearance.restore_terminal_text;
         let old_keybindings = self.config.keybindings.clone();
         self.config = full_config.clone();
-        #[cfg(target_os = "macos")]
-        self.sync_handoff_menu_entry(cx);
         if !self.vertical_tabs_enabled() {
             self.sidebar_tools_open = self.left_panel_open;
         }
-        let new_agent_config = full_config.agent.clone();
-        let auto_approve = new_agent_config.auto_approve_tools;
-        self.harness.update_config(new_agent_config);
-        self.shell_suggestion_engine = self.harness.suggestion_engine(180);
-        self.shell_suggestion_engine.clear_cache();
-        // Same suggestion model drives the tab summarizer; rebuild
-        // it so the new credentials / model override take effect.
-        self.tab_summary_engine = self
-            .harness
-            .tab_summary_engine()
-            .with_state_from(&self.tab_summary_engine);
-        self.tab_summary_generation = self.tab_summary_generation.wrapping_add(1);
-        self.tab_summary_engine.clear_success_cache();
-        for tab in &mut self.tabs {
-            tab.ai_label = None;
-            tab.ai_icon = None;
-        }
         self.sync_sidebar(cx);
-        if self.harness.config().suggestion_model.enabled {
-            // Re-ask for fresh summaries with the new model.
-            self.request_tab_summaries(cx);
-        } else {
-            for tab in &mut self.tabs {
-                tab.ai_label = None;
-                tab.ai_icon = None;
-            }
-            self.sync_sidebar(cx);
-        }
-        let active_agent_config = self.active_tab_agent_config();
-        let active_agent_models = self.provider_models_for_config(&active_agent_config);
-
-        // Sync auto-approve to agent panel UI
-        self.agent_panel.update(cx, |panel, cx| {
-            panel.set_auto_approve(auto_approve, cx);
-            panel.set_session_provider_options(
-                AgentPanel::configured_session_providers(&active_agent_config),
-                window,
-                cx,
-            );
-            panel.set_provider_name(active_agent_config.provider.clone(), window, cx);
-            panel.set_model_name(
-                AgentHarness::active_model_name_for(&active_agent_config),
-                cx,
-            );
-            panel.set_session_model_options(active_agent_models, window, cx);
-        });
-
-        // Apply updated skills paths (forces rescan on next cwd check)
-        let skills_config = full_config.skills.clone();
-        self.harness.update_skills_config(skills_config);
-        if self.has_active_tab()
-            && let Some(cwd) = self.try_active_terminal().and_then(|t| t.current_dir(cx))
-        {
-            self.request_skill_scan_for_cwd(&cwd);
-        }
 
         // Note: network/proxy config changes take effect on next app restart.
         // apply_to_env() is unsafe (requires single-threaded startup context)
@@ -1000,8 +920,6 @@ impl ConWorkspace {
         // Feature gates (Experimental section) live-apply with the preview so
         // entry points appear/disappear immediately.
         self.config.experimental = settings.read(cx).config().experimental.clone();
-        #[cfg(target_os = "macos")]
-        self.sync_handoff_menu_entry(cx);
         let term_config = settings.read(cx).terminal_config().clone();
         let appearance_config = settings.read(cx).appearance_config().clone();
         self.apply_terminal_and_ui_appearance(&term_config, &appearance_config, window, cx);
@@ -1149,15 +1067,6 @@ impl ConWorkspace {
         self.background_image_repeat = next_background_image_repeat;
 
         let effective_ui_opacity = Self::effective_ui_opacity(self.ui_opacity);
-        self.agent_panel.update(cx, |panel, cx| {
-            panel.set_ui_opacity(effective_ui_opacity, cx);
-            panel.set_assistant_avatar_asset(
-                con_core::config::agent_avatar_asset(&appearance_config.agent_avatar),
-                cx,
-            );
-        });
-        self.config.appearance.agent_avatar =
-            con_core::config::sanitize_agent_avatar(&appearance_config.agent_avatar);
         self.sidebar.update(cx, |s, cx| {
             s.set_ui_opacity(effective_ui_opacity, cx);
             s.set_tab_accent_alphas(

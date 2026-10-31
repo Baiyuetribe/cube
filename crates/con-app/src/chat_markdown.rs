@@ -1,17 +1,14 @@
-use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gpui::{
-    AbsoluteLength, AnyElement, AppContext, DefiniteLength, FontStyle, FontWeight, Hsla,
-    ImageSource, InteractiveElement, IntoElement, ObjectFit, ParentElement, Render, RenderImage,
-    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, StyledImage, StyledText, Task,
-    TextRun, TextStyle, UnderlineStyle, WhiteSpace, Window, div, img, px,
+    AbsoluteLength, AnyElement, DefiniteLength, FontStyle, FontWeight, Hsla, InteractiveElement,
+    IntoElement, ObjectFit, ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement,
+    Styled, StyledImage, StyledText, TextRun, TextStyle, UnderlineStyle, WhiteSpace, div, img, px,
 };
-use gpui_component::ActiveTheme as _;
 use gpui_component::clipboard::Clipboard;
 use gpui_component::highlighter::SyntaxHighlighter;
 use gpui_component::scroll::ScrollableElement;
@@ -27,6 +24,7 @@ use crate::ui_scale::{mono_px, ui_px};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChatMarkdownTone {
     Message,
+    #[allow(dead_code)]
     Thinking,
 }
 
@@ -45,10 +43,6 @@ enum MarkdownBlock {
         language: Option<String>,
         code: String,
         highlight_cache: RefCell<Option<CachedCodeHighlightRuns>>,
-    },
-    Mermaid {
-        code: SharedString,
-        scale: u32,
     },
     MathBlock {
         math: SharedString,
@@ -95,16 +89,6 @@ impl PartialEq for MarkdownBlock {
                     ..
                 },
             ) => language_a == language_b && code_a == code_b,
-            (
-                Self::Mermaid {
-                    code: code_a,
-                    scale: scale_a,
-                },
-                Self::Mermaid {
-                    code: code_b,
-                    scale: scale_b,
-                },
-            ) => code_a == code_b && scale_a == scale_b,
             (Self::MathBlock { math: math_a, .. }, Self::MathBlock { math: math_b, .. }) => {
                 math_a == math_b
             }
@@ -238,34 +222,6 @@ struct CachedInlineRender {
     runs: Vec<TextRun>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum RichSvgRenderKind {
-    Mermaid,
-    Math,
-    InlineMath,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum RichSvgThemeMode {
-    Light,
-    Dark,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct RichSvgRenderKey {
-    kind: RichSvgRenderKind,
-    source: SharedString,
-    metric: u32,
-    theme_mode: RichSvgThemeMode,
-    color: Option<SharedString>,
-}
-
-struct RichSvgRenderEntry {
-    image: Option<Result<Arc<RenderImage>, SharedString>>,
-    pending: bool,
-    task: Option<Task<()>>,
-}
-
 struct ChatMarkdownStyle<'a> {
     theme: &'a Theme,
     tone: ChatMarkdownTone,
@@ -282,9 +238,7 @@ struct ChatMarkdownStyle<'a> {
     math_text_color: Hsla,
     math_block_background: Hsla,
     math_block_text_color: Hsla,
-    code_block_background: Hsla,
     code_block_body_background: Hsla,
-    code_block_language_background: Hsla,
     code_block_language_text_color: Hsla,
     quote_background: Hsla,
     quote_tint: Hsla,
@@ -319,12 +273,7 @@ impl<'a> ChatMarkdownStyle<'a> {
                 math_text_color: theme.primary.mix_oklab(theme.foreground, 0.58),
                 math_block_background: theme.secondary.mix_oklab(theme.background, 0.62),
                 math_block_text_color: theme.foreground.opacity(0.92),
-                code_block_background: theme.secondary.mix_oklab(theme.background, 0.56),
                 code_block_body_background: theme.background.mix_oklab(theme.secondary, 0.90),
-                code_block_language_background: theme
-                    .secondary_active
-                    .mix_oklab(theme.background, 0.24)
-                    .opacity(0.92),
                 code_block_language_text_color: theme.muted_foreground,
                 quote_background: theme.secondary.opacity(0.68),
                 quote_tint: theme.primary.opacity(0.34),
@@ -355,12 +304,7 @@ impl<'a> ChatMarkdownStyle<'a> {
                 math_text_color: theme.primary.mix_oklab(theme.muted_foreground, 0.62),
                 math_block_background: theme.secondary.mix_oklab(theme.background, 0.52),
                 math_block_text_color: theme.foreground.opacity(0.78),
-                code_block_background: theme.secondary.mix_oklab(theme.background, 0.48),
                 code_block_body_background: theme.background.mix_oklab(theme.secondary, 0.84),
-                code_block_language_background: theme
-                    .secondary_active
-                    .mix_oklab(theme.background, 0.18)
-                    .opacity(0.82),
                 code_block_language_text_color: theme.muted_foreground,
                 quote_background: theme.secondary.opacity(0.46),
                 quote_tint: theme.primary.opacity(0.24),
@@ -472,37 +416,6 @@ impl ParsedChatMarkdown {
     }
 }
 
-pub fn render_parsed_chat_markdown_prefix_with_copy_namespace(
-    document: &ParsedChatMarkdown,
-    tone: ChatMarkdownTone,
-    theme: &Theme,
-    max_blocks: usize,
-    copy_namespace: impl Into<SharedString>,
-) -> AnyElement {
-    let style = ChatMarkdownStyle::new(theme, tone);
-    let copy_namespace = copy_namespace.into();
-    let block_count = document.blocks.len().min(max_blocks);
-    let blocks = &document.blocks[..block_count];
-
-    if blocks.is_empty() {
-        return div().into_any_element();
-    }
-
-    div()
-        .w_full()
-        .flex()
-        .flex_col()
-        .gap(style.block_gap)
-        .children(blocks.iter().enumerate().map(|(idx, block)| {
-            render_block_with_width(block, idx, &style, None, copy_namespace.as_ref())
-        }))
-        .into_any_element()
-}
-
-pub fn chat_markdown_block_gap(tone: ChatMarkdownTone, theme: &Theme) -> gpui::Pixels {
-    ChatMarkdownStyle::new(theme, tone).block_gap
-}
-
 /// Render a whole parsed markdown document as a file preview. Local images
 /// (relative to `base_dir`) and remote http(s) images render inline; only
 /// `data:` and empty URLs degrade to alt text.
@@ -550,361 +463,6 @@ pub fn render_parsed_chat_markdown_file_preview(
                 .into_any_element()
         }))
         .into_any_element()
-}
-
-pub struct ChatMarkdownBlockView {
-    document: Arc<ParsedChatMarkdown>,
-    block_index: usize,
-    tone: ChatMarkdownTone,
-    copy_namespace: SharedString,
-    table_scroll_handle: ScrollHandle,
-    rich_svg_renders: HashMap<RichSvgRenderKey, RichSvgRenderEntry>,
-}
-
-impl ChatMarkdownBlockView {
-    pub fn new(
-        document: Arc<ParsedChatMarkdown>,
-        block_index: usize,
-        tone: ChatMarkdownTone,
-        copy_namespace: impl Into<SharedString>,
-    ) -> Self {
-        Self {
-            document,
-            block_index,
-            tone,
-            copy_namespace: copy_namespace.into(),
-            table_scroll_handle: ScrollHandle::new(),
-            rich_svg_renders: HashMap::new(),
-        }
-    }
-
-    pub fn update(
-        &mut self,
-        document: Arc<ParsedChatMarkdown>,
-        block_index: usize,
-        tone: ChatMarkdownTone,
-        copy_namespace: impl Into<SharedString>,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let copy_namespace = copy_namespace.into();
-        let old_block = self.document.blocks.get(self.block_index);
-        let new_block = document.blocks.get(block_index);
-        let block_changed = self.block_index != block_index
-            || self.tone != tone
-            || self.copy_namespace != copy_namespace
-            || old_block != new_block;
-
-        if self.block_index != block_index
-            || self.tone != tone
-            || self.copy_namespace != copy_namespace
-            || !Arc::ptr_eq(&self.document, &document)
-        {
-            self.document = document;
-            self.block_index = block_index;
-            self.tone = tone;
-            self.copy_namespace = copy_namespace;
-            if block_changed {
-                self.table_scroll_handle = ScrollHandle::new();
-                self.rich_svg_renders.clear();
-            }
-            cx.notify();
-        }
-    }
-
-    fn ensure_rich_svg_render(
-        &mut self,
-        key: RichSvgRenderKey,
-        cx: &mut gpui::Context<Self>,
-    ) -> (bool, Option<Result<Arc<RenderImage>, SharedString>>) {
-        if let Some(entry) = self.rich_svg_renders.get(&key)
-            && (entry.image.is_some() || entry.pending)
-        {
-            return (entry.pending, entry.image.clone());
-        }
-
-        let render_key = key.clone();
-        let background_key = key.clone();
-        let svg_renderer = cx.svg_renderer();
-        let task = cx.spawn(async move |this, cx| {
-            let result: Result<Arc<RenderImage>, SharedString> = cx
-                .background_spawn(async move {
-                    let result: anyhow::Result<Arc<RenderImage>> = (|| {
-                        let svg = match background_key.kind {
-                            RichSvgRenderKind::Mermaid => {
-                                let source = mermaid_source_for_theme(
-                                    background_key.source.as_ref(),
-                                    background_key.theme_mode,
-                                );
-                                mermaid_rs_renderer::render_with_options(
-                                    source.as_ref(),
-                                    mermaid_render_options(background_key.theme_mode),
-                                )?
-                            }
-                            RichSvgRenderKind::Math | RichSvgRenderKind::InlineMath => {
-                                let options = mathjax_svg_rs::Options {
-                                    font_size: background_key.metric as f64 / 1000.0,
-                                    horizontal_align: match background_key.kind {
-                                        RichSvgRenderKind::InlineMath => {
-                                            mathjax_svg_rs::HorizontalAlign::Left
-                                        }
-                                        _ => mathjax_svg_rs::HorizontalAlign::Center,
-                                    },
-                                };
-                                let svg = mathjax_svg_rs::render_tex(
-                                    background_key.source.as_ref(),
-                                    &options,
-                                )
-                                .map_err(anyhow::Error::msg)?;
-                                if let Some(color) = background_key.color.as_ref() {
-                                    apply_svg_root_color(svg, color.as_ref())
-                                } else {
-                                    math_svg_for_theme(svg, background_key.theme_mode)
-                                }
-                            }
-                        };
-                        svg_renderer
-                            .render_single_frame(
-                                svg.as_bytes(),
-                                rich_svg_render_scale(&background_key),
-                            )
-                            .map_err(|error| anyhow::anyhow!("{error}"))
-                    })();
-                    result
-                })
-                .await
-                .map_err(|error| SharedString::from(error.to_string()));
-
-            this.update(cx, |view, cx| {
-                if let Some(entry) = view.rich_svg_renders.get_mut(&render_key) {
-                    entry.image = Some(result);
-                    entry.pending = false;
-                    entry.task = None;
-                    cx.notify();
-                }
-            })
-            .ok();
-        });
-
-        self.rich_svg_renders.insert(
-            key,
-            RichSvgRenderEntry {
-                image: None,
-                pending: true,
-                task: Some(task),
-            },
-        );
-
-        (true, None)
-    }
-
-    fn render_rich_svg_block(
-        &mut self,
-        path: &[usize],
-        block: &MarkdownBlock,
-        style: &ChatMarkdownStyle<'_>,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<AnyElement> {
-        let key = rich_svg_key_for_block(block, style)?;
-        let render_id = rich_svg_render_id(path, &key);
-        let (pending, image) = self.ensure_rich_svg_render(key, cx);
-        match block {
-            MarkdownBlock::Mermaid { code, scale } => Some(render_mermaid_block(
-                render_id,
-                code.as_ref(),
-                *scale,
-                pending,
-                image.as_ref(),
-                style,
-            )),
-            MarkdownBlock::MathBlock { math, .. } => Some(render_math_svg_block(
-                render_id,
-                math.as_ref(),
-                pending,
-                image.as_ref(),
-                style,
-            )),
-            _ => None,
-        }
-    }
-
-    fn render_block(
-        &mut self,
-        block: &MarkdownBlock,
-        index: usize,
-        style: &ChatMarkdownStyle<'_>,
-        table_scroll_handle: Option<&ScrollHandle>,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let mut path = vec![index];
-        self.render_block_at_path(block, &mut path, style, table_scroll_handle, cx)
-    }
-
-    fn render_block_at_path(
-        &mut self,
-        block: &MarkdownBlock,
-        path: &mut Vec<usize>,
-        style: &ChatMarkdownStyle<'_>,
-        table_scroll_handle: Option<&ScrollHandle>,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let index = path.last().copied().unwrap_or(0);
-        match block {
-            MarkdownBlock::Mermaid { .. } | MarkdownBlock::MathBlock { .. } => self
-                .render_rich_svg_block(path, block, style, cx)
-                .unwrap_or_else(|| {
-                    render_block(
-                        block,
-                        index,
-                        style,
-                        table_scroll_handle,
-                        self.copy_namespace.as_ref(),
-                    )
-                }),
-            MarkdownBlock::CodeBlock {
-                language,
-                code,
-                highlight_cache,
-            } => render_code_block(
-                code_block_copy_id(self.copy_namespace.as_ref(), path, code),
-                language,
-                code,
-                highlight_cache,
-                style,
-            ),
-            MarkdownBlock::Paragraph {
-                inlines,
-                inline_cache,
-            } => div()
-                .w_full()
-                .child(self.render_inline_content_at_path(
-                    path,
-                    inlines,
-                    &style.base_text_style(),
-                    style,
-                    inline_cache,
-                    cx,
-                ))
-                .into_any_element(),
-            MarkdownBlock::Heading {
-                level,
-                inlines,
-                inline_cache,
-            } => div()
-                .w_full()
-                .pt(px(if *level <= 2 { 3.0 } else { 1.0 }))
-                .child(self.render_inline_content_at_path(
-                    path,
-                    inlines,
-                    &style.heading_text_style(*level),
-                    style,
-                    inline_cache,
-                    cx,
-                ))
-                .into_any_element(),
-            MarkdownBlock::BlockQuote(blocks) => {
-                let children = blocks
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, block)| {
-                        path.push(idx);
-                        let rendered = self.render_block_at_path(block, path, style, None, cx);
-                        path.pop();
-                        rendered
-                    })
-                    .collect::<Vec<_>>();
-
-                render_blockquote_children(children, style)
-            }
-            MarkdownBlock::List {
-                ordered,
-                start,
-                items,
-            } => {
-                let item_children = items
-                    .iter()
-                    .enumerate()
-                    .map(|(item_idx, item_blocks)| {
-                        item_blocks
-                            .iter()
-                            .enumerate()
-                            .map(|(nested_idx, nested_block)| {
-                                path.push(item_idx);
-                                path.push(nested_idx);
-                                let rendered =
-                                    self.render_block_at_path(nested_block, path, style, None, cx);
-                                path.pop();
-                                path.pop();
-                                rendered
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .collect::<Vec<_>>();
-
-                render_list_children(*ordered, *start, items.len(), item_children, style)
-            }
-            _ => render_block(
-                block,
-                index,
-                style,
-                table_scroll_handle,
-                self.copy_namespace.as_ref(),
-            ),
-        }
-    }
-
-    fn render_inline_content_at_path(
-        &mut self,
-        path: &[usize],
-        inlines: &[MarkdownInline],
-        base_style: &TextStyle,
-        style: &ChatMarkdownStyle<'_>,
-        inline_cache: &RefCell<Option<CachedInlineRender>>,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        if !contains_inline_math(inlines) {
-            return render_inline_content(inlines, base_style, style, inline_cache);
-        }
-
-        render_inline_flow_content(self, path, inlines, base_style, style, cx)
-    }
-
-    fn render_block_with_width(
-        &mut self,
-        block: &MarkdownBlock,
-        index: usize,
-        style: &ChatMarkdownStyle<'_>,
-        table_scroll_handle: Option<&ScrollHandle>,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let wrapper = div().w_full().max_w(style.content_width);
-
-        wrapper
-            .child(self.render_block(block, index, style, table_scroll_handle, cx))
-            .into_any_element()
-    }
-}
-
-impl Render for ChatMarkdownBlockView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let theme = cx.theme().clone();
-        let style = ChatMarkdownStyle::new(&theme, self.tone);
-        let document = self.document.clone();
-        document
-            .blocks
-            .get(self.block_index)
-            .map(|block| {
-                let table_scroll_handle = matches!(block, MarkdownBlock::Table { .. })
-                    .then_some(self.table_scroll_handle.clone());
-                self.render_block_with_width(
-                    block,
-                    self.block_index,
-                    &style,
-                    table_scroll_handle.as_ref(),
-                    cx,
-                )
-            })
-            .unwrap_or_else(|| div().into_any_element())
-    }
 }
 
 fn parse_markdown(source: &str) -> Vec<MarkdownBlock> {
@@ -970,18 +528,11 @@ fn parse_block_node(node: &mdast::Node) -> Vec<MarkdownBlock> {
             inlines: parse_inline_nodes(&val.children),
             inline_cache: RefCell::new(None),
         }],
-        mdast::Node::Code(raw) => vec![
-            parse_mermaid_scale(raw.lang.as_deref(), raw.meta.as_deref())
-                .map(|scale| MarkdownBlock::Mermaid {
-                    code: SharedString::from(raw.value.clone()),
-                    scale,
-                })
-                .unwrap_or_else(|| MarkdownBlock::CodeBlock {
-                    language: raw.lang.clone().filter(|lang| !lang.trim().is_empty()),
-                    code: raw.value.clone(),
-                    highlight_cache: RefCell::new(None),
-                }),
-        ],
+        mdast::Node::Code(raw) => vec![MarkdownBlock::CodeBlock {
+            language: raw.lang.clone().filter(|lang| !lang.trim().is_empty()),
+            code: raw.value.clone(),
+            highlight_cache: RefCell::new(None),
+        }],
         mdast::Node::Blockquote(val) => vec![MarkdownBlock::BlockQuote(parse_block_children(
             &val.children,
         ))],
@@ -1057,20 +608,6 @@ fn parse_table_align(align: &markdown::mdast::AlignKind) -> MarkdownTableAlign {
         markdown::mdast::AlignKind::Center => MarkdownTableAlign::Center,
         markdown::mdast::AlignKind::None => MarkdownTableAlign::None,
     }
-}
-
-fn parse_mermaid_scale(lang: Option<&str>, meta: Option<&str>) -> Option<u32> {
-    let lang = lang?.trim();
-    if !lang.eq_ignore_ascii_case("mermaid") {
-        return None;
-    }
-
-    Some(
-        meta.and_then(|meta| meta.split_whitespace().next())
-            .and_then(|scale| scale.parse::<u32>().ok())
-            .unwrap_or(100)
-            .clamp(10, 500),
-    )
 }
 
 // ── HTML support ─────────────────────────────────────────────────────────
@@ -1767,9 +1304,6 @@ fn render_block_at_path(
             highlight_cache,
             style,
         ),
-        MarkdownBlock::Mermaid { code, scale } => {
-            render_mermaid_code_fallback(index, code, *scale, style)
-        }
         MarkdownBlock::MathBlock { math, .. } => render_math_block(math, style),
         MarkdownBlock::BlockQuote(blocks) => {
             let children = blocks
@@ -2255,242 +1789,6 @@ fn render_code_block(
         .into_any_element()
 }
 
-fn render_mermaid_block(
-    id: SharedString,
-    code: &str,
-    scale: u32,
-    pending: bool,
-    image: Option<&Result<Arc<RenderImage>, SharedString>>,
-    style: &ChatMarkdownStyle<'_>,
-) -> AnyElement {
-    let header = render_mermaid_header(id.clone(), code, scale, style);
-    let body = match image {
-        Some(Ok(image)) => div()
-            .id(id)
-            .w_full()
-            .overflow_x_scroll()
-            .child(
-                div()
-                    .min_w(px(240.0))
-                    .p(px(14.0))
-                    .child(img(ImageSource::Render(image.clone())).flex_none()),
-            )
-            .into_any_element(),
-        Some(Err(error)) => div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap(px(8.0))
-            .p(px(14.0))
-            .child(
-                div()
-                    .font_family(style.theme.font_family.clone())
-                    .text_size(px(12.5))
-                    .line_height(px(18.0))
-                    .text_color(style.muted_text_color)
-                    .child(format!("Could not render Mermaid diagram: {error}")),
-            )
-            .child(render_mermaid_source_text(code, style))
-            .into_any_element(),
-        None => div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap(px(8.0))
-            .p(px(14.0))
-            .child(
-                div()
-                    .font_family(style.theme.font_family.clone())
-                    .text_size(px(12.5))
-                    .line_height(px(18.0))
-                    .text_color(style.muted_text_color)
-                    .child(if pending {
-                        "Rendering Mermaid diagram..."
-                    } else {
-                        "Mermaid diagram"
-                    }),
-            )
-            .child(render_mermaid_source_text(code, style))
-            .into_any_element(),
-    };
-
-    div()
-        .w_full()
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .rounded(px(13.0))
-        .bg(style.code_block_background.opacity(0.98))
-        .p(px(1.0))
-        .child(header)
-        .child(
-            div()
-                .mx(px(10.0))
-                .mb(px(10.0))
-                .rounded(px(10.0))
-                .bg(style.code_block_body_background.opacity(0.985))
-                .child(body),
-        )
-        .into_any_element()
-}
-
-fn render_math_svg_block(
-    id: SharedString,
-    math: &str,
-    pending: bool,
-    image: Option<&Result<Arc<RenderImage>, SharedString>>,
-    style: &ChatMarkdownStyle<'_>,
-) -> AnyElement {
-    let body = match image {
-        Some(Ok(image)) => div()
-            .id(id)
-            .w_full()
-            .overflow_x_scroll()
-            .child(
-                div()
-                    .min_w(px(180.0))
-                    .px(px(16.0))
-                    .py(px(14.0))
-                    .child(img(ImageSource::Render(image.clone())).flex_none()),
-            )
-            .into_any_element(),
-        Some(Err(error)) => div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap(px(8.0))
-            .px(px(16.0))
-            .py(px(13.0))
-            .child(
-                div()
-                    .font_family(style.theme.font_family.clone())
-                    .text_size(px(12.5))
-                    .line_height(px(18.0))
-                    .text_color(style.muted_text_color)
-                    .child(format!("Could not render LaTeX: {error}")),
-            )
-            .child(render_math_source_text(math, style))
-            .into_any_element(),
-        None => div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap(px(8.0))
-            .px(px(16.0))
-            .py(px(13.0))
-            .child(
-                div()
-                    .font_family(style.theme.font_family.clone())
-                    .text_size(px(12.5))
-                    .line_height(px(18.0))
-                    .text_color(style.muted_text_color)
-                    .child(if pending {
-                        "Rendering LaTeX..."
-                    } else {
-                        "LaTeX"
-                    }),
-            )
-            .child(render_math_source_text(math, style))
-            .into_any_element(),
-    };
-
-    div()
-        .w_full()
-        .max_w(style.content_width)
-        .overflow_hidden()
-        .rounded(px(12.0))
-        .bg(style.math_block_background.opacity(0.92))
-        .child(body)
-        .into_any_element()
-}
-
-fn render_mermaid_code_fallback(
-    index: usize,
-    code: &str,
-    scale: u32,
-    style: &ChatMarkdownStyle<'_>,
-) -> AnyElement {
-    div()
-        .w_full()
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .rounded(px(13.0))
-        .bg(style.code_block_background.opacity(0.98))
-        .p(px(1.0))
-        .child(render_mermaid_header(
-            SharedString::from(format!("chat-md-mermaid-fallback-{index}")),
-            code,
-            scale,
-            style,
-        ))
-        .child(
-            div()
-                .mx(px(10.0))
-                .mb(px(10.0))
-                .rounded(px(10.0))
-                .bg(style.code_block_body_background.opacity(0.985))
-                .p(px(12.0))
-                .child(render_mermaid_source_text(code, style)),
-        )
-        .into_any_element()
-}
-
-fn render_mermaid_header(
-    id: SharedString,
-    code: &str,
-    scale: u32,
-    style: &ChatMarkdownStyle<'_>,
-) -> AnyElement {
-    let label = if scale == 100 {
-        "mermaid".to_string()
-    } else {
-        format!("mermaid {scale}%")
-    };
-
-    div()
-        .px(px(14.0))
-        .pt(px(10.0))
-        .pb(px(8.0))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.0))
-                .child(
-                    div()
-                        .px(px(8.0))
-                        .py(px(4.0))
-                        .rounded(px(8.0))
-                        .bg(style.code_block_language_background)
-                        .font_family(style.theme.mono_font_family.clone())
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_size(px(10.5))
-                        .line_height(px(11.0))
-                        .text_color(style.code_block_language_text_color)
-                        .child(label),
-                )
-                .child(div().h(px(1.0)).flex_1().bg(style.rule_color.opacity(0.36)))
-                .child(
-                    Clipboard::new(format!("{}-copy", id.as_ref()))
-                        .value(SharedString::from(code.to_string())),
-                ),
-        )
-        .into_any_element()
-}
-
-fn render_mermaid_source_text(code: &str, style: &ChatMarkdownStyle<'_>) -> AnyElement {
-    let text = code_display_text(code);
-    div()
-        .w_full()
-        .font_family(style.theme.mono_font_family.clone())
-        .text_size(style.code_font_size)
-        .line_height(style.code_line_height)
-        .text_color(style.text_color.opacity(0.82))
-        .child(StyledText::new(SharedString::from(text)))
-        .into_any_element()
-}
-
 fn render_math_block(math: &str, style: &ChatMarkdownStyle<'_>) -> AnyElement {
     div()
         .w_full()
@@ -2514,221 +1812,6 @@ fn render_math_source_text(math: &str, style: &ChatMarkdownStyle<'_>) -> AnyElem
         .into_any_element()
 }
 
-fn math_font_size_metric(style: &ChatMarkdownStyle<'_>) -> u32 {
-    let font_size: f32 = (style.code_font_size + px(3.0)).into();
-    (font_size * 1000.0).round().max(1.0) as u32
-}
-
-fn inline_math_font_size_metric(base_style: &TextStyle) -> u32 {
-    let font_size: f32 = text_style_font_size(base_style).into();
-    (font_size * 1000.0).round().max(1.0) as u32
-}
-
-fn math_svg_for_theme(svg: String, theme_mode: RichSvgThemeMode) -> String {
-    let color = match theme_mode {
-        RichSvgThemeMode::Light => "#0F172A",
-        RichSvgThemeMode::Dark => "#F8FAFC",
-    };
-    apply_svg_root_color(svg, color)
-}
-
-fn svg_color_for_hsla_over_background(color: Hsla, background: Hsla) -> String {
-    let fg = color.to_rgb();
-    let bg = background.to_rgb();
-    let alpha = fg.a.clamp(0.0, 1.0);
-    let blend = |fg: f32, bg: f32| ((fg * alpha + bg * (1.0 - alpha)) * 255.0).round() as u8;
-    format!(
-        "#{:02X}{:02X}{:02X}",
-        blend(fg.r, bg.r),
-        blend(fg.g, bg.g),
-        blend(fg.b, bg.b)
-    )
-}
-
-fn apply_svg_root_color(mut svg: String, color: &str) -> String {
-    let Some(svg_start) = svg.find("<svg") else {
-        return svg;
-    };
-    let Some(tag_end_offset) = svg[svg_start..].find('>') else {
-        return svg;
-    };
-    let tag_end = svg_start + tag_end_offset;
-    let root_tag = &svg[svg_start..tag_end];
-    if root_tag.contains(" color=") || root_tag.contains(" fill=") {
-        return svg;
-    }
-
-    svg.insert_str(tag_end, &format!(" color=\"{color}\" fill=\"{color}\""));
-    svg
-}
-
-fn rich_svg_theme_mode(style: &ChatMarkdownStyle<'_>) -> RichSvgThemeMode {
-    if style.theme.is_dark() {
-        RichSvgThemeMode::Dark
-    } else {
-        RichSvgThemeMode::Light
-    }
-}
-
-fn mermaid_render_options(theme_mode: RichSvgThemeMode) -> mermaid_rs_renderer::RenderOptions {
-    let mut options = mermaid_rs_renderer::RenderOptions::default();
-    if matches!(theme_mode, RichSvgThemeMode::Dark) {
-        options.theme = mermaid_dark_theme();
-    }
-    options
-}
-
-fn mermaid_source_for_theme(source: &str, theme_mode: RichSvgThemeMode) -> Cow<'_, str> {
-    if !matches!(theme_mode, RichSvgThemeMode::Dark) {
-        return Cow::Borrowed(source);
-    }
-
-    let mut rewritten = None::<String>;
-    let mut cursor = 0;
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let should_rewrite = (trimmed.starts_with("style ") || trimmed.starts_with("classDef "))
-            && mermaid_style_has_key(trimmed, "fill")
-            && !mermaid_style_has_key(trimmed, "color");
-        if should_rewrite && let Some(fill) = mermaid_style_value(trimmed, "fill") {
-            let text_color = if mermaid_fill_is_light(fill) {
-                "#0F172A"
-            } else {
-                "#F8FAFC"
-            };
-            let out = rewritten.get_or_insert_with(|| source[..cursor].to_string());
-            let line_without_newline = line.trim_end_matches(['\r', '\n']);
-            out.push_str(line_without_newline);
-            out.push_str(",color:");
-            out.push_str(text_color);
-            if line.ends_with('\n') {
-                out.push('\n');
-            }
-        } else if let Some(out) = rewritten.as_mut() {
-            out.push_str(line);
-        }
-        cursor += line.len();
-    }
-
-    if cursor < source.len()
-        && let Some(out) = rewritten.as_mut()
-    {
-        out.push_str(&source[cursor..]);
-    }
-
-    rewritten.map_or(Cow::Borrowed(source), Cow::Owned)
-}
-
-fn mermaid_style_has_key(line: &str, key: &str) -> bool {
-    mermaid_style_value(line, key).is_some()
-}
-
-fn mermaid_style_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
-    let styles = if let Some(rest) = line.strip_prefix("style ") {
-        rest.trim_start().split_once(char::is_whitespace)?.1
-    } else {
-        let rest = line.strip_prefix("classDef ")?;
-        rest.trim_start().split_once(char::is_whitespace)?.1
-    };
-
-    styles.trim_start().split(',').find_map(|part| {
-        let (part_key, value) = part.split_once(':')?;
-        (part_key.trim() == key).then(|| value.trim())
-    })
-}
-
-fn mermaid_fill_is_light(fill: &str) -> bool {
-    let Some((r, g, b)) = mermaid_hex_color(fill) else {
-        return false;
-    };
-    let luminance = 0.2126 * f32::from(r) + 0.7152 * f32::from(g) + 0.0722 * f32::from(b);
-    luminance >= 150.0
-}
-
-fn mermaid_hex_color(fill: &str) -> Option<(u8, u8, u8)> {
-    let fill = fill.trim();
-    let hex = fill.strip_prefix('#')?;
-    match hex.len() {
-        3 => {
-            let mut chars = hex.chars();
-            let r = chars.next()?.to_digit(16)? as u8;
-            let g = chars.next()?.to_digit(16)? as u8;
-            let b = chars.next()?.to_digit(16)? as u8;
-            Some((r * 17, g * 17, b * 17))
-        }
-        6 => {
-            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-            Some((r, g, b))
-        }
-        _ => None,
-    }
-}
-
-fn mermaid_dark_theme() -> mermaid_rs_renderer::Theme {
-    let mut theme = mermaid_rs_renderer::Theme::modern();
-    theme.primary_color = "#1E293B".to_string();
-    theme.primary_text_color = "#F8FAFC".to_string();
-    theme.primary_border_color = "#64748B".to_string();
-    theme.line_color = "#94A3B8".to_string();
-    theme.secondary_color = "#334155".to_string();
-    theme.tertiary_color = "#0F172A".to_string();
-    theme.edge_label_background = "#0F172A".to_string();
-    theme.cluster_background = "#111827".to_string();
-    theme.cluster_border = "#475569".to_string();
-    theme.background = "#0B1120".to_string();
-    theme.sequence_actor_fill = "#1E293B".to_string();
-    theme.sequence_actor_border = "#64748B".to_string();
-    theme.sequence_actor_line = "#64748B".to_string();
-    theme.sequence_note_fill = "#422006".to_string();
-    theme.sequence_note_border = "#B45309".to_string();
-    theme.sequence_activation_fill = "#334155".to_string();
-    theme.sequence_activation_border = "#94A3B8".to_string();
-    theme.text_color = "#E2E8F0".to_string();
-    theme.pie_title_text_color = "#F8FAFC".to_string();
-    theme.pie_section_text_color = "#F8FAFC".to_string();
-    theme.pie_legend_text_color = "#CBD5E1".to_string();
-    theme.pie_stroke_color = "#0F172A".to_string();
-    theme.pie_outer_stroke_color = "#475569".to_string();
-    theme
-}
-
-fn rich_svg_key_for_block(
-    block: &MarkdownBlock,
-    style: &ChatMarkdownStyle<'_>,
-) -> Option<RichSvgRenderKey> {
-    match block {
-        MarkdownBlock::Mermaid { code, scale } => Some(RichSvgRenderKey {
-            kind: RichSvgRenderKind::Mermaid,
-            source: code.clone(),
-            metric: *scale,
-            theme_mode: rich_svg_theme_mode(style),
-            color: None,
-        }),
-        MarkdownBlock::MathBlock { math, .. } => Some(RichSvgRenderKey {
-            kind: RichSvgRenderKind::Math,
-            source: math.clone(),
-            metric: math_font_size_metric(style),
-            theme_mode: rich_svg_theme_mode(style),
-            color: None,
-        }),
-        _ => None,
-    }
-}
-
-fn rich_svg_render_id(path: &[usize], key: &RichSvgRenderKey) -> SharedString {
-    let mut hasher = DefaultHasher::new();
-    key.hash(&mut hasher);
-    let kind = match key.kind {
-        RichSvgRenderKind::Mermaid => "mermaid",
-        RichSvgRenderKind::Math => "math",
-        RichSvgRenderKind::InlineMath => "inline-math",
-    };
-    let path = markdown_path_id(path);
-    SharedString::from(format!("chat-md-{kind}-{path}-{:x}", hasher.finish()))
-}
-
 fn code_block_copy_id(copy_namespace: &str, path: &[usize], code: &str) -> String {
     let mut hasher = DefaultHasher::new();
     copy_namespace.hash(&mut hasher);
@@ -2750,13 +1833,6 @@ fn markdown_path_id(path: &[usize]) -> String {
         .map(usize::to_string)
         .collect::<Vec<_>>()
         .join(".")
-}
-
-fn rich_svg_render_scale(key: &RichSvgRenderKey) -> f32 {
-    match key.kind {
-        RichSvgRenderKind::Mermaid => key.metric as f32 / 100.0,
-        RichSvgRenderKind::Math | RichSvgRenderKind::InlineMath => 1.0,
-    }
 }
 
 fn cached_table_layout(
@@ -3103,243 +2179,6 @@ fn render_inline_content(
     render_inline_text(inlines, base_style, style, inline_cache)
 }
 
-#[derive(Debug)]
-enum InlineFlowItem {
-    Text {
-        text: SharedString,
-        runs: Vec<TextRun>,
-    },
-    Math {
-        value: String,
-        index: usize,
-    },
-    LineBreak,
-}
-
-fn render_inline_flow_content(
-    view: &mut ChatMarkdownBlockView,
-    path: &[usize],
-    inlines: &[MarkdownInline],
-    base_style: &TextStyle,
-    style: &ChatMarkdownStyle<'_>,
-    cx: &mut gpui::Context<ChatMarkdownBlockView>,
-) -> AnyElement {
-    let mut items = Vec::new();
-    let mut text = String::new();
-    let mut runs = Vec::new();
-    let mut math_index = 0;
-
-    collect_inline_flow_items(
-        inlines,
-        base_style.clone(),
-        style,
-        &mut items,
-        &mut text,
-        &mut runs,
-        &mut math_index,
-    );
-    flush_inline_flow_text(&mut items, &mut text, &mut runs);
-
-    if items.is_empty() {
-        return div().into_any_element();
-    }
-
-    let font_size = text_style_font_size(base_style);
-    let line_height = text_style_line_height(base_style, font_size);
-    let mut root = div()
-        .w_full()
-        .flex()
-        .flex_wrap()
-        .items_baseline()
-        .font_family(base_style.font_family.clone())
-        .text_size(font_size)
-        .line_height(line_height)
-        .text_color(base_style.color);
-
-    for item in items {
-        root = root.child(match item {
-            InlineFlowItem::Text { text, runs } => {
-                render_inline_flow_text_item(text, runs, base_style, style.content_width)
-            }
-            InlineFlowItem::Math { value, index } => {
-                let key = RichSvgRenderKey {
-                    kind: RichSvgRenderKind::InlineMath,
-                    source: SharedString::from(value.clone()),
-                    metric: inline_math_font_size_metric(base_style),
-                    theme_mode: rich_svg_theme_mode(style),
-                    color: Some(SharedString::from(svg_color_for_hsla_over_background(
-                        style.text_color,
-                        style.theme.background,
-                    ))),
-                };
-                let mut math_path = path.to_vec();
-                math_path.push(index);
-                let id = rich_svg_render_id(&math_path, &key);
-                let (pending, image) = view.ensure_rich_svg_render(key, cx);
-                render_inline_math_item(id, &value, pending, image.as_ref(), base_style, style)
-            }
-            InlineFlowItem::LineBreak => div().w_full().h(px(0.0)).into_any_element(),
-        });
-    }
-
-    root.into_any_element()
-}
-
-fn render_inline_flow_text_item(
-    text: SharedString,
-    runs: Vec<TextRun>,
-    base_style: &TextStyle,
-    max_width: gpui::Pixels,
-) -> AnyElement {
-    let font_size = text_style_font_size(base_style);
-    let line_height = text_style_line_height(base_style, font_size);
-    div()
-        .min_w_0()
-        .max_w(max_width)
-        .font_family(base_style.font_family.clone())
-        .text_size(font_size)
-        .line_height(line_height)
-        .text_color(base_style.color)
-        .child(StyledText::new(text).with_runs(runs))
-        .into_any_element()
-}
-
-fn render_inline_math_item(
-    id: SharedString,
-    math: &str,
-    pending: bool,
-    image: Option<&Result<Arc<RenderImage>, SharedString>>,
-    base_style: &TextStyle,
-    style: &ChatMarkdownStyle<'_>,
-) -> AnyElement {
-    let font_size = text_style_font_size(base_style);
-    let line_height = text_style_line_height(base_style, font_size);
-    match image {
-        Some(Ok(image)) => div()
-            .id(id)
-            .h(line_height)
-            .flex()
-            .items_center()
-            .flex_none()
-            .child(img(ImageSource::Render(image.clone())).flex_none())
-            .into_any_element(),
-        Some(Err(_)) | None => div()
-            .id(id)
-            .h(line_height)
-            .flex()
-            .items_center()
-            .px(px(3.0))
-            .py(px(0.0))
-            .rounded(px(4.0))
-            .bg(style.inline_math_background)
-            .font_family(style.theme.mono_font_family.clone())
-            .text_size((font_size - px(1.0)).max(px(10.0)))
-            .line_height(line_height)
-            .text_color(
-                style
-                    .math_text_color
-                    .opacity(if pending { 0.70 } else { 0.92 }),
-            )
-            .child(math.to_string())
-            .into_any_element(),
-    }
-}
-
-fn collect_inline_flow_items(
-    inlines: &[MarkdownInline],
-    current_style: TextStyle,
-    style: &ChatMarkdownStyle<'_>,
-    items: &mut Vec<InlineFlowItem>,
-    text: &mut String,
-    runs: &mut Vec<TextRun>,
-    math_index: &mut usize,
-) {
-    for inline in inlines {
-        match inline {
-            MarkdownInline::Text(value) => push_run(text, runs, &current_style, value),
-            MarkdownInline::Code(value) => {
-                let mut code_style = current_style.clone();
-                code_style.font_family = style.theme.mono_font_family.clone();
-                code_style.background_color = Some(style.inline_code_background);
-                code_style.font_weight = FontWeight::MEDIUM;
-                code_style.color = style.inline_code_text_color;
-                push_run(text, runs, &code_style, value);
-            }
-            MarkdownInline::Math(value) => {
-                flush_inline_flow_text(items, text, runs);
-                let index = *math_index;
-                *math_index += 1;
-                items.push(InlineFlowItem::Math {
-                    value: value.clone(),
-                    index,
-                });
-            }
-            MarkdownInline::Emphasis(children) => {
-                let mut emphasis = current_style.clone();
-                emphasis.font_style = FontStyle::Italic;
-                collect_inline_flow_items(children, emphasis, style, items, text, runs, math_index);
-            }
-            MarkdownInline::Strong(children) => {
-                let mut strong = current_style.clone();
-                strong.font_weight = FontWeight::SEMIBOLD;
-                collect_inline_flow_items(children, strong, style, items, text, runs, math_index);
-            }
-            MarkdownInline::Strikethrough(children) => {
-                let mut struck = current_style.clone();
-                struck.strikethrough = Some(gpui::StrikethroughStyle {
-                    thickness: px(1.0),
-                    color: Some(current_style.color.opacity(0.55)),
-                });
-                collect_inline_flow_items(children, struck, style, items, text, runs, math_index);
-            }
-            MarkdownInline::Link { label, .. } => {
-                let mut link_style = current_style.clone();
-                link_style.color = style.link_color;
-                link_style.underline = Some(UnderlineStyle {
-                    color: Some(style.link_color.opacity(0.48)),
-                    thickness: px(1.0),
-                    wavy: false,
-                });
-                collect_inline_flow_items(label, link_style, style, items, text, runs, math_index);
-            }
-            MarkdownInline::SoftBreak => push_run(text, runs, &current_style, " "),
-            MarkdownInline::LineBreak => {
-                flush_inline_flow_text(items, text, runs);
-                items.push(InlineFlowItem::LineBreak);
-            }
-            MarkdownInline::Image { alt, url } => {
-                push_run(text, runs, &current_style, image_label(alt, url));
-            }
-        }
-    }
-}
-
-fn flush_inline_flow_text(
-    items: &mut Vec<InlineFlowItem>,
-    text: &mut String,
-    runs: &mut Vec<TextRun>,
-) {
-    if text.is_empty() {
-        return;
-    }
-
-    items.push(InlineFlowItem::Text {
-        text: SharedString::from(std::mem::take(text)),
-        runs: std::mem::take(runs),
-    });
-}
-
-fn contains_inline_math(inlines: &[MarkdownInline]) -> bool {
-    inlines.iter().any(|inline| match inline {
-        MarkdownInline::Math(_) => true,
-        MarkdownInline::Emphasis(children)
-        | MarkdownInline::Strong(children)
-        | MarkdownInline::Strikethrough(children) => contains_inline_math(children),
-        MarkdownInline::Link { label, .. } => contains_inline_math(label),
-        _ => false,
-    })
-}
-
 fn text_style_font_size(text_style: &TextStyle) -> gpui::Pixels {
     match text_style.font_size {
         AbsoluteLength::Pixels(size) => size,
@@ -3490,6 +2329,7 @@ fn push_run(text: &mut String, runs: &mut Vec<gpui::TextRun>, style: &TextStyle,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui::{Render, Window};
 
     #[test]
     fn parses_image_into_inline_variant() {
@@ -3759,214 +2599,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_mermaid_fences_as_diagram_blocks() {
-        let blocks = parse_markdown("```mermaid 140\ngraph TD\n  A-->B\n```");
-        let Some(MarkdownBlock::Mermaid { code, scale }) = blocks.first() else {
-            panic!("expected mermaid block");
-        };
-
-        assert_eq!(*scale, 140);
-        assert!(code.contains("A-->B"));
-    }
-
-    #[test]
-    fn parses_markdown_math_as_first_class_content() {
-        let blocks = parse_markdown("Inline $a^2 + b^2 = c^2$ math.\n\n$$\ne^{i\\pi}+1=0\n$$");
-        let MarkdownBlock::Paragraph { inlines, .. } = &blocks[0] else {
-            panic!("expected paragraph");
-        };
-
-        assert!(
-            inlines
-                .iter()
-                .any(|inline| matches!(inline, MarkdownInline::Math(math) if math.contains("a^2")))
-        );
-        assert!(matches!(
-            blocks.get(1),
-            Some(MarkdownBlock::MathBlock { math, .. }) if math.contains("e^{i\\pi}")
-        ));
-    }
-
-    #[test]
-    fn parses_euler_formula_as_inline_math() {
-        let blocks = parse_markdown("行内公式示例: $e^{i\\pi}+1=0$");
-        let MarkdownBlock::Paragraph { inlines, .. } = &blocks[0] else {
-            panic!("expected paragraph");
-        };
-
-        assert!(contains_inline_math(inlines));
-        assert!(
-            inlines.iter().any(
-                |inline| matches!(inline, MarkdownInline::Math(math) if math == "e^{i\\pi}+1=0")
-            )
-        );
-    }
-
-    #[test]
-    fn parses_nested_mermaid_and_math_blocks() {
-        let blocks =
-            parse_markdown("> ```mermaid\n> flowchart TD\n>   A-->B\n> ```\n\n- $$\n  x^2\n  $$");
-        let Some(MarkdownBlock::BlockQuote(quote_blocks)) = blocks.first() else {
-            panic!("expected blockquote");
-        };
-        assert!(matches!(
-            quote_blocks.first(),
-            Some(MarkdownBlock::Mermaid { code, .. }) if code.contains("A-->B")
-        ));
-
-        let Some(MarkdownBlock::List { items, .. }) = blocks.get(1) else {
-            panic!("expected list");
-        };
-        assert!(matches!(
-            items.first().and_then(|item| item.first()),
-            Some(MarkdownBlock::MathBlock { math, .. }) if math.contains("x^2")
-        ));
-    }
-
-    #[test]
-    fn dollar_amounts_do_not_become_inline_math() {
-        let blocks = parse_markdown("Costs are $5 and $6 today, but `$x$` stays code.");
-        let MarkdownBlock::Paragraph { inlines, .. } = &blocks[0] else {
-            panic!("expected paragraph");
-        };
-
-        assert!(
-            !inlines
-                .iter()
-                .any(|inline| matches!(inline, MarkdownInline::Math(_)))
-        );
-        assert!(inlines.iter().any(|inline| {
-            matches!(inline, MarkdownInline::Text(text) if text.contains("$5 and $6"))
-        }));
-    }
-
-    #[test]
-    fn hyphenated_dollar_text_does_not_become_inline_math() {
-        for source in [
-            "This is $end-to-end$ tested.",
-            "The $X-ray$ scan passed.",
-            "Costs are $3-5$ today.",
-        ] {
-            let blocks = parse_markdown(source);
-            let MarkdownBlock::Paragraph { inlines, .. } = &blocks[0] else {
-                panic!("expected paragraph");
-            };
-
-            assert!(
-                !inlines
-                    .iter()
-                    .any(|inline| matches!(inline, MarkdownInline::Math(_))),
-                "{source}"
-            );
-        }
-    }
-
-    #[test]
-    fn spaced_minus_inline_math_is_supported() {
-        let blocks = parse_markdown("Use $x - y$ for the delta.");
-        let MarkdownBlock::Paragraph { inlines, .. } = &blocks[0] else {
-            panic!("expected paragraph");
-        };
-
-        assert!(
-            inlines
-                .iter()
-                .any(|inline| matches!(inline, MarkdownInline::Math(math) if math == "x - y"))
-        );
-    }
-
-    #[test]
-    fn single_letter_inline_math_is_supported() {
-        let blocks = parse_markdown("Let $x$ be the selected pane.");
-        let MarkdownBlock::Paragraph { inlines, .. } = &blocks[0] else {
-            panic!("expected paragraph");
-        };
-
-        assert!(
-            inlines
-                .iter()
-                .any(|inline| matches!(inline, MarkdownInline::Math(math) if math == "x"))
-        );
-    }
-
-    #[test]
-    fn identifier_inline_math_is_supported() {
-        let blocks = parse_markdown("Use $theta$ and $velocity$ in the formula.");
-        let MarkdownBlock::Paragraph { inlines, .. } = &blocks[0] else {
-            panic!("expected paragraph");
-        };
-
-        assert!(
-            inlines
-                .iter()
-                .any(|inline| matches!(inline, MarkdownInline::Math(math) if math == "theta"))
-        );
-        assert!(
-            inlines
-                .iter()
-                .any(|inline| matches!(inline, MarkdownInline::Math(math) if math == "velocity"))
-        );
-    }
-
-    #[test]
-    fn rich_svg_renderers_produce_svg() {
-        let mermaid = mermaid_rs_renderer::render("flowchart TD\n  A-->B").unwrap();
-        assert!(mermaid.contains("<svg"));
-
-        let styled_dark_source = mermaid_source_for_theme(
-            "flowchart TD\n  A{ i < n? }\n  style A fill:#e1f5fe,stroke:#03a9f4\n",
-            RichSvgThemeMode::Dark,
-        );
-        assert!(styled_dark_source.contains("color:#0F172A"));
-        let crlf_styled_dark_source = mermaid_source_for_theme(
-            "flowchart TD\r\n  A{ i < n? }\r\n  style A fill:#e1f5fe,stroke:#03a9f4\r\n",
-            RichSvgThemeMode::Dark,
-        );
-        assert!(
-            crlf_styled_dark_source.contains("style A fill:#e1f5fe,stroke:#03a9f4,color:#0F172A\n")
-        );
-        assert!(!crlf_styled_dark_source.contains("\r,color:"));
-
-        let dark_mermaid = mermaid_rs_renderer::render_with_options(
-            styled_dark_source.as_ref(),
-            mermaid_render_options(RichSvgThemeMode::Dark),
-        )
-        .unwrap();
-        assert!(dark_mermaid.contains("<svg"));
-        assert!(dark_mermaid.contains("#0B1120") || dark_mermaid.contains("#0b1120"));
-        assert!(dark_mermaid.contains("#0F172A") || dark_mermaid.contains("#0f172a"));
-
-        let math = mathjax_svg_rs::render_tex(
-            r"e^{i\pi}+1=0",
-            &mathjax_svg_rs::Options {
-                font_size: 18.0,
-                horizontal_align: mathjax_svg_rs::HorizontalAlign::Center,
-            },
-        )
-        .unwrap();
-        assert!(math.contains("<svg"));
-
-        let dark_math = math_svg_for_theme(math, RichSvgThemeMode::Dark);
-        assert!(dark_math.contains("color=\"#F8FAFC\""));
-        assert!(dark_math.contains("fill=\"#F8FAFC\""));
-    }
-
-    #[test]
-    fn rich_svg_render_ids_include_nested_block_path() {
-        let key = RichSvgRenderKey {
-            kind: RichSvgRenderKind::Mermaid,
-            source: "flowchart TD\n  A-->B".into(),
-            metric: 100,
-            theme_mode: RichSvgThemeMode::Light,
-            color: None,
-        };
-
-        let first = rich_svg_render_id(&[0, 0, 0], &key);
-        let second = rich_svg_render_id(&[1, 0, 0], &key);
-        assert_ne!(first, second);
-    }
-
-    #[test]
     fn code_block_copy_ids_include_nested_block_path() {
         let code = "brew services start lizardbyte/homebrew/sunshine";
 
@@ -4091,32 +2723,6 @@ mod tests {
         }
     }
 
-    struct BlockLayoutTestView {
-        source: &'static str,
-        block_index: usize,
-    }
-
-    impl Render for BlockLayoutTestView {
-        fn render(
-            &mut self,
-            _window: &mut Window,
-            cx: &mut gpui::Context<Self>,
-        ) -> impl IntoElement {
-            #[allow(clippy::arc_with_non_send_sync)] // Match the UI-thread-only production API.
-            let document = Arc::new(ParsedChatMarkdown::parse(self.source));
-            let block_index = self.block_index;
-            let view = cx.new(|_| {
-                ChatMarkdownBlockView::new(
-                    document,
-                    block_index,
-                    ChatMarkdownTone::Message,
-                    "layout-test",
-                )
-            });
-            div().size_full().child(view)
-        }
-    }
-
     const LONG_CODE_LINE: &str = "const deeply_nested_value = client.workspace().panes().active().terminal().selection().unwrap_or_default().replace(\"alpha\", \"omega\");";
 
     fn assert_code_block_layout(cx: &mut gpui::VisualTestContext, prose_selector: &'static str) {
@@ -4137,28 +2743,6 @@ mod tests {
         assert!(
             diff.abs() < 2.0,
             "code block left edge differs from prose column: prose={prose:?} code={code:?}"
-        );
-        assert!(
-            code_text.size.width > scroll.size.width,
-            "long code line did not create horizontal overflow: text={code_text:?} scroll={scroll:?}"
-        );
-        assert!(
-            code_text.size.height < px(32.0),
-            "long code line wrapped instead of staying on one line: {code_text:?}"
-        );
-    }
-
-    fn assert_code_block_overflows_horizontally(cx: &mut gpui::VisualTestContext) {
-        let scroll = cx
-            .debug_bounds("chat-md-code-scroll")
-            .expect("code scroll bounds");
-        let code_text = cx
-            .debug_bounds("chat-md-code-text")
-            .expect("code text bounds");
-
-        assert!(
-            scroll.size.width <= px(720.0),
-            "code scroll not capped to content width: {scroll:?}"
         );
         assert!(
             code_text.size.width > scroll.size.width,
@@ -4255,21 +2839,5 @@ mod tests {
             scroll: None,
         });
         assert_code_block_layout(cx, "chat-md-block-0");
-    }
-
-    #[gpui::test]
-    fn block_view_code_block_aligns_and_scrolls_long_lines(cx: &mut gpui::TestAppContext) {
-        cx.update(gpui_component::init);
-        let source = Box::leak(
-            format!(
-                "plain paragraph text that stays on one line\n\n```rust\n{LONG_CODE_LINE}\n```\n"
-            )
-            .into_boxed_str(),
-        );
-        let (_view, cx) = cx.add_window_view(|_window, _cx| BlockLayoutTestView {
-            source,
-            block_index: 1,
-        });
-        assert_code_block_overflows_horizontally(cx);
     }
 }

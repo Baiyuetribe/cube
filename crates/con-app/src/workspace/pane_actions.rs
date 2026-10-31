@@ -35,32 +35,6 @@ impl ConWorkspace {
         self.input_bar.focus_handle(cx).focus(window, cx);
     }
 
-    pub(super) fn send_to_agent(&mut self, content: &str, cx: &mut Context<Self>) {
-        if !self.has_active_tab() {
-            return;
-        }
-        self.record_input_history(content);
-        if let Some(target) =
-            super::chrome::agent_panel_motion_target_for_agent_request(self.agent_panel_open)
-        {
-            self.agent_panel_open = true;
-            #[cfg(target_os = "macos")]
-            if cx.reduce_motion() {
-                self.arm_agent_panel_snap_guard(cx);
-            }
-            self.agent_panel_motion.set_target(target);
-        }
-        self.agent_panel.update(cx, |panel, cx| {
-            panel.add_message("user", content, cx);
-        });
-        let context = self.build_agent_context(cx);
-        let session = &self.tabs[self.active_tab].session;
-        let agent_config = self.active_tab_agent_config();
-        self.harness
-            .send_message(session, agent_config, content.to_string(), context);
-        self.save_session(cx);
-    }
-
     pub(super) fn create_surface_in_focused_pane(
         &mut self,
         window: &mut Window,
@@ -108,7 +82,7 @@ impl ConWorkspace {
         self.record_runtime_event_for_terminal(
             tab_idx,
             &terminal,
-            con_agent::context::PaneRuntimeEvent::PaneCreated {
+            con_terminal::PaneRuntimeEvent::PaneCreated {
                 startup_command: None,
             },
         );
@@ -171,7 +145,7 @@ impl ConWorkspace {
         self.record_runtime_event_for_terminal(
             tab_idx,
             &terminal,
-            con_agent::context::PaneRuntimeEvent::PaneCreated {
+            con_terminal::PaneRuntimeEvent::PaneCreated {
                 startup_command: None,
             },
         );
@@ -399,7 +373,7 @@ impl ConWorkspace {
         self.record_runtime_event_for_terminal(
             self.active_tab,
             &terminal,
-            con_agent::context::PaneRuntimeEvent::PaneCreated {
+            con_terminal::PaneRuntimeEvent::PaneCreated {
                 startup_command: None,
             },
         );
@@ -795,16 +769,10 @@ impl ConWorkspace {
                 pane_tree: new_pane_tree,
                 title: format!("Terminal {}", tab_number),
                 user_label: None,
-                ai_label: None,
-                ai_icon: None,
                 agent_cli: None,
                 color: None,
                 summary_id,
-                summary_epoch: 0,
                 needs_attention: false,
-                session: AgentSession::new(),
-                agent_routing: Self::default_agent_routing(self.harness.config()),
-                panel_state: PanelState::new(),
                 runtime_trackers: RefCell::new(HashMap::new()),
                 runtime_cache: RefCell::new(HashMap::new()),
                 shell_history: HashMap::new(),

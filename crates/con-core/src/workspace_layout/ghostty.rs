@@ -30,16 +30,6 @@ pub(super) fn serialize(layout: &WorkspaceLayout) -> anyhow::Result<String> {
     line(&mut out, "root", &quote(&layout.root)?);
     optional(&mut out, "active-tab", layout.active_tab.as_deref())?;
     optional(&mut out, "default.shell", layout.defaults.shell.as_deref())?;
-    optional(
-        &mut out,
-        "default.agent-provider",
-        layout.defaults.agent_provider.as_deref(),
-    )?;
-    optional(
-        &mut out,
-        "default.agent-model",
-        layout.defaults.agent_model.as_deref(),
-    )?;
 
     for tab in &layout.tabs {
         out.push('\n');
@@ -47,12 +37,6 @@ pub(super) fn serialize(layout: &WorkspaceLayout) -> anyhow::Result<String> {
         optional(&mut out, "tab.title", tab.title.as_deref())?;
         optional(&mut out, "tab.cwd", tab.cwd.as_deref())?;
         optional(&mut out, "tab.active-pane", tab.active_pane.as_deref())?;
-        optional(
-            &mut out,
-            "tab.agent-provider",
-            tab.agent.provider.as_deref(),
-        )?;
-        optional(&mut out, "tab.agent-model", tab.agent.model.as_deref())?;
         if tab.layout.is_some() {
             line(&mut out, "tab.layout", &quote("node-1")?);
         }
@@ -207,8 +191,6 @@ pub(super) fn parse(input: &str) -> anyhow::Result<WorkspaceLayout> {
                 layout.active_tab = Some(value(raw_value)?);
             }
             "default.shell" => layout.defaults.shell = Some(value(raw_value)?),
-            "default.agent-provider" => layout.defaults.agent_provider = Some(value(raw_value)?),
-            "default.agent-model" => layout.defaults.agent_model = Some(value(raw_value)?),
             "tab" => {
                 builds.push(TabBuild {
                     tab: Some(WorkspaceTab {
@@ -216,7 +198,6 @@ pub(super) fn parse(input: &str) -> anyhow::Result<WorkspaceLayout> {
                         title: None,
                         cwd: None,
                         active_pane: None,
-                        agent: WorkspaceTabAgent::default(),
                         layout: None,
                         panes: vec![],
                     }),
@@ -229,10 +210,6 @@ pub(super) fn parse(input: &str) -> anyhow::Result<WorkspaceLayout> {
             "tab.title" => current_tab(&mut builds)?.title = Some(value(raw_value)?),
             "tab.cwd" => current_tab(&mut builds)?.cwd = Some(value(raw_value)?),
             "tab.active-pane" => current_tab(&mut builds)?.active_pane = Some(value(raw_value)?),
-            "tab.agent-provider" => {
-                current_tab(&mut builds)?.agent.provider = Some(value(raw_value)?)
-            }
-            "tab.agent-model" => current_tab(&mut builds)?.agent.model = Some(value(raw_value)?),
             "tab.layout" => {
                 builds
                     .last_mut()

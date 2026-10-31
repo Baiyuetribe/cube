@@ -3,10 +3,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::session::{
-    AgentModelOverrideState, AgentRoutingState, CommandHistoryEntryState, GlobalHistoryState,
-    PaneLayoutState, PaneSplitDirection, PaneState, Session, SurfaceState, TabState,
+    CommandHistoryEntryState, GlobalHistoryState, PaneLayoutState, PaneSplitDirection, PaneState,
+    Session, SurfaceState, TabState,
 };
-use con_agent::ProviderKind;
 
 mod ghostty;
 
@@ -36,10 +35,6 @@ pub struct WorkspaceLayout {
 pub struct WorkspaceDefaults {
     #[serde(default)]
     pub shell: Option<String>,
-    #[serde(default)]
-    pub agent_provider: Option<String>,
-    #[serde(default)]
-    pub agent_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -52,19 +47,9 @@ pub struct WorkspaceTab {
     #[serde(default)]
     pub active_pane: Option<String>,
     #[serde(default)]
-    pub agent: WorkspaceTabAgent,
-    #[serde(default)]
     pub layout: Option<WorkspaceLayoutNode>,
     #[serde(default)]
     pub panes: Vec<WorkspacePane>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct WorkspaceTabAgent {
-    #[serde(default)]
-    pub provider: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -249,14 +234,12 @@ impl WorkspaceLayout {
                 .as_ref()
                 .and_then(|layout| workspace_node_from_session(layout, &pane_id_map))
                 .or_else(|| workspace_node_from_panes(&panes));
-            let agent = workspace_tab_agent_from_routing(&tab.agent_routing);
 
             tabs.push(WorkspaceTab {
                 id: tab_id,
                 title: tab.user_label.clone().or_else(|| Some(tab.title.clone())),
                 cwd: layout_cwd(tab.cwd.as_deref(), root),
                 active_pane,
-                agent,
                 layout,
                 panes,
             });
@@ -290,14 +273,9 @@ impl WorkspaceLayout {
     ) -> anyhow::Result<Session> {
         self.validate()?;
         let root = root.as_ref();
-        let default_provider = parse_provider_kind(self.defaults.agent_provider.as_deref());
-        let default_model = self.defaults.agent_model.clone();
 
         let mut tabs = Vec::new();
         for tab in &self.tabs {
-            let provider =
-                parse_provider_kind(tab.agent.provider.as_deref()).or(default_provider.clone());
-            let model = tab.agent.model.clone().or_else(|| default_model.clone());
             let pane_id_map = tab
                 .panes
                 .iter()
@@ -334,7 +312,6 @@ impl WorkspaceLayout {
                     })
                     .collect()
             };
-            let agent_routing = agent_routing_from_workspace(provider, model);
             let shell_history = panes
                 .iter()
                 .enumerate()
@@ -355,8 +332,6 @@ impl WorkspaceLayout {
                 focused_pane_id,
                 panes,
                 shell_history,
-                conversation_id: None,
-                agent_routing,
                 user_label: tab.title.clone(),
                 color: None,
             });
@@ -372,11 +347,6 @@ impl WorkspaceLayout {
                     cwd: Some(root.to_string_lossy().to_string()),
                 }],
                 shell_history: Vec::new(),
-                conversation_id: None,
-                agent_routing: agent_routing_from_workspace(
-                    default_provider.clone(),
-                    default_model,
-                ),
                 user_label: self.name.clone(),
                 color: None,
             });
@@ -391,14 +361,11 @@ impl WorkspaceLayout {
         let mut session = Session {
             tabs,
             active_tab,
-            agent_panel_open: false,
-            agent_panel_width: None,
             input_bar_visible: true,
             global_shell_history: history
                 .map(|history| history.global_shell_history.clone())
                 .unwrap_or_default(),
             input_history: profile_input_history(history),
-            conversation_id: None,
             left_panel_width: None,
             vertical_tabs_pinned: None,
             activity_slot: None,
@@ -708,79 +675,6 @@ fn active_surface_index(pane: &WorkspacePane) -> Option<usize> {
         .or_else(|| (!pane.surfaces.is_empty()).then_some(0))
 }
 
-fn workspace_tab_agent_from_routing(routing: &AgentRoutingState) -> WorkspaceTabAgent {
-    let provider = routing
-        .provider
-        .as_ref()
-        .map(|provider| provider.to_string());
-    let model = routing
-        .provider
-        .as_ref()
-        .and_then(|provider| {
-            routing
-                .model_overrides
-                .iter()
-                .find(|override_state| &override_state.provider == provider)
-        })
-        .or_else(|| routing.model_overrides.first())
-        .map(|override_state| override_state.model.clone());
-
-    WorkspaceTabAgent { provider, model }
-}
-
-fn agent_routing_from_workspace(
-    provider: Option<ProviderKind>,
-    model: Option<String>,
-) -> AgentRoutingState {
-    let Some(provider) = provider else {
-        return AgentRoutingState::default();
-    };
-    let model_overrides = model
-        .filter(|model| !model.trim().is_empty())
-        .map(|model| {
-            vec![AgentModelOverrideState {
-                provider: provider.clone(),
-                model,
-            }]
-        })
-        .unwrap_or_default();
-
-    AgentRoutingState {
-        provider: Some(provider),
-        model_overrides,
-    }
-}
-
-fn parse_provider_kind(value: Option<&str>) -> Option<ProviderKind> {
-    match value?.trim().to_ascii_lowercase().as_str() {
-        "anthropic" => Some(ProviderKind::Anthropic),
-        "openai" => Some(ProviderKind::OpenAI),
-        "codex-local" => Some(ProviderKind::CodexLocal),
-        "chatgpt" => Some(ProviderKind::ChatGPT),
-        "github-copilot" | "githubcopilot" => Some(ProviderKind::GitHubCopilot),
-        "openai-compatible" | "openai_compatible" | "openai compatible" => {
-            Some(ProviderKind::OpenAICompatible)
-        }
-        "minimax" => Some(ProviderKind::MiniMax),
-        "minimax-anthropic" => Some(ProviderKind::MiniMaxAnthropic),
-        "moonshot" => Some(ProviderKind::Moonshot),
-        "moonshot-anthropic" => Some(ProviderKind::MoonshotAnthropic),
-        "z-ai" | "zai" => Some(ProviderKind::ZAI),
-        "z-ai-anthropic" | "zai-anthropic" => Some(ProviderKind::ZAIAnthropic),
-        "deepseek" => Some(ProviderKind::DeepSeek),
-        "groq" => Some(ProviderKind::Groq),
-        "cohere" => Some(ProviderKind::Cohere),
-        "gemini" => Some(ProviderKind::Gemini),
-        "ollama" => Some(ProviderKind::Ollama),
-        "openrouter" => Some(ProviderKind::OpenRouter),
-        "perplexity" => Some(ProviderKind::Perplexity),
-        "mistral" => Some(ProviderKind::Mistral),
-        "together" => Some(ProviderKind::Together),
-        "xai" => Some(ProviderKind::XAI),
-        _ => None,
-    }
-}
-
 fn profile_input_history(history: Option<&GlobalHistoryState>) -> Vec<String> {
     history
         .map(|history| {
@@ -995,7 +889,6 @@ mod tests {
                 title: None,
                 cwd: Some(".".to_string()),
                 active_pane: Some("a".to_string()),
-                agent: WorkspaceTabAgent::default(),
                 layout: Some(WorkspaceLayoutNode::Split {
                     direction: WorkspaceSplitDirection::Horizontal,
                     ratio: 0.5,
@@ -1048,15 +941,12 @@ mod tests {
             active_tab: Some("dev".to_string()),
             defaults: WorkspaceDefaults {
                 shell: Some("login".to_string()),
-                agent_provider: Some("openai".to_string()),
-                agent_model: Some("gpt-5.2".to_string()),
             },
             tabs: vec![WorkspaceTab {
                 id: "dev".to_string(),
                 title: Some("Dev".to_string()),
                 cwd: Some(".".to_string()),
                 active_pane: Some("editor".to_string()),
-                agent: WorkspaceTabAgent::default(),
                 layout: Some(WorkspaceLayoutNode::Split {
                     direction: WorkspaceSplitDirection::Horizontal,
                     ratio: 0.6,
@@ -1218,27 +1108,16 @@ mod tests {
                         cwd: Some("/tmp/project".to_string()),
                     }],
                 }],
-                conversation_id: Some("private-conversation".to_string()),
-                agent_routing: AgentRoutingState {
-                    provider: Some(ProviderKind::OpenAI),
-                    model_overrides: vec![AgentModelOverrideState {
-                        provider: ProviderKind::OpenAI,
-                        model: "gpt-5.2".to_string(),
-                    }],
-                },
                 user_label: Some("Dev".to_string()),
                 color: None,
             }],
             active_tab: 0,
-            agent_panel_open: true,
-            agent_panel_width: Some(420.0),
             input_bar_visible: false,
             global_shell_history: vec![CommandHistoryEntryState {
                 command: "secret".to_string(),
                 cwd: None,
             }],
             input_history: vec!["ask secret".to_string()],
-            conversation_id: Some("legacy-private".to_string()),
             left_panel_width: Some(250.0),
             vertical_tabs_pinned: None,
             activity_slot: None,
@@ -1251,8 +1130,6 @@ mod tests {
 
         assert!(toml.contains("active-tab = \"dev\""));
         assert!(toml.contains("surface.cwd = \"crates/server\""));
-        assert!(toml.contains("tab.agent-provider = \"openai\""));
-        assert!(toml.contains("tab.agent-model = \"gpt-5.2\""));
         assert!(!toml.contains("secret output"));
         assert!(!toml.contains("cargo run"));
         assert!(!toml.contains("private-conversation"));
@@ -1273,10 +1150,6 @@ mod tests {
                 title: Some("Dev".to_string()),
                 cwd: Some(".".to_string()),
                 active_pane: Some("server".to_string()),
-                agent: WorkspaceTabAgent {
-                    provider: Some("openai".to_string()),
-                    model: Some("gpt-5.2".to_string()),
-                },
                 layout: Some(WorkspaceLayoutNode::Pane {
                     id: "server".to_string(),
                 }),
@@ -1308,13 +1181,8 @@ mod tests {
         assert_eq!(session.active_tab, 0);
         assert_eq!(session.tabs[0].cwd.as_deref(), Some("/tmp/project"));
         assert_eq!(session.tabs[0].focused_pane_id, Some(0));
-        assert!(session.tabs[0].conversation_id.is_none());
         assert_eq!(session.tabs[0].shell_history[0].entries.len(), 0);
         assert_eq!(session.global_shell_history[0].command, "git status");
-        assert_eq!(
-            session.tabs[0].agent_routing.provider,
-            Some(ProviderKind::OpenAI)
-        );
         match session.tabs[0].layout.as_ref().unwrap() {
             PaneLayoutState::Leaf { surfaces, .. } => {
                 assert_eq!(
@@ -1398,18 +1266,13 @@ panes = []
                     },
                 ],
                 shell_history: Vec::new(),
-                conversation_id: None,
-                agent_routing: AgentRoutingState::default(),
                 user_label: None,
                 color: None,
             }],
             active_tab: 0,
-            agent_panel_open: false,
-            agent_panel_width: None,
             input_bar_visible: true,
             global_shell_history: Vec::new(),
             input_history: Vec::new(),
-            conversation_id: None,
             left_panel_width: None,
             vertical_tabs_pinned: None,
             activity_slot: None,

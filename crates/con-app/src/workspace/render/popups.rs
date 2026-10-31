@@ -11,6 +11,28 @@ fn pane_scope_frame(theme: &gpui_component::Theme) -> gpui::Div {
         .bg(theme.foreground.opacity(0.025))
 }
 
+fn pane_scope_popup_geometry(
+    terminal_left: f32,
+    terminal_width: f32,
+    input_height: f32,
+    progress: f32,
+    scale: f32,
+) -> (Pixels, Pixels, Pixels) {
+    let inset = 12.0 * scale;
+    let width = (terminal_width * 0.38)
+        .clamp(320.0 * scale, 440.0 * scale)
+        .min((terminal_width - 2.0 * inset).max(0.0));
+    let anchor = (crate::input_chrome::BAR_INSET
+        + crate::input_chrome::CONTROL_SIZE
+        + crate::input_chrome::CONTROL_GAP)
+        * scale;
+    let left = (terminal_left + anchor)
+        .min(terminal_left + terminal_width - width - inset)
+        .max(terminal_left + inset);
+    let bottom = input_height * progress.clamp(0.0, 1.0) + 10.0 * scale;
+    (px(left), px(width), px(bottom))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{PANE_SCOPE_GAP, pane_scope_frame, pane_scope_popup_geometry};
@@ -122,28 +144,6 @@ mod tests {
             }
         }
     }
-}
-
-fn pane_scope_popup_geometry(
-    terminal_left: f32,
-    terminal_width: f32,
-    input_height: f32,
-    progress: f32,
-    scale: f32,
-) -> (Pixels, Pixels, Pixels) {
-    let inset = 12.0 * scale;
-    let width = (terminal_width * 0.38)
-        .clamp(320.0 * scale, 440.0 * scale)
-        .min((terminal_width - 2.0 * inset).max(0.0));
-    let anchor = (crate::input_chrome::BAR_INSET
-        + crate::input_chrome::CONTROL_SIZE
-        + crate::input_chrome::CONTROL_GAP)
-        * scale;
-    let left = (terminal_left + anchor)
-        .min(terminal_left + terminal_width - width - inset)
-        .max(terminal_left + inset);
-    let bottom = input_height * progress.clamp(0.0, 1.0) + 10.0 * scale;
-    (px(left), px(width), px(bottom))
 }
 
 impl ConWorkspace {
@@ -335,10 +335,7 @@ impl ConWorkspace {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if self.pane_scope_picker_open
-            && self.input_bar_visible
-            && self.input_bar.read(cx).mode() != InputMode::Agent
-        {
+        if self.pane_scope_picker_open && self.input_bar_visible {
             let panes = self.input_bar.read(cx).pane_infos();
             if panes.len() > 1 {
                 let focused_id = self.input_bar.read(cx).focused_pane_id();
@@ -557,96 +554,5 @@ impl ConWorkspace {
         }
 
         None
-    }
-
-    pub(super) fn render_inline_skill_popup(
-        &self,
-        elevated_ui_surface_opacity: f32,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let theme = cx.theme();
-        let popup_bottom = self.agent_panel.read(cx).inline_skill_popup_offset(cx);
-        let effective_agent_panel_width = self
-            .agent_panel_width
-            .min(max_agent_panel_width(window.bounds().size.width.as_f32()));
-        let panel_left = window.bounds().size.width.as_f32() - effective_agent_panel_width;
-        let popup_left = px((panel_left + 8.0).max(24.0));
-        let popup_width = px((effective_agent_panel_width - 24.0).clamp(180.0, 320.0));
-        let skills = self
-            .agent_panel
-            .read(cx)
-            .filtered_inline_skills(cx)
-            .into_iter()
-            .map(|s| (s.name.clone(), s.description.clone()))
-            .collect::<Vec<_>>();
-        let sel = self.agent_panel.read(cx).inline_skill_selection();
-        let sel = sel.min(skills.len().saturating_sub(1));
-
-        let mut popup = div()
-            .absolute()
-            .bottom(popup_bottom)
-            .left(popup_left)
-            .w(popup_width)
-            .max_h(px(280.0))
-            .flex()
-            .flex_col()
-            .rounded(px(10.0))
-            .bg(theme.background.opacity(elevated_ui_surface_opacity))
-            .border_1()
-            .border_color(theme.muted.opacity(0.16))
-            .py(px(6.0))
-            .overflow_hidden()
-            .font_family(theme.font_family.clone());
-
-        for (i, (name, desc)) in skills.iter().enumerate() {
-            let is_sel = i == sel;
-            let name_clone = name.clone();
-            popup = popup.child(
-                div()
-                    .id(SharedString::from(format!("inline-skill-{name}")))
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .mx(px(6.0))
-                    .px(px(12.0))
-                    .py(px(8.0))
-                    .rounded(px(8.0))
-                    .cursor_pointer()
-                    .bg(if is_sel {
-                        theme.primary.opacity(0.10)
-                    } else {
-                        theme.transparent
-                    })
-                    .hover(|s| s.bg(theme.primary.opacity(0.08)))
-                    .on_mouse_down(MouseButton::Left, {
-                        let agent_panel = self.agent_panel.clone();
-                        cx.listener(move |_this, _, window, cx| {
-                            agent_panel.update(cx, |panel, cx| {
-                                panel.complete_inline_skill(&name_clone, window, cx);
-                            });
-                        })
-                    })
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(if is_sel {
-                                theme.primary
-                            } else {
-                                theme.foreground
-                            })
-                            .child(format!("/{name}")),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .line_height(px(16.0))
-                            .text_color(theme.muted_foreground.opacity(0.68))
-                            .child(desc.clone()),
-                    ),
-            );
-        }
-        Some(popup.into_any_element())
     }
 }

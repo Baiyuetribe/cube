@@ -5,7 +5,6 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
-con-agent.workspace = true
 con-paths.workspace = true
 con-terminal.workspace = true
 serde.workspace = true

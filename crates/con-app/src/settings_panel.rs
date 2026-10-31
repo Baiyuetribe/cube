@@ -1,43 +1,32 @@
-use con_agent::provider::{AgentPurpose, ProviderTransport};
-use con_agent::{
-    OAuthDevicePrompt, ProviderConfig, ProviderKind, SuggestionModelConfig,
-    authorize_oauth_provider, oauth_token_dir,
-};
 use con_core::{
     Config,
     config::{
-        AGENT_AVATARS, APP_ICON_GROUPS, APP_ICONS, AppearanceConfig, DEFAULT_TERMINAL_FONT_FAMILY,
+        APP_ICON_GROUPS, APP_ICONS, AppearanceConfig, DEFAULT_TERMINAL_FONT_FAMILY,
         MAX_UI_FONT_SIZE, MIN_UI_FONT_SIZE, TabsOrientation, is_bundled_terminal_font_family,
         is_gpui_pseudo_font_family, sanitize_terminal_font_fallback, sanitize_terminal_font_family,
     },
 };
-use futures::{FutureExt, StreamExt};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
-use gpui_component::clipboard::Clipboard;
 use gpui_component::input::InputState;
 use gpui_component::select::{SearchableVec, Select, SelectEvent, SelectState};
 use gpui_component::slider::{Slider, SliderEvent, SliderState};
 use gpui_component::switch::Switch;
 use gpui_component::{ActiveTheme, Disableable, Icon, IndexPath, Sizable as _, input::Input};
 
-use crate::model_registry::ModelRegistry;
 use crate::motion::{MotionValue, vertical_reveal_offset};
 use crate::ui_scale::{ui_density_scale, ui_icon_px, ui_px};
-use std::collections::HashMap;
-use std::sync::Arc;
 use url::Url;
 
 mod configuration;
-mod subscription;
 use configuration::{ConfigurationImport, ConfigurationImportStatus};
 mod window_chrome;
 use window_chrome::SETTINGS_HEADER_HEIGHT;
+pub(crate) use window_chrome::settings_titlebar_options;
 #[cfg(target_os = "macos")]
 pub(crate) use window_chrome::traffic_light_position;
-pub(crate) use window_chrome::{floating_titlebar_options, settings_titlebar_options};
 
 actions!(settings, [ToggleSettings, SaveSettings, DismissSettings]);
 
@@ -47,98 +36,6 @@ pub struct ThemePreview(pub String);
 /// Emitted for lightweight appearance changes that should be visible
 /// immediately but should not persist/rebuild the full agent config.
 pub struct AppearancePreview;
-
-#[derive(Debug, Clone, Default)]
-struct ProviderOAuthState {
-    in_progress: bool,
-    connected: bool,
-    prompt: Option<OAuthDevicePrompt>,
-    status_message: Option<String>,
-    error_message: Option<String>,
-}
-
-fn provider_connection_status(
-    provider_has_oauth: bool,
-    oauth_ready: bool,
-    oauth_state: Option<&ProviderOAuthState>,
-    oauth_cache_present: bool,
-    has_key_override: bool,
-) -> (bool, &'static str) {
-    let connection_ready = if provider_has_oauth {
-        oauth_ready || has_key_override
-    } else {
-        has_key_override
-    };
-    let connection_label = if provider_has_oauth {
-        match oauth_state {
-            Some(state) if state.in_progress => "Signing In",
-            Some(state) if state.connected => "Signed In",
-            _ if oauth_cache_present => "Signed In",
-            _ if has_key_override => "Ready",
-            _ => "OAuth",
-        }
-    } else if has_key_override {
-        "Ready"
-    } else {
-        "No key"
-    };
-
-    (connection_ready, connection_label)
-}
-
-enum ProviderModelFetchRequest {
-    CodexLocal,
-    OpenAICompatible {
-        base_url: String,
-        api_key: Option<String>,
-    },
-    ChatGPT {
-        config: ProviderConfig,
-    },
-}
-
-impl ProviderModelFetchRequest {
-    async fn fetch(self) -> anyhow::Result<ProviderModelFetchResult> {
-        match self {
-            Self::CodexLocal => Ok(ProviderModelFetchResult::CodexLocal {
-                models: con_agent::codex_local::fetch_models().await?,
-            }),
-            Self::OpenAICompatible { base_url, api_key } => {
-                let models =
-                    ModelRegistry::fetch_openai_compatible_models(&base_url, api_key.as_deref())
-                        .await?;
-                Ok(ProviderModelFetchResult::OpenAICompatible { base_url, models })
-            }
-            Self::ChatGPT { config } => {
-                let models = ModelRegistry::fetch_chatgpt_subscription_models(&config).await?;
-                Ok(ProviderModelFetchResult::ChatGPT { models })
-            }
-        }
-    }
-}
-
-enum ProviderModelFetchResult {
-    CodexLocal {
-        models: Vec<String>,
-    },
-    OpenAICompatible {
-        base_url: String,
-        models: Vec<String>,
-    },
-    ChatGPT {
-        models: Vec<String>,
-    },
-}
-
-impl ProviderModelFetchResult {
-    fn models(&self) -> &[String] {
-        match self {
-            Self::OpenAICompatible { models, .. }
-            | Self::ChatGPT { models }
-            | Self::CodexLocal { models } => models,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResponsiveMode {
@@ -170,10 +67,7 @@ impl ResponsiveMode {
 enum SettingsSection {
     General,
     Appearance,
-    Ai,
-    Providers,
     Keys,
-    Experimental,
     Configuration,
 }
 
@@ -182,10 +76,7 @@ impl SettingsSection {
         match self {
             Self::General => "General",
             Self::Appearance => "Appearance",
-            Self::Ai => "AI",
-            Self::Providers => "Providers",
             Self::Keys => "Keys",
-            Self::Experimental => "Experimental",
             Self::Configuration => "Config",
         }
     }
@@ -194,10 +85,7 @@ impl SettingsSection {
         match self {
             Self::General => "phosphor/sliders.svg",
             Self::Appearance => "phosphor/sun.svg",
-            Self::Ai => "phosphor/robot.svg",
-            Self::Providers => "phosphor/plugs-connected.svg",
             Self::Keys => "phosphor/keyboard.svg",
-            Self::Experimental => "phosphor/magic-wand-duotone.svg",
             Self::Configuration => "phosphor/file-text.svg",
         }
     }
@@ -206,10 +94,7 @@ impl SettingsSection {
 const ALL_SECTIONS: &[SettingsSection] = &[
     SettingsSection::General,
     SettingsSection::Appearance,
-    SettingsSection::Ai,
-    SettingsSection::Providers,
     SettingsSection::Keys,
-    SettingsSection::Experimental,
     SettingsSection::Configuration,
 ];
 
@@ -219,35 +104,9 @@ pub struct SettingsPanel {
     config: Config,
     preview_snapshot: Option<Config>,
     icon_preview_owner: u64,
-    registry: ModelRegistry,
-    oauth_runtime: Arc<tokio::runtime::Runtime>,
     focus_handle: FocusHandle,
     active_section: SettingsSection,
     overlay_motion: MotionValue,
-
-    selected_provider: ProviderKind,
-    provider_navigation_select: Entity<SelectState<SearchableVec<String>>>,
-    active_provider_select: Entity<SelectState<SearchableVec<String>>>,
-    active_model_select: Entity<SelectState<SearchableVec<String>>>,
-    model_input: Entity<InputState>,
-    model_select: Entity<SelectState<SearchableVec<String>>>,
-    endpoint_preset_select: Entity<SelectState<Vec<String>>>,
-    api_key_input: Entity<InputState>,
-    base_url_input: Entity<InputState>,
-    max_tokens_input: Entity<InputState>,
-    reasoning_select: Entity<SelectState<Vec<String>>>,
-    max_turns_input: Entity<InputState>,
-    temperature_input: Entity<InputState>,
-    auto_approve: bool,
-    ai_purpose_select: Entity<SelectState<Vec<String>>>,
-
-    suggestion_enabled: bool,
-    suggestion_provider_select: Entity<SelectState<SearchableVec<String>>>,
-    suggestion_model_select: Entity<SelectState<SearchableVec<String>>>,
-    oauth_states: HashMap<ProviderKind, ProviderOAuthState>,
-    provider_model_fetching: bool,
-    provider_model_status: Option<String>,
-    provider_model_status_error: bool,
 
     terminal_font_select: Entity<SelectState<SearchableVec<String>>>,
     shell_input: Entity<InputState>,
@@ -298,28 +157,6 @@ enum SettingsSaveErrorKind {
     Other,
 }
 
-const SIDEBAR_PROVIDERS: &[ProviderKind] = &[
-    ProviderKind::Anthropic,
-    ProviderKind::OpenAI,
-    ProviderKind::CodexLocal,
-    ProviderKind::ChatGPT,
-    ProviderKind::GitHubCopilot,
-    ProviderKind::OpenAICompatible,
-    ProviderKind::MiniMax,
-    ProviderKind::Moonshot,
-    ProviderKind::ZAI,
-    ProviderKind::DeepSeek,
-    ProviderKind::Groq,
-    ProviderKind::Gemini,
-    ProviderKind::Ollama,
-    ProviderKind::OpenRouter,
-    ProviderKind::Mistral,
-    ProviderKind::Together,
-    ProviderKind::Cohere,
-    ProviderKind::Perplexity,
-    ProviderKind::XAI,
-];
-
 const BACKGROUND_IMAGE_POSITIONS: &[&str] = &[
     "top-left",
     "top-center",
@@ -333,19 +170,6 @@ const BACKGROUND_IMAGE_POSITIONS: &[&str] = &[
 ];
 
 const BACKGROUND_IMAGE_FITS: &[&str] = &["contain", "cover", "stretch", "none"];
-const ENDPOINT_DEFAULT_LABEL: &str = "Provider Default";
-const ENDPOINT_CUSTOM_LABEL: &str = "Custom";
-const KIMI_CODING_ENDPOINT: EndpointPreset = EndpointPreset {
-    label: "Kimi Coding",
-    base_url: "https://api.kimi.com/coding/v1",
-};
-
-#[derive(Clone, Copy)]
-struct EndpointPreset {
-    label: &'static str,
-    base_url: &'static str,
-}
-
 impl SettingsPanel {
     fn clamp_ui_font_size(value: f32) -> f32 {
         value.clamp(MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
@@ -503,681 +327,6 @@ impl SettingsPanel {
         preferred
     }
 
-    fn provider_api_key_placeholder(provider: &ProviderKind) -> &'static str {
-        match provider {
-            ProviderKind::ChatGPT | ProviderKind::GitHubCopilot => "Override for advanced setups",
-            ProviderKind::OpenAICompatible => "Optional, or OPENAI_API_KEY",
-            _ => "sk-.. or OPENAI_API_KEY",
-        }
-    }
-
-    fn provider_api_key_label(provider: &ProviderKind) -> &'static str {
-        match provider {
-            ProviderKind::ChatGPT => "Access Token Override",
-            ProviderKind::GitHubCopilot => "API Key Override",
-            _ => "API Key",
-        }
-    }
-
-    fn provider_api_key_hint(provider: &ProviderKind) -> &'static str {
-        match provider {
-            ProviderKind::ChatGPT => "Leave blank for ChatGPT OAuth.",
-            ProviderKind::GitHubCopilot => "Leave blank for GitHub OAuth.",
-            ProviderKind::OpenAICompatible => {
-                "Optional for local endpoints; use a key or env var when required."
-            }
-            _ => "Key or env var name",
-        }
-    }
-
-    fn provider_has_oauth(provider: &ProviderKind) -> bool {
-        matches!(
-            provider,
-            ProviderKind::ChatGPT | ProviderKind::GitHubCopilot
-        )
-    }
-
-    fn provider_oauth_label(provider: &ProviderKind) -> Option<&'static str> {
-        match provider {
-            ProviderKind::ChatGPT => Some("ChatGPT Subscription"),
-            ProviderKind::GitHubCopilot => Some("GitHub Copilot"),
-            _ => None,
-        }
-    }
-
-    fn provider_oauth_button_label(provider: &ProviderKind) -> Option<&'static str> {
-        match provider {
-            ProviderKind::ChatGPT => Some("Auth ChatGPT"),
-            ProviderKind::GitHubCopilot => Some("Auth GitHub"),
-            _ => None,
-        }
-    }
-
-    fn sidebar_provider_kind(provider: &ProviderKind) -> ProviderKind {
-        match provider {
-            ProviderKind::MiniMaxAnthropic => ProviderKind::MiniMax,
-            ProviderKind::MoonshotAnthropic => ProviderKind::Moonshot,
-            ProviderKind::ZAIAnthropic => ProviderKind::ZAI,
-            _ => provider.clone(),
-        }
-    }
-
-    fn protocol_pair(provider: &ProviderKind) -> Option<(ProviderKind, ProviderKind)> {
-        match Self::sidebar_provider_kind(provider) {
-            ProviderKind::MiniMax => Some((ProviderKind::MiniMax, ProviderKind::MiniMaxAnthropic)),
-            ProviderKind::Moonshot => {
-                Some((ProviderKind::Moonshot, ProviderKind::MoonshotAnthropic))
-            }
-            ProviderKind::ZAI => Some((ProviderKind::ZAI, ProviderKind::ZAIAnthropic)),
-            _ => None,
-        }
-    }
-
-    fn uses_anthropic_protocol(provider: &ProviderKind) -> bool {
-        matches!(
-            provider,
-            ProviderKind::MiniMaxAnthropic
-                | ProviderKind::MoonshotAnthropic
-                | ProviderKind::ZAIAnthropic
-        )
-    }
-
-    fn protocol_switch_label(provider: &ProviderKind) -> Option<&'static str> {
-        Self::protocol_pair(provider).map(|_| "Anthropic API")
-    }
-
-    fn protocol_switch_hint(provider: &ProviderKind) -> Option<&'static str> {
-        Self::protocol_pair(provider).map(|_| "OpenAI- or Anthropic-compatible API")
-    }
-
-    fn provider_icon_path(provider: &ProviderKind) -> &'static str {
-        match Self::sidebar_provider_kind(provider) {
-            ProviderKind::Anthropic => "providers/anthropic.svg",
-            ProviderKind::OpenAI => "providers/openai.svg",
-            ProviderKind::CodexLocal => "phosphor/plugs-connected.svg",
-            ProviderKind::ChatGPT => "providers/openai.svg",
-            ProviderKind::GitHubCopilot => "providers/githubcopilot.svg",
-            ProviderKind::OpenAICompatible => "phosphor/plugs-connected.svg",
-            ProviderKind::MiniMax => "providers/minimax.svg",
-            ProviderKind::Moonshot => "providers/moonshot.svg",
-            ProviderKind::ZAI => "providers/zai.svg",
-            ProviderKind::DeepSeek => "providers/deepseek.svg",
-            ProviderKind::Groq => "providers/groq.svg",
-            ProviderKind::Gemini => "providers/gemini.svg",
-            ProviderKind::Ollama => "providers/ollama.svg",
-            ProviderKind::OpenRouter => "providers/openrouter.svg",
-            ProviderKind::Mistral => "providers/mistral.svg",
-            ProviderKind::Together => "providers/together.svg",
-            ProviderKind::Cohere => "providers/cohere.svg",
-            ProviderKind::Perplexity => "providers/perplexity.svg",
-            ProviderKind::XAI => "providers/xai.svg",
-            _ => "phosphor/plugs-connected.svg",
-        }
-    }
-
-    fn provider_config_has_auth_signal(provider: &ProviderKind, config: &ProviderConfig) -> bool {
-        // Local Codex owns auth. A stale/ignored Con key is not a readiness signal.
-        if *provider == ProviderKind::CodexLocal {
-            return false;
-        }
-        let has_api_key = config
-            .api_key
-            .as_ref()
-            .is_some_and(|v| !v.trim().is_empty())
-            || config
-                .api_key_env
-                .as_ref()
-                .is_some_and(|v| !v.trim().is_empty());
-        if has_api_key {
-            return true;
-        }
-
-        *provider == ProviderKind::OpenAICompatible
-            && config
-                .base_url
-                .as_ref()
-                .is_some_and(|v| !v.trim().is_empty())
-    }
-
-    fn provider_is_configured(&self, provider: &ProviderKind, cx: &App) -> bool {
-        let sidebar_provider = Self::sidebar_provider_kind(provider);
-        if Self::provider_oauth_cache_present(&sidebar_provider) {
-            return true;
-        }
-        if self
-            .oauth_state(&sidebar_provider)
-            .is_some_and(|state| state.connected || state.in_progress)
-        {
-            return true;
-        }
-
-        let has_config = |kind: &ProviderKind| {
-            if *kind == self.selected_provider {
-                let current = self.read_provider_inputs(cx);
-                return Self::provider_config_has_auth_signal(kind, &current);
-            }
-            self.config
-                .agent
-                .providers
-                .get(kind)
-                .is_some_and(|config| Self::provider_config_has_auth_signal(kind, config))
-        };
-
-        has_config(&sidebar_provider)
-            || match sidebar_provider {
-                ProviderKind::MiniMax => has_config(&ProviderKind::MiniMaxAnthropic),
-                ProviderKind::Moonshot => has_config(&ProviderKind::MoonshotAnthropic),
-                ProviderKind::ZAI => has_config(&ProviderKind::ZAIAnthropic),
-                _ => false,
-            }
-    }
-
-    fn provider_oauth_cache_present(provider: &ProviderKind) -> bool {
-        let Some(dir) = oauth_token_dir(provider) else {
-            return false;
-        };
-        match provider {
-            ProviderKind::ChatGPT => dir.join("auth.json").is_file(),
-            ProviderKind::GitHubCopilot => {
-                dir.join("access-token").is_file() || dir.join("api-key.json").is_file()
-            }
-            _ => false,
-        }
-    }
-
-    fn provider_oauth_ready(&self, provider: &ProviderKind) -> bool {
-        let sidebar_provider = Self::sidebar_provider_kind(provider);
-        Self::provider_oauth_cache_present(&sidebar_provider)
-            || self
-                .oauth_state(&sidebar_provider)
-                .is_some_and(|state| state.connected || state.in_progress)
-    }
-
-    fn sidebar_selection_target(
-        clicked_provider: &ProviderKind,
-        current_selected: &ProviderKind,
-    ) -> ProviderKind {
-        if Self::sidebar_provider_kind(current_selected) == *clicked_provider
-            && Self::uses_anthropic_protocol(current_selected)
-        {
-            current_selected.clone()
-        } else {
-            clicked_provider.clone()
-        }
-    }
-
-    fn protocol_toggled_provider(
-        provider: &ProviderKind,
-        use_anthropic: bool,
-    ) -> Option<ProviderKind> {
-        Self::protocol_pair(provider).map(|(openai_kind, anthropic_kind)| {
-            if use_anthropic {
-                anthropic_kind
-            } else {
-                openai_kind
-            }
-        })
-    }
-
-    fn provider_for_transport(
-        provider: &ProviderKind,
-        transport: ProviderTransport,
-    ) -> Option<ProviderKind> {
-        Self::protocol_pair(provider).map(|(openai_kind, anthropic_kind)| match transport {
-            ProviderTransport::OpenAI => openai_kind,
-            ProviderTransport::Anthropic => anthropic_kind,
-        })
-    }
-
-    fn preferred_sidebar_provider(
-        config: &Config,
-        clicked_provider: &ProviderKind,
-    ) -> ProviderKind {
-        let sidebar_provider = Self::sidebar_provider_kind(clicked_provider);
-        let transport = config.agent.provider_transport_for(&sidebar_provider);
-        Self::provider_for_transport(
-            &sidebar_provider,
-            transport.unwrap_or(ProviderTransport::OpenAI),
-        )
-        .unwrap_or(sidebar_provider)
-    }
-
-    fn provider_for_saved_transport(config: &Config, provider: &ProviderKind) -> ProviderKind {
-        let sidebar_provider = Self::sidebar_provider_kind(provider);
-        let Some(transport) = config.agent.provider_transport_for(&sidebar_provider) else {
-            return provider.clone();
-        };
-
-        Self::provider_for_transport(&sidebar_provider, transport).unwrap_or(provider.clone())
-    }
-
-    fn normalize_active_provider_for_saved_transport(&mut self) {
-        self.config.agent.provider =
-            Self::provider_for_saved_transport(&self.config, &self.config.agent.provider);
-    }
-
-    fn set_active_provider_if_tracking(
-        &mut self,
-        source_provider: &ProviderKind,
-        target_provider: &ProviderKind,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if Self::sidebar_provider_kind(&self.config.agent.provider)
-            != Self::sidebar_provider_kind(source_provider)
-        {
-            return;
-        }
-
-        self.config.agent.select_provider(target_provider.clone());
-        self.active_model_select =
-            Self::make_active_model_select(&self.config, &self.registry, window, cx);
-    }
-
-    fn oauth_state(&self, provider: &ProviderKind) -> Option<&ProviderOAuthState> {
-        self.oauth_states.get(provider)
-    }
-
-    fn oauth_state_mut(&mut self, provider: &ProviderKind) -> &mut ProviderOAuthState {
-        self.oauth_states.entry(provider.clone()).or_default()
-    }
-
-    fn start_provider_oauth(
-        &mut self,
-        provider: ProviderKind,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let state = self.oauth_state_mut(&provider);
-        state.in_progress = true;
-        state.connected = false;
-        state.prompt = None;
-        state.status_message = Some("Waiting for device authorization…".to_string());
-        state.error_message = None;
-        cx.notify();
-
-        let runtime = self.oauth_runtime.clone();
-        cx.spawn_in(window, async move |this, window| {
-            let (prompt_tx, prompt_rx) = futures::channel::mpsc::unbounded::<OAuthDevicePrompt>();
-            let (result_tx, result_rx) = futures::channel::oneshot::channel::<Result<(), String>>();
-
-            runtime.spawn({
-                let provider = provider.clone();
-                async move {
-                    let result = authorize_oauth_provider(provider, move |prompt| {
-                        let _ = prompt_tx.unbounded_send(prompt);
-                    })
-                    .await
-                    .map_err(|err| err.to_string());
-
-                    let _ = result_tx.send(result);
-                }
-            });
-
-            let mut prompt_rx = prompt_rx.fuse();
-            let mut result_rx = result_rx.fuse();
-
-            loop {
-                futures::select! {
-                    maybe_prompt = prompt_rx.next() => {
-                        let Some(prompt) = maybe_prompt else {
-                            continue;
-                        };
-                        let verification_uri = prompt.verification_uri.clone();
-                        let _ = window.update(|window, cx| {
-                            let _ = this.update(cx, |panel, cx| {
-                                let state = panel.oauth_state_mut(&provider);
-                                state.prompt = Some(prompt);
-                                state.status_message = Some("Finish sign-in in your browser. Con will continue automatically.".to_string());
-                                state.error_message = None;
-                                cx.open_url(&verification_uri);
-                                cx.notify();
-                            });
-                            let _ = window;
-                        });
-                    }
-                    result = result_rx => {
-                        let _ = window.update(|window, cx| {
-                            let _ = this.update(cx, |panel, cx| {
-                                let state = panel.oauth_state_mut(&provider);
-                                state.in_progress = false;
-                                match result {
-                                    Ok(Ok(())) => {
-                                        state.connected = true;
-                                        state.prompt = None;
-                                        state.status_message = Some("Authorized and stored in Con’s auth cache.".to_string());
-                                        state.error_message = None;
-                                        if provider == ProviderKind::ChatGPT && panel.selected_provider == provider {
-                                            panel.fetch_selected_provider_models(window, cx);
-                                        }
-                                    }
-                                    Ok(Err(err)) => {
-                                        state.connected = false;
-                                        state.error_message = Some(err);
-                                        state.status_message = None;
-                                    }
-                                    Err(_) => {
-                                        state.connected = false;
-                                        state.error_message = Some("OAuth flow ended unexpectedly.".to_string());
-                                        state.status_message = None;
-                                    }
-                                }
-                                cx.notify();
-                            });
-                            let _ = window;
-                        });
-                        break;
-                    }
-                }
-            }
-        })
-        .detach();
-    }
-
-    fn provider_base_url_hint(provider: &ProviderKind) -> &'static str {
-        if Self::provider_endpoint_presets(provider).is_empty() {
-            "Blank for the default"
-        } else {
-            "Blank for provider default"
-        }
-    }
-
-    fn provider_endpoint_presets(provider: &ProviderKind) -> &'static [EndpointPreset] {
-        match provider {
-            ProviderKind::MiniMax => &[
-                EndpointPreset {
-                    label: "Global",
-                    base_url: "https://api.minimax.io/v1",
-                },
-                EndpointPreset {
-                    label: "China",
-                    base_url: "https://api.minimaxi.com/v1",
-                },
-            ],
-            ProviderKind::MiniMaxAnthropic => &[
-                EndpointPreset {
-                    label: "Global",
-                    base_url: "https://api.minimax.io/anthropic",
-                },
-                EndpointPreset {
-                    label: "China",
-                    base_url: "https://api.minimaxi.com/anthropic",
-                },
-            ],
-            ProviderKind::Moonshot => &[
-                EndpointPreset {
-                    label: "Global",
-                    base_url: "https://api.moonshot.ai/v1",
-                },
-                EndpointPreset {
-                    label: "China",
-                    base_url: "https://api.moonshot.cn/v1",
-                },
-                KIMI_CODING_ENDPOINT,
-            ],
-            ProviderKind::MoonshotAnthropic => &[EndpointPreset {
-                label: "Global",
-                base_url: "https://api.moonshot.ai/anthropic",
-            }],
-            ProviderKind::ZAI => &[
-                EndpointPreset {
-                    label: "General",
-                    base_url: "https://api.z.ai/api/paas/v4",
-                },
-                EndpointPreset {
-                    label: "Coding",
-                    base_url: "https://api.z.ai/api/coding/paas/v4",
-                },
-            ],
-            ProviderKind::ZAIAnthropic => &[EndpointPreset {
-                label: "Anthropic",
-                base_url: "https://api.z.ai/api/anthropic",
-            }],
-            _ => &[],
-        }
-    }
-
-    fn extra_endpoint_presets(provider: &ProviderKind) -> &'static [EndpointPreset] {
-        match provider {
-            // Kimi Coding is OpenAI-compatible only. Show it while the Moonshot
-            // card is in Anthropic mode and switch back to OpenAI when selected.
-            ProviderKind::MoonshotAnthropic => &[KIMI_CODING_ENDPOINT],
-            _ => &[],
-        }
-    }
-
-    fn endpoint_options(provider: &ProviderKind) -> Vec<String> {
-        let presets = Self::provider_endpoint_presets(provider);
-        let extra_presets = Self::extra_endpoint_presets(provider);
-        if presets.is_empty() && extra_presets.is_empty() {
-            return vec![ENDPOINT_DEFAULT_LABEL.to_string()];
-        }
-
-        let mut options = Vec::with_capacity(presets.len() + extra_presets.len() + 2);
-        options.push(ENDPOINT_DEFAULT_LABEL.to_string());
-        options.extend(presets.iter().map(|preset| preset.label.to_string()));
-        for preset in extra_presets {
-            if !options.iter().any(|option| option == preset.label) {
-                options.push(preset.label.to_string());
-            }
-        }
-        options.push(ENDPOINT_CUSTOM_LABEL.to_string());
-        options
-    }
-
-    fn endpoint_preset_for_label(
-        provider: &ProviderKind,
-        label: &str,
-    ) -> Option<(ProviderKind, EndpointPreset)> {
-        if let Some(preset) = Self::provider_endpoint_presets(provider)
-            .iter()
-            .copied()
-            .find(|preset| preset.label == label)
-        {
-            return Some((provider.clone(), preset));
-        }
-
-        Self::extra_endpoint_presets(provider)
-            .iter()
-            .copied()
-            .find(|preset| preset.label == label)
-            .and_then(|preset| match provider {
-                ProviderKind::MoonshotAnthropic => Some((ProviderKind::Moonshot, preset)),
-                _ => None,
-            })
-    }
-
-    fn endpoint_label_for_base_url(
-        provider: &ProviderKind,
-        base_url: Option<&str>,
-    ) -> &'static str {
-        let Some(base_url) = base_url.map(str::trim).filter(|value| !value.is_empty()) else {
-            return ENDPOINT_DEFAULT_LABEL;
-        };
-
-        for preset in Self::provider_endpoint_presets(provider) {
-            if preset.base_url == base_url {
-                return preset.label;
-            }
-        }
-        for preset in Self::extra_endpoint_presets(provider) {
-            if preset.base_url == base_url {
-                return preset.label;
-            }
-        }
-
-        ENDPOINT_CUSTOM_LABEL
-    }
-
-    fn mapped_protocol_base_url(
-        source_provider: &ProviderKind,
-        target_provider: &ProviderKind,
-        source_base_url: Option<&str>,
-    ) -> Option<String> {
-        let source_label = Self::endpoint_label_for_base_url(source_provider, source_base_url);
-        if matches!(source_label, ENDPOINT_DEFAULT_LABEL | ENDPOINT_CUSTOM_LABEL) {
-            let target_presets = Self::provider_endpoint_presets(target_provider);
-            return (target_presets.len() == 1).then(|| target_presets[0].base_url.to_string());
-        }
-
-        if let Some(preset) = Self::provider_endpoint_presets(target_provider)
-            .iter()
-            .find(|preset| preset.label == source_label)
-        {
-            return Some(preset.base_url.to_string());
-        }
-
-        let target_presets = Self::provider_endpoint_presets(target_provider);
-        (target_presets.len() == 1).then(|| target_presets[0].base_url.to_string())
-    }
-
-    fn source_endpoint_is_named_preset(
-        source_provider: &ProviderKind,
-        source_base_url: Option<&str>,
-    ) -> bool {
-        !matches!(
-            Self::endpoint_label_for_base_url(source_provider, source_base_url),
-            ENDPOINT_DEFAULT_LABEL | ENDPOINT_CUSTOM_LABEL
-        )
-    }
-
-    fn seed_protocol_variant_config(
-        source_provider: &ProviderKind,
-        target_provider: &ProviderKind,
-        source: &ProviderConfig,
-        target: &ProviderConfig,
-    ) -> ProviderConfig {
-        let mut seeded = target.clone();
-
-        if seeded.model.is_none() {
-            seeded.model = source.model.clone();
-        }
-        if seeded.api_key.is_none() {
-            seeded.api_key = source.api_key.clone();
-        }
-        if seeded.api_key_env.is_none() {
-            seeded.api_key_env = source.api_key_env.clone();
-        }
-        if seeded.max_tokens.is_none() {
-            seeded.max_tokens = source.max_tokens;
-        }
-        let target_base_url_is_empty = seeded
-            .base_url
-            .as_deref()
-            .is_none_or(|value| value.trim().is_empty());
-        let mapped_base_url = Self::mapped_protocol_base_url(
-            source_provider,
-            target_provider,
-            source.base_url.as_deref(),
-        );
-        if let Some(mapped_base_url) = mapped_base_url
-            && (target_base_url_is_empty
-                || Self::source_endpoint_is_named_preset(
-                    source_provider,
-                    source.base_url.as_deref(),
-                ))
-        {
-            seeded.base_url = Some(mapped_base_url);
-        }
-
-        seeded
-    }
-
-    fn make_endpoint_preset_select(
-        provider: &ProviderKind,
-        current_base_url: &Option<String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<SelectState<Vec<String>>> {
-        let options = Self::endpoint_options(provider);
-        let selected_index = options
-            .iter()
-            .position(|item| {
-                item == Self::endpoint_label_for_base_url(provider, current_base_url.as_deref())
-            })
-            .map(IndexPath::new);
-        let entity = cx.new(|cx| SelectState::new(options, selected_index, window, cx));
-        cx.subscribe_in(
-            &entity,
-            window,
-            |this, _, ev: &SelectEvent<Vec<String>>, window, cx| {
-                let SelectEvent::Confirm(Some(value)) = ev else {
-                    return;
-                };
-
-                match value.as_str() {
-                    ENDPOINT_DEFAULT_LABEL => {
-                        this.base_url_input
-                            .update(cx, |input, cx| input.set_value("", window, cx));
-                    }
-                    ENDPOINT_CUSTOM_LABEL => {}
-                    _ => {
-                        if let Some((target_provider, preset)) =
-                            Self::endpoint_preset_for_label(&this.selected_provider, value.as_str())
-                        {
-                            if target_provider != this.selected_provider {
-                                let source_provider = this.selected_provider.clone();
-                                let source_config = this.read_provider_inputs(cx);
-                                this.config
-                                    .agent
-                                    .providers
-                                    .set(&source_provider, source_config.clone());
-
-                                let target_config =
-                                    this.config.agent.providers.get_or_default(&target_provider);
-                                let mut seeded_target = Self::seed_protocol_variant_config(
-                                    &source_provider,
-                                    &target_provider,
-                                    &source_config,
-                                    &target_config,
-                                );
-                                seeded_target.base_url = Some(preset.base_url.to_string());
-                                this.config
-                                    .agent
-                                    .providers
-                                    .set(&target_provider, seeded_target);
-                                this.config.agent.set_provider_transport(
-                                    &target_provider,
-                                    Some(ProviderTransport::OpenAI),
-                                );
-                                this.set_active_provider_if_tracking(
-                                    &source_provider,
-                                    &target_provider,
-                                    window,
-                                    cx,
-                                );
-                                this.transition_provider(target_provider, window, cx);
-                                return;
-                            }
-
-                            this.base_url_input.update(cx, |input, cx| {
-                                input.set_value(preset.base_url, window, cx);
-                            });
-                        }
-                    }
-                }
-
-                cx.notify();
-            },
-        )
-        .detach();
-        entity
-    }
-
-    fn sync_provider_placeholders(
-        &self,
-        provider: &ProviderKind,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.api_key_input.update(cx, |input, cx| {
-            input.set_placeholder(Self::provider_api_key_placeholder(provider), window, cx);
-        });
-        self.base_url_input.update(cx, |input, cx| {
-            input.set_placeholder("Default endpoint", window, cx);
-        });
-    }
-
     fn make_searchable_string_select(
         options: &[String],
         current_value: &str,
@@ -1214,210 +363,16 @@ impl SettingsPanel {
         });
     }
 
-    fn suggestion_provider_options() -> Vec<String> {
-        let mut options = vec!["Same as active provider".to_string()];
-        options.extend(
-            SIDEBAR_PROVIDERS
-                .iter()
-                .map(|provider| provider_label(provider).to_string()),
-        );
-        options
-    }
-
-    fn suggestion_provider_label(provider: Option<&ProviderKind>) -> String {
-        provider
-            .map(|provider| provider_label(&Self::sidebar_provider_kind(provider)))
-            .unwrap_or("Same as active provider")
-            .to_string()
-    }
-
-    fn suggestion_provider_from_label(label: &str) -> Option<ProviderKind> {
-        if label == "Same as active provider" {
-            return None;
-        }
-
-        SIDEBAR_PROVIDERS
-            .iter()
-            .find(|provider| provider_label(provider) == label)
-            .cloned()
-    }
-
-    fn effective_suggestion_provider(config: &Config) -> ProviderKind {
-        let provider = config
-            .agent
-            .suggestion_model
-            .provider
-            .clone()
-            .unwrap_or_else(|| config.agent.provider.clone());
-        Self::provider_for_saved_transport(config, &provider)
-    }
-
-    fn provider_options() -> Vec<String> {
-        SIDEBAR_PROVIDERS
-            .iter()
-            .map(|provider| provider_label(provider).to_string())
-            .collect()
-    }
-
-    fn ai_purpose_options() -> &'static [&'static str] {
-        &["Build", "Explain", "Operate"]
-    }
-
-    fn ai_purpose_label(purpose: AgentPurpose) -> &'static str {
-        match purpose {
-            AgentPurpose::Build => "Build",
-            AgentPurpose::Explain => "Explain",
-            AgentPurpose::Operate => "Operate",
-        }
-    }
-
-    fn ai_purpose_from_label(label: &str) -> AgentPurpose {
-        match label {
-            "Explain" => AgentPurpose::Explain,
-            "Operate" => AgentPurpose::Operate,
-            _ => AgentPurpose::Build,
-        }
-    }
-
     fn card_opacity(&self) -> f32 {
         0.74
     }
 
-    pub fn new(
-        config: &Config,
-        registry: ModelRegistry,
-        oauth_runtime: Arc<tokio::runtime::Runtime>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(config: &Config, window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.observe_global::<ConfigurationImportStatus>(|_, cx| cx.notify())
             .detach();
         let mut config = config.clone();
         config.appearance.terminal_blur =
             Self::effective_terminal_blur(config.appearance.terminal_blur);
-        let active_provider = Self::provider_for_saved_transport(&config, &config.agent.provider);
-        config.agent.provider = active_provider;
-        let agent = &config.agent;
-        let selected_provider = Self::provider_for_saved_transport(&config, &agent.provider);
-        let pc = agent.providers.get_or_default(&selected_provider);
-        let provider_navigation_select = Self::make_searchable_string_select(
-            &Self::provider_options(),
-            provider_label(&Self::sidebar_provider_kind(&selected_provider)),
-            window,
-            cx,
-        );
-        let active_provider_select = Self::make_searchable_string_select(
-            &Self::provider_options(),
-            provider_label(&Self::sidebar_provider_kind(&agent.provider)),
-            window,
-            cx,
-        );
-        let active_model_select = Self::make_active_model_select(&config, &registry, window, cx);
-
-        let model_input = cx.new(|cx| {
-            let mut s = InputState::new(window, cx);
-            s.set_placeholder("Provider default or custom model ID", window, cx);
-            s.set_value(pc.model.clone().unwrap_or_default(), window, cx);
-            s
-        });
-        let model_select =
-            Self::make_model_select(&selected_provider, &pc.model, &pc, &registry, window, cx);
-        cx.subscribe_in(
-            &model_input,
-            window,
-            |this, _, event: &gpui_component::input::InputEvent, window, cx| {
-                if matches!(event, gpui_component::input::InputEvent::Change) {
-                    let pc = this.read_provider_inputs(cx);
-                    this.load_reasoning_options(&pc, window, cx);
-                }
-            },
-        )
-        .detach();
-        let endpoint_preset_select =
-            Self::make_endpoint_preset_select(&selected_provider, &pc.base_url, window, cx);
-        let api_key_input = cx.new(|cx| {
-            let mut s = InputState::new(window, cx);
-            s.set_placeholder(
-                Self::provider_api_key_placeholder(&selected_provider),
-                window,
-                cx,
-            );
-            let val = pc
-                .api_key
-                .clone()
-                .or_else(|| pc.api_key_env.clone())
-                .unwrap_or_default();
-            s.set_value(&val, window, cx);
-            s
-        });
-        let base_url_input = cx.new(|cx| {
-            let mut s = InputState::new(window, cx);
-            s.set_placeholder("Default endpoint", window, cx);
-            s.set_value(pc.base_url.clone().unwrap_or_default(), window, cx);
-            s
-        });
-        let max_tokens_input = cx.new(|cx| {
-            let mut s = InputState::new(window, cx);
-            s.set_placeholder("Provider default", window, cx);
-            s.set_value(
-                pc.max_tokens.map(|t| t.to_string()).unwrap_or_default(),
-                window,
-                cx,
-            );
-            s
-        });
-        for input in [&api_key_input, &base_url_input] {
-            cx.subscribe_in(
-                input,
-                window,
-                |this, _, event: &gpui_component::input::InputEvent, window, cx| {
-                    if matches!(event, gpui_component::input::InputEvent::Change) {
-                        let pc = this.read_provider_inputs(cx);
-                        this.model_select = Self::make_model_select(
-                            &this.selected_provider,
-                            &pc.model,
-                            &pc,
-                            &this.registry,
-                            window,
-                            cx,
-                        );
-                        this.load_reasoning_options(&pc, window, cx);
-                    }
-                },
-            )
-            .detach();
-        }
-        let reasoning_select = Self::make_reasoning_select(&pc, window, cx);
-        let max_turns_input = cx.new(|cx| {
-            let mut s = InputState::new(window, cx);
-            s.set_placeholder("10", window, cx);
-            s.set_value(agent.max_turns.to_string(), window, cx);
-            s
-        });
-        let temperature_input = cx.new(|cx| {
-            let mut s = InputState::new(window, cx);
-            s.set_placeholder("Provider default", window, cx);
-            s.set_value(
-                agent.temperature.map(|t| t.to_string()).unwrap_or_default(),
-                window,
-                cx,
-            );
-            s
-        });
-        let ai_purpose_select = Self::make_string_select(
-            Self::ai_purpose_options(),
-            Self::ai_purpose_label(agent.purpose),
-            window,
-            cx,
-        );
-        let suggestion_provider_select = Self::make_searchable_string_select(
-            &Self::suggestion_provider_options(),
-            &Self::suggestion_provider_label(agent.suggestion_model.provider.as_ref()),
-            window,
-            cx,
-        );
-        let suggestion_model_select =
-            Self::make_suggestion_model_select(&config, &registry, window, cx);
         let all_font_families = cx.text_system().all_font_names();
         let terminal_font_families =
             Self::prepare_terminal_font_families(&config, all_font_families.clone());
@@ -1663,69 +618,6 @@ impl SettingsPanel {
         )
         .detach();
         cx.subscribe_in(
-            &active_provider_select,
-            window,
-            |this, _, ev: &SelectEvent<SearchableVec<String>>, window, cx| {
-                if let SelectEvent::Confirm(Some(value)) = ev
-                    && let Some(provider) = Self::suggestion_provider_from_label(value)
-                {
-                    let provider = Self::provider_for_saved_transport(&this.config, &provider);
-                    this.config.agent.select_provider(provider);
-                    this.active_model_select =
-                        Self::make_active_model_select(&this.config, &this.registry, window, cx);
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
-        cx.subscribe_in(
-            &provider_navigation_select,
-            window,
-            |this, _, ev: &SelectEvent<SearchableVec<String>>, window, cx| {
-                if let SelectEvent::Confirm(Some(value)) = ev {
-                    let Some(provider) = SIDEBAR_PROVIDERS
-                        .iter()
-                        .find(|provider| provider_label(provider) == value)
-                        .cloned()
-                    else {
-                        return;
-                    };
-                    let provider = Self::provider_for_saved_transport(&this.config, &provider);
-                    this.transition_provider(provider, window, cx);
-                }
-            },
-        )
-        .detach();
-        cx.subscribe_in(
-            &suggestion_provider_select,
-            window,
-            |this, _, ev: &SelectEvent<SearchableVec<String>>, window, cx| {
-                if let SelectEvent::Confirm(Some(value)) = ev {
-                    this.config.agent.suggestion_model.provider =
-                        Self::suggestion_provider_from_label(value);
-                    this.suggestion_model_select = Self::make_suggestion_model_select(
-                        &this.config,
-                        &this.registry,
-                        window,
-                        cx,
-                    );
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
-        cx.subscribe_in(
-            &ai_purpose_select,
-            window,
-            |this, _, ev: &SelectEvent<Vec<String>>, _, cx| {
-                if let SelectEvent::Confirm(Some(value)) = ev {
-                    this.config.agent.purpose = Self::ai_purpose_from_label(value);
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
-        cx.subscribe_in(
             &terminal_font_select,
             window,
             |this, _, ev: &SelectEvent<SearchableVec<String>>, window, cx| {
@@ -1816,33 +708,9 @@ impl SettingsPanel {
             config: config.clone(),
             preview_snapshot: None,
             icon_preview_owner: crate::app_icon::new_preview_owner(),
-            registry,
-            oauth_runtime,
             focus_handle: cx.focus_handle(),
             active_section: SettingsSection::General,
             overlay_motion: MotionValue::new(0.0),
-            selected_provider,
-            provider_navigation_select,
-            active_provider_select,
-            active_model_select,
-            model_input,
-            model_select,
-            endpoint_preset_select,
-            api_key_input,
-            base_url_input,
-            max_tokens_input,
-            reasoning_select,
-            max_turns_input,
-            temperature_input,
-            auto_approve: config.agent.auto_approve_tools,
-            ai_purpose_select,
-            suggestion_enabled: config.agent.suggestion_model.enabled,
-            suggestion_provider_select,
-            suggestion_model_select,
-            oauth_states: HashMap::new(),
-            provider_model_fetching: false,
-            provider_model_status: None,
-            provider_model_status_error: false,
             terminal_font_select,
             shell_input,
             terminal_fallback_select,
@@ -1946,67 +814,6 @@ impl SettingsPanel {
     }
 
     fn refresh_controls_from_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.normalize_active_provider_for_saved_transport();
-        self.selected_provider =
-            Self::provider_for_saved_transport(&self.config, &self.selected_provider);
-        let agent = &self.config.agent;
-        let pc = agent.providers.get_or_default(&self.selected_provider);
-        self.load_provider_inputs(&pc, window, cx);
-        self.sync_provider_placeholders(&self.selected_provider, window, cx);
-        self.max_turns_input.update(cx, |s, cx| {
-            s.set_value(agent.max_turns.to_string(), window, cx)
-        });
-        self.temperature_input.update(cx, |s, cx| {
-            s.set_value(
-                agent.temperature.map(|t| t.to_string()).unwrap_or_default(),
-                window,
-                cx,
-            )
-        });
-        self.active_provider_select.update(cx, |select, cx| {
-            select.set_selected_value(
-                &provider_label(&Self::sidebar_provider_kind(&agent.provider)).to_string(),
-                window,
-                cx,
-            );
-        });
-        self.provider_navigation_select.update(cx, |select, cx| {
-            select.set_selected_value(
-                &provider_label(&Self::sidebar_provider_kind(&self.selected_provider)).to_string(),
-                window,
-                cx,
-            );
-        });
-        self.active_model_select =
-            Self::make_active_model_select(&self.config, &self.registry, window, cx);
-        self.ai_purpose_select.update(cx, |select, cx| {
-            select.set_selected_value(
-                &Self::ai_purpose_label(agent.purpose).to_string(),
-                window,
-                cx,
-            );
-        });
-        self.suggestion_enabled = agent.suggestion_model.enabled;
-        self.suggestion_provider_select.update(cx, |select, cx| {
-            select.set_selected_value(
-                &Self::suggestion_provider_label(agent.suggestion_model.provider.as_ref()),
-                window,
-                cx,
-            );
-        });
-        self.suggestion_model_select =
-            Self::make_suggestion_model_select(&self.config, &self.registry, window, cx);
-        self.auto_approve = agent.auto_approve_tools;
-        self.model_select = Self::make_model_select(
-            &self.selected_provider,
-            &pc.model,
-            &pc,
-            &self.registry,
-            window,
-            cx,
-        );
-        self.endpoint_preset_select =
-            Self::make_endpoint_preset_select(&self.selected_provider, &pc.base_url, window, cx);
         self.terminal_font_select.update(cx, |select, cx| {
             select.set_selected_value(
                 &sanitize_terminal_font_family(&self.config.terminal.font_family),
@@ -2116,9 +923,6 @@ impl SettingsPanel {
         self.background_image_repeat = self.config.appearance.background_image_repeat;
         self.hide_pane_title_bar = self.config.appearance.hide_pane_title_bar;
         self.close_to_quit = self.config.appearance.close_to_quit;
-        self.provider_model_fetching = false;
-        self.provider_model_status = None;
-        self.provider_model_status_error = false;
         self.set_recording_key(None);
         // Network / proxy — repopulate so reopening the panel shows current values.
         self.http_proxy_input.update(cx, |s, cx| {
@@ -2136,171 +940,6 @@ impl SettingsPanel {
             )
         });
         self.focus_handle.focus(window, cx);
-    }
-
-    /// Load a provider's config into the per-provider input fields.
-    fn load_provider_inputs(
-        &self,
-        pc: &ProviderConfig,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.model_input.update(cx, |s, cx| {
-            s.set_value(pc.model.clone().unwrap_or_default(), window, cx)
-        });
-        self.load_reasoning_options(pc, window, cx);
-        let key_val = pc
-            .api_key
-            .clone()
-            .or_else(|| pc.api_key_env.clone())
-            .unwrap_or_default();
-        self.api_key_input
-            .update(cx, |s, cx| s.set_value(&key_val, window, cx));
-        self.base_url_input.update(cx, |s, cx| {
-            s.set_value(pc.base_url.clone().unwrap_or_default(), window, cx)
-        });
-        let endpoint_label =
-            Self::endpoint_label_for_base_url(&self.selected_provider, pc.base_url.as_deref())
-                .to_string();
-        self.endpoint_preset_select.update(cx, |select, cx| {
-            select.set_selected_value(&endpoint_label, window, cx);
-        });
-        self.max_tokens_input.update(cx, |s, cx| {
-            s.set_value(
-                pc.max_tokens.map(|t| t.to_string()).unwrap_or_default(),
-                window,
-                cx,
-            )
-        });
-    }
-
-    /// Build a model select entity for the given provider.
-    fn make_model_select_state(
-        provider: &ProviderKind,
-        current_model: &Option<String>,
-        provider_config: &ProviderConfig,
-        registry: &ModelRegistry,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<SelectState<SearchableVec<String>>> {
-        let mut models: Vec<String> = registry.models_for_config(provider, provider_config);
-        if let Some(model) = current_model
-            .as_ref()
-            .map(|model| model.trim())
-            .filter(|model| !model.is_empty())
-            && !models.iter().any(|item| item == model)
-        {
-            models.insert(0, model.to_string());
-        }
-        let selected_index = current_model
-            .as_ref()
-            .and_then(|m| models.iter().position(|item| item == m).map(IndexPath::new));
-
-        cx.new(|cx| {
-            SelectState::new(SearchableVec::new(models), selected_index, window, cx)
-                .searchable(true)
-        })
-    }
-
-    fn make_model_select(
-        provider: &ProviderKind,
-        current_model: &Option<String>,
-        provider_config: &ProviderConfig,
-        registry: &ModelRegistry,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<SelectState<SearchableVec<String>>> {
-        let entity = Self::make_model_select_state(
-            provider,
-            current_model,
-            provider_config,
-            registry,
-            window,
-            cx,
-        );
-        cx.subscribe_in(
-            &entity,
-            window,
-            |this, _, ev: &SelectEvent<SearchableVec<String>>, window, cx| {
-                if let SelectEvent::Confirm(Some(value)) = ev {
-                    this.model_input.update(cx, |s, cx| {
-                        s.set_value(value, window, cx);
-                    });
-                    let pc = this.read_provider_inputs(cx);
-                    this.load_reasoning_options(&pc, window, cx);
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
-        entity
-    }
-
-    fn make_active_model_select(
-        config: &Config,
-        registry: &ModelRegistry,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<SelectState<SearchableVec<String>>> {
-        let provider = config.agent.provider.clone();
-        let current_model = config
-            .agent
-            .providers
-            .get(&provider)
-            .and_then(|pc| pc.model.clone());
-        let entity = Self::make_model_select_state(
-            &provider,
-            &current_model,
-            &config.agent.providers.get_or_default(&provider),
-            registry,
-            window,
-            cx,
-        );
-        cx.subscribe_in(
-            &entity,
-            window,
-            |this, _, ev: &SelectEvent<SearchableVec<String>>, _, cx| {
-                if let SelectEvent::Confirm(Some(value)) = ev {
-                    let provider = this.config.agent.provider.clone();
-                    let mut pc = this.config.agent.providers.get_or_default(&provider);
-                    pc.model = Some(value.clone());
-                    this.config.agent.providers.set(&provider, pc);
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
-        entity
-    }
-
-    fn make_suggestion_model_select(
-        config: &Config,
-        registry: &ModelRegistry,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<SelectState<SearchableVec<String>>> {
-        let provider = Self::effective_suggestion_provider(config);
-        let current_model = config.agent.suggestion_model.model.clone();
-        let entity = Self::make_model_select_state(
-            &provider,
-            &current_model,
-            &config.agent.providers.get_or_default(&provider),
-            registry,
-            window,
-            cx,
-        );
-        cx.subscribe_in(
-            &entity,
-            window,
-            |this, _, ev: &SelectEvent<SearchableVec<String>>, _, cx| {
-                if let SelectEvent::Confirm(Some(value)) = ev {
-                    this.config.agent.suggestion_model.model = Some(value.clone());
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
-        entity
     }
 
     /// Parse a ghostty config from clipboard and show a live preview.
@@ -2421,239 +1060,6 @@ impl SettingsPanel {
         cx.notify();
     }
 
-    /// Read current per-provider input fields into a ProviderConfig.
-    fn read_provider_inputs(&self, cx: &App) -> ProviderConfig {
-        let key_text = self.api_key_input.read(cx).value().to_string();
-        let is_env_var = !key_text.is_empty()
-            && key_text
-                .chars()
-                .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit());
-
-        let (api_key, api_key_env) = if key_text.is_empty() {
-            (None, None)
-        } else if is_env_var {
-            (None, Some(key_text))
-        } else {
-            (Some(key_text), None)
-        };
-
-        let model_text = self.model_input.read(cx).value().to_string();
-        let base_url_text = self.base_url_input.read(cx).value().to_string();
-        let max_tokens_text = self.max_tokens_input.read(cx).value().to_string();
-
-        ProviderConfig {
-            model: if model_text.is_empty() {
-                None
-            } else {
-                Some(model_text)
-            },
-            api_key,
-            api_key_env,
-            base_url: if base_url_text.is_empty() {
-                None
-            } else {
-                Some(base_url_text)
-            },
-            reasoning_effort: if self.selected_provider == ProviderKind::ChatGPT {
-                self.reasoning_select
-                    .read(cx)
-                    .selected_value()
-                    .and_then(|value| {
-                        con_agent::chatgpt_subscription::ReasoningEffort::parse(value)
-                    })
-            } else {
-                self.config
-                    .agent
-                    .providers
-                    .get(&self.selected_provider)
-                    .and_then(|pc| pc.reasoning_effort)
-            },
-            max_tokens: if max_tokens_text.is_empty() {
-                None
-            } else {
-                max_tokens_text.parse().ok()
-            },
-        }
-    }
-
-    fn resolve_provider_api_key(config: &ProviderConfig) -> Result<Option<String>, String> {
-        if let Some(key) = config
-            .api_key
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            return Ok(Some(key.to_string()));
-        }
-
-        if let Some(env_name) = config
-            .api_key_env
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            return std::env::var(env_name)
-                .map(|value| value.trim().to_string())
-                .map_err(|_| format!("Environment variable {env_name} is not set."))
-                .and_then(|value| {
-                    if value.is_empty() {
-                        Err(format!("Environment variable {env_name} is empty."))
-                    } else {
-                        Ok(Some(value))
-                    }
-                });
-        }
-
-        Ok(None)
-    }
-
-    fn fetch_selected_provider_models(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !matches!(
-            self.selected_provider,
-            ProviderKind::OpenAICompatible | ProviderKind::ChatGPT | ProviderKind::CodexLocal
-        ) || self.provider_model_fetching
-        {
-            return;
-        }
-
-        let provider = self.selected_provider.clone();
-        let provider_config = self.read_provider_inputs(cx);
-        self.config
-            .agent
-            .providers
-            .set(&provider, provider_config.clone());
-
-        let fetch_request = match provider {
-            ProviderKind::CodexLocal => ProviderModelFetchRequest::CodexLocal,
-            ProviderKind::OpenAICompatible => {
-                let Some(base_url) = provider_config
-                    .base_url
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(ToOwned::to_owned)
-                else {
-                    self.provider_model_status =
-                        Some("Enter the provider Base URL, usually ending in /v1.".to_string());
-                    self.provider_model_status_error = true;
-                    cx.notify();
-                    return;
-                };
-
-                let api_key = match Self::resolve_provider_api_key(&provider_config) {
-                    Ok(api_key) => api_key,
-                    Err(message) => {
-                        self.provider_model_status = Some(message);
-                        self.provider_model_status_error = true;
-                        cx.notify();
-                        return;
-                    }
-                };
-                ProviderModelFetchRequest::OpenAICompatible { base_url, api_key }
-            }
-            ProviderKind::ChatGPT => ProviderModelFetchRequest::ChatGPT {
-                config: provider_config,
-            },
-            _ => return,
-        };
-
-        self.provider_model_fetching = true;
-        self.provider_model_status = Some("Fetching models from the provider…".to_string());
-        self.provider_model_status_error = false;
-        cx.notify();
-
-        let registry = self.registry.clone();
-        let runtime = self.oauth_runtime.clone();
-        cx.spawn_in(window, async move |this, window| {
-            let result = runtime
-                .spawn(async move { fetch_request.fetch().await })
-                .await
-                .map_err(|err| anyhow::anyhow!("Model fetch task failed: {err}"))
-                .and_then(|result| result);
-
-            let _ = window.update(|window, cx| {
-                let _ = this.update(cx, |panel, cx| {
-                    panel.provider_model_fetching = false;
-                    match result {
-                        Ok(result) if result.models().is_empty() => {
-                            panel.provider_model_status = Some(
-                                "The endpoint responded, but returned no models. Type the model ID manually."
-                                    .to_string(),
-                            );
-                            panel.provider_model_status_error = true;
-                        }
-                        Ok(result) => {
-                            let count = result.models().len();
-                            match result {
-                                ProviderModelFetchResult::OpenAICompatible { base_url, models } => {
-                                    if let Err(err) = registry.set_provider_models_for_base_url(
-                                        ProviderKind::OpenAICompatible,
-                                        &base_url,
-                                        models,
-                                    ) {
-                                        panel.provider_model_status = Some(err.to_string());
-                                        panel.provider_model_status_error = true;
-                                        cx.notify();
-                                        return;
-                                    }
-                                }
-                                ProviderModelFetchResult::ChatGPT { .. } => {}
-                                ProviderModelFetchResult::CodexLocal { models } => {
-                                    registry.set_codex_local_models(models);
-                                }
-                            }
-                            if panel.selected_provider == provider {
-                                let current_model =
-                                    panel.model_input.read(cx).value().trim().to_string();
-                                let current_model =
-                                    (!current_model.is_empty()).then_some(current_model);
-                                panel.model_select = Self::make_model_select(
-                                    &provider,
-                                    &current_model,
-                                    &panel.read_provider_inputs(cx),
-                                    &registry,
-                                    window,
-                                    cx,
-                                );
-                            }
-                            if panel.config.agent.provider == provider {
-                                panel.active_model_select = Self::make_active_model_select(
-                                    &panel.config,
-                                    &registry,
-                                    window,
-                                    cx,
-                                );
-                            }
-                            if Self::effective_suggestion_provider(&panel.config) == provider {
-                                panel.suggestion_model_select = Self::make_suggestion_model_select(
-                                    &panel.config,
-                                    &registry,
-                                    window,
-                                    cx,
-                                );
-                            }
-                            panel.provider_model_status = Some(format!(
-                                "Fetched {count} model{}.",
-                                if count == 1 { "" } else { "s" }
-                            ));
-                            panel.provider_model_status_error = false;
-                            let pc = panel.read_provider_inputs(cx);
-                            panel.load_reasoning_options(&pc, window, cx);
-                        }
-                        Err(err) => {
-                            panel.provider_model_status = Some(format!(
-                                "Could not fetch models: {err}. Type the model ID manually."
-                            ));
-                            panel.provider_model_status_error = true;
-                        }
-                    }
-                    cx.notify();
-                });
-            });
-        })
-        .detach();
-    }
-
     pub fn is_visible(&self) -> bool {
         self.visible || self.overlay_motion.is_animating()
     }
@@ -2663,57 +1069,10 @@ impl SettingsPanel {
     }
 
     fn sync_config_from_controls(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
-        let max_turns_text = self.max_turns_input.read(cx).value().to_string();
-        let temperature_text = self.temperature_input.read(cx).value().to_string();
-        let suggestion_provider_label = self
-            .suggestion_provider_select
-            .read(cx)
-            .selected_value()
-            .cloned()
-            .unwrap_or_else(|| "Same as active provider".to_string());
-        let suggestion_model_text = self
-            .suggestion_model_select
-            .read(cx)
-            .selected_value()
-            .cloned()
-            .unwrap_or_default();
         let font_size_text = self.font_size_input.read(cx).value().to_string();
         let shell_text = self.shell_input.read(cx).value().trim().to_string();
         let ui_font_size_text = self.ui_font_size_input.read(cx).value().trim().to_string();
 
-        // An untouched empty provider form must not create a new authored
-        // provider entry merely because Settings rendered its dirty indicator.
-        let pc = self.read_provider_inputs(cx);
-        if pc
-            != self
-                .config
-                .agent
-                .providers
-                .get_or_default(&self.selected_provider)
-        {
-            self.config.agent.providers.set(&self.selected_provider, pc);
-        }
-        self.normalize_active_provider_for_saved_transport();
-
-        // Update global fields
-        self.config.agent.max_turns = max_turns_text.parse().unwrap_or(10);
-        self.config.agent.temperature = if temperature_text.is_empty() {
-            None
-        } else {
-            temperature_text.parse().ok()
-        };
-        self.config.agent.auto_approve_tools = self.auto_approve;
-        let suggestion_provider = Self::suggestion_provider_from_label(&suggestion_provider_label)
-            .map(|provider| Self::provider_for_saved_transport(&self.config, &provider));
-        self.config.agent.suggestion_model = SuggestionModelConfig {
-            enabled: self.suggestion_enabled,
-            provider: suggestion_provider,
-            model: if suggestion_model_text.is_empty() {
-                None
-            } else {
-                Some(suggestion_model_text)
-            },
-        };
         self.config.terminal.font_family =
             sanitize_terminal_font_family(&self.config.terminal.font_family);
         self.config.terminal.font_fallback = sanitize_terminal_font_fallback(
@@ -3105,177 +1464,11 @@ impl SettingsPanel {
             crate::app_icon::take_for_save(&self.config.appearance.app_icon, snapshot);
     }
 
-    fn select_provider(
-        &mut self,
-        provider: ProviderKind,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let provider = if Self::protocol_pair(&provider).is_some() {
-            if Self::sidebar_provider_kind(&self.selected_provider)
-                == Self::sidebar_provider_kind(&provider)
-            {
-                self.selected_provider.clone()
-            } else {
-                Self::preferred_sidebar_provider(&self.config, &provider)
-            }
-        } else {
-            Self::sidebar_selection_target(&provider, &self.selected_provider)
-        };
-        self.transition_provider(provider.clone(), window, cx);
-        self.provider_navigation_select.update(cx, |select, cx| {
-            select.set_selected_value(
-                &provider_label(&Self::sidebar_provider_kind(&provider)).to_string(),
-                window,
-                cx,
-            );
-        });
-    }
-
-    fn transition_provider(
-        &mut self,
-        provider: ProviderKind,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let current_pc = self.read_provider_inputs(cx);
-        self.config
-            .agent
-            .providers
-            .set(&self.selected_provider, current_pc);
-
-        if provider == self.selected_provider {
-            cx.notify();
-            return;
-        }
-
-        self.selected_provider = provider.clone();
-        self.provider_model_fetching = false;
-        self.provider_model_status = None;
-        self.provider_model_status_error = false;
-
-        let pc = self.config.agent.providers.get_or_default(&provider);
-        self.load_provider_inputs(&pc, window, cx);
-        self.sync_provider_placeholders(&provider, window, cx);
-
-        self.model_select =
-            Self::make_model_select(&provider, &pc.model, &pc, &self.registry, window, cx);
-        self.endpoint_preset_select =
-            Self::make_endpoint_preset_select(&provider, &pc.base_url, window, cx);
-        cx.notify();
-    }
-
-    fn toggle_selected_provider_protocol(
-        &mut self,
-        use_anthropic: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let source_provider = self.selected_provider.clone();
-        let source_config = self.read_provider_inputs(cx);
-        self.config
-            .agent
-            .providers
-            .set(&source_provider, source_config.clone());
-
-        let Some(provider) =
-            Self::protocol_toggled_provider(&self.selected_provider, use_anthropic)
-        else {
-            return;
-        };
-        self.config.agent.set_provider_transport(
-            &self.selected_provider,
-            Some(if use_anthropic {
-                ProviderTransport::Anthropic
-            } else {
-                ProviderTransport::OpenAI
-            }),
-        );
-        let target_config = self.config.agent.providers.get_or_default(&provider);
-        let seeded_target = Self::seed_protocol_variant_config(
-            &source_provider,
-            &provider,
-            &source_config,
-            &target_config,
-        );
-        self.config.agent.providers.set(&provider, seeded_target);
-        self.set_active_provider_if_tracking(&source_provider, &provider, window, cx);
-        self.transition_provider(provider, window, cx);
-    }
-
     // ── Section content ──────────────────────────────────────────
-
-    fn render_experimental(&mut self, window: &Window, cx: &mut Context<Self>) -> Div {
-        let mobile = ResponsiveMode::from_width(window.viewport_size().width.as_f32()).is_mobile();
-        let card_opacity = self.card_opacity();
-        let theme = cx.theme();
-        section_content(
-            "Experimental",
-            "In-progress features. Behavior may change between releases.",
-            theme,
-        )
-        .child(
-            card(theme, card_opacity).child(toggle_row(
-                "Agent Handoff",
-                "Hand off a running agent session to another agent tab.",
-                Switch::new("experimental-handoff-toggle")
-                    .checked(self.config.experimental.handoff)
-                    .small()
-                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                        let previous = this.config.experimental.handoff;
-                        this.config.experimental.handoff = *checked;
-                        if let Err(err) = this.persist_config(cx) {
-                            this.config.experimental.handoff = previous;
-                            log::warn!("settings: persist experimental.handoff failed: {err}");
-                            this.save_error = Some(err.to_string());
-                            this.save_error_kind = Some(SettingsSaveErrorKind::Other);
-                            cx.notify();
-                            return;
-                        }
-                        this.save_error = None;
-                        this.save_error_kind = None;
-                        // Live-apply so the Handoff entry points appear or
-                        // disappear without waiting for a settings save.
-                        cx.emit(AppearancePreview);
-                        cx.notify();
-                    })),
-                theme,
-                mobile,
-            )),
-        )
-    }
 
     fn render_general(&mut self, window: &Window, cx: &mut Context<Self>) -> Div {
         let mobile = ResponsiveMode::from_width(window.viewport_size().width.as_f32()).is_mobile();
         let card_opacity = self.card_opacity();
-
-        // --- Skills path chips (must render before borrowing theme) ---
-        let project_paths = self.config.skills.project_paths.clone();
-        let global_paths = self.config.skills.global_paths.clone();
-
-        let project_chips = self.render_path_chips("project", &project_paths, cx);
-        let global_chips = self.render_path_chips("global", &global_paths, cx);
-
-        let project_presets = self.render_path_presets(
-            "project",
-            &project_paths,
-            &[
-                ("skills", "con"),
-                (".con/skills", "con local"),
-                (".agents/skills", "Agents"),
-            ],
-            cx,
-        );
-        let con_global_skills = con_paths::default_global_skills_path();
-        let global_presets = self.render_path_presets(
-            "global",
-            &global_paths,
-            &[
-                (con_global_skills.as_str(), "con"),
-                ("~/.agents/skills", "Agents"),
-            ],
-            cx,
-        );
 
         let theme = cx.theme();
 
@@ -3575,106 +1768,6 @@ impl SettingsPanel {
                     theme,
                 mobile))),
         )
-        // Skills paths
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.0))
-                .child(group_label("Skills", theme))
-                .child(
-                    card(theme, card_opacity)
-                        .child(
-                            div()
-                                .px(rems(1.0))
-                                .py(px(13.0))
-                                .flex()
-                                .flex_col()
-                                .gap(px(3.0))
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .child("Skill Sources"),
-                                )
-                                .child(
-                                    div()
-                                        .max_w(px(500.0))
-                                        .whitespace_normal()
-                                        .text_size(ui_px(theme, 12.0))
-                                        .line_height(ui_px(theme, 18.0))
-                                        .text_color(theme.muted_foreground)
-                                        .child("Con scans these folders for slash-command skills. Project paths follow the active working directory; global paths are always available."),
-                                ),
-                        )
-                        .child(row_separator(theme))
-                        // Project paths row
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(6.0))
-                                .px(rems(1.0))
-                                .py(px(12.0))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .justify_between()
-                                        .flex_wrap()
-                                        .gap_2()
-                                        .child(div().text_sm().child("Project paths"))
-                                        .child(
-                                            div()
-                                                .text_size(ui_px(theme, 12.0))
-                                                .text_color(theme.muted_foreground)
-                                                .child("relative to cwd"),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_wrap()
-                                        .gap(px(4.0))
-                                        .children(project_chips)
-                                        .children(project_presets),
-                                ),
-                        )
-                        .child(row_separator(theme))
-                        // Global paths row
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(6.0))
-                                .px(rems(1.0))
-                                .py(px(12.0))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .justify_between()
-                                        .flex_wrap()
-                                        .gap_2()
-                                        .child(div().text_sm().child("Global paths"))
-                                        .child(
-                                            div()
-                                                .text_size(ui_px(theme, 12.0))
-                                                .text_color(theme.muted_foreground)
-                                                .child("~ expanded to home"),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_wrap()
-                                        .gap(px(4.0))
-                                        .children(global_chips)
-                                        .children(global_presets),
-                                ),
-                        ),
-                ),
-        )
         // Network / proxy
         .child(
             div()
@@ -3689,147 +1782,6 @@ impl SettingsPanel {
                         .child(row_field("HTTPS Proxy", &self.https_proxy_input, mobile)),
                 ),
         )
-    }
-
-    /// Render removable path chips for a given path list.
-    fn render_path_chips(
-        &self,
-        kind: &str,
-        paths: &[String],
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        let theme = cx.theme();
-        let chip_bg = theme.muted.opacity(0.06);
-        let chip_hover_bg = theme.muted.opacity(0.10);
-        let fg = theme.foreground;
-        let muted = theme.muted_foreground.opacity(0.5);
-        let danger = theme.danger;
-
-        paths
-            .iter()
-            .enumerate()
-            .map(|(idx, path)| {
-                let kind = kind.to_string();
-                let path_display = path.clone();
-
-                div()
-                    .id(SharedString::from(format!("skill-{kind}-{idx}")))
-                    .flex()
-                    .items_center()
-                    .gap(px(4.0))
-                    .h(px(24.0))
-                    .px(px(7.0))
-                    .rounded(px(5.0))
-                    .bg(chip_bg)
-                    .hover(move |s| s.bg(chip_hover_bg))
-                    .child(
-                        div()
-                            .text_size(ui_px(theme, 12.0))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(fg)
-                            .child(path_display),
-                    )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("skill-rm-{kind}-{idx}")))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .size(px(14.0))
-                            .rounded(px(3.0))
-                            .cursor_pointer()
-                            .text_color(muted)
-                            .hover(|s| s.bg(danger.opacity(0.10)).text_color(danger))
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |this, _, _, cx| {
-                                    this.remove_skill_path(&kind, idx);
-                                    cx.notify();
-                                }),
-                            )
-                            .child(
-                                svg()
-                                    .path("phosphor/x.svg")
-                                    .size(ui_icon_px(theme, 10.0))
-                                    .text_color(muted),
-                            ),
-                    )
-                    .into_any_element()
-            })
-            .collect()
-    }
-
-    /// Render preset quick-add buttons for paths not yet in the list.
-    fn render_path_presets(
-        &self,
-        kind: &str,
-        current_paths: &[String],
-        presets: &[(&str, &str)],
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        let theme = cx.theme();
-        let muted_fg = theme.muted_foreground;
-        let hover_bg = theme.muted.opacity(0.08);
-        let hover_fg = theme.foreground;
-
-        presets
-            .iter()
-            .filter(|(path, _)| !current_paths.iter().any(|p| p == path))
-            .map(|(path, label)| {
-                let kind = kind.to_string();
-                let path = path.to_string();
-                let label = label.to_string();
-
-                div()
-                    .id(SharedString::from(format!("skill-add-{kind}-{label}")))
-                    .flex()
-                    .items_center()
-                    .gap(px(3.0))
-                    .h(px(24.0))
-                    .px(px(8.0))
-                    .rounded(px(5.0))
-                    .cursor_pointer()
-                    .text_color(muted_fg)
-                    .hover(|s| s.bg(hover_bg).text_color(hover_fg))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| {
-                            this.add_skill_path(&kind, &path);
-                            cx.notify();
-                        }),
-                    )
-                    .child(
-                        svg()
-                            .path("phosphor/plus.svg")
-                            .size(ui_icon_px(theme, 10.0))
-                            .text_color(muted_fg),
-                    )
-                    .child(div().text_size(ui_px(theme, 12.0)).child(label))
-                    .into_any_element()
-            })
-            .collect()
-    }
-
-    fn add_skill_path(&mut self, kind: &str, path: &str) {
-        let paths = match kind {
-            "project" => &mut self.config.skills.project_paths,
-            "global" => &mut self.config.skills.global_paths,
-            _ => return,
-        };
-        if !paths.iter().any(|p| p == path) {
-            paths.push(path.to_string());
-        }
-    }
-
-    fn remove_skill_path(&mut self, kind: &str, idx: usize) {
-        let paths = match kind {
-            "project" => &mut self.config.skills.project_paths,
-            "global" => &mut self.config.skills.global_paths,
-            _ => return,
-        };
-        if idx < paths.len() {
-            paths.remove(idx);
-        }
     }
 
     fn move_terminal_fallback(&mut self, index: usize, offset: isize) {
@@ -4069,7 +2021,6 @@ impl SettingsPanel {
         };
 
         let app_icon_picker = self.render_app_icon_picker(card_opacity, cx);
-        let agent_avatar_picker = self.render_agent_avatar_picker(card_opacity, cx);
 
         // Now all mutable borrows are done — get theme for pure layout
         let theme = cx.theme();
@@ -4558,59 +2509,8 @@ impl SettingsPanel {
 
         content = content.child(card(theme, card_opacity).child(import_section));
         content = content.child(app_icon_picker);
-        content = content.child(agent_avatar_picker);
 
         content
-    }
-
-    fn render_agent_avatar_picker(&self, card_opacity: f32, cx: &mut Context<Self>) -> Div {
-        let selected = self.config.appearance.agent_avatar.clone();
-        let mut choices = div().flex().flex_wrap().gap(rems(0.5));
-        for choice in AGENT_AVATARS {
-            choices =
-                choices.child(self.render_agent_avatar_choice(choice, selected == choice.id, cx));
-        }
-
-        let theme = cx.theme();
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(8.0))
-            .child(group_label("Agent Avatar", theme))
-            .child(
-                card(theme, card_opacity)
-                    .child(
-                        div()
-                            .px(rems(1.0))
-                            .pt(px(12.0))
-                            .text_size(ui_px(theme, 12.0))
-                            .line_height(ui_px(theme, 18.0))
-                            .text_color(theme.muted_foreground)
-                            .child("Shown beside replies from Con's built-in agent."),
-                    )
-                    .child(div().px(rems(1.0)).pt(px(10.0)).pb(px(14.0)).child(choices)),
-            )
-    }
-
-    fn render_agent_avatar_choice(
-        &self,
-        choice: &con_core::config::AgentAvatarChoice,
-        is_selected: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let avatar_id = choice.id.to_string();
-        appearance_image_choice(
-            format!("agent-avatar-{avatar_id}").into(),
-            choice.label,
-            choice.asset,
-            is_selected,
-            cx,
-        )
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.config.appearance.agent_avatar = avatar_id.clone();
-            cx.emit(AppearancePreview);
-            cx.notify();
-        }))
     }
 
     /// Keep icon families together without adding a second text inset.
@@ -4870,750 +2770,6 @@ impl SettingsPanel {
                     })
                     .child(display_name),
             )
-    }
-
-    fn render_ai(&mut self, window: &Window, cx: &mut Context<Self>) -> Div {
-        let mobile = ResponsiveMode::from_width(window.viewport_size().width.as_f32()).is_mobile();
-        let theme = cx.theme();
-        let card_opacity = self.card_opacity();
-        let max_turns_input = self.max_turns_input.clone();
-        let temperature_input = self.temperature_input.clone();
-        let active_provider_select = self.active_provider_select.clone();
-        let active_model_select = self.active_model_select.clone();
-        let suggestion_provider_select = self.suggestion_provider_select.clone();
-        let suggestion_model_select = self.suggestion_model_select.clone();
-        let routing_card = card(theme, card_opacity)
-            .child(searchable_select_row(
-                    "Active Provider",
-                    "Default provider for the agent panel, command palette actions, and AI fallback suggestions.",
-                    &active_provider_select,
-                    "Select a provider…",
-                    theme,
-                mobile))
-            .child(searchable_select_row(
-                    "Active Model",
-                    "Model override for the currently active provider.",
-                    &active_model_select,
-                    "Select a model…",
-                    theme,
-                mobile))
-            .child(toggle_row(
-                    "AI Command Suggestions",
-                    "Use the suggestion provider only when local command history has no strong match.",
-                    Switch::new("ai-suggestion-toggle")
-                        .checked(self.suggestion_enabled)
-                        .small()
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.suggestion_enabled = *checked;
-                            cx.notify();
-                        })),
-                    theme,
-                mobile))
-            .child(
-                    div()
-                        .opacity(if self.suggestion_enabled { 1.0 } else { 0.55 })
-                        .child(searchable_select_row(
-                            "Suggestions Provider",
-                            "Route inline command completion to the active provider or a faster secondary host.",
-                            &suggestion_provider_select,
-                            "Select a provider…",
-                            theme,
-                        mobile)),
-                )
-            .child(
-                    div()
-                        .opacity(if self.suggestion_enabled { 1.0 } else { 0.55 })
-                        .child(searchable_select_row(
-                            "Suggestions Model",
-                            "Choose a faster or cheaper model for command completion when history has no strong match.",
-                            &suggestion_model_select,
-                            "Select a suggestion model…",
-                            theme,
-                        mobile)),
-                );
-
-        let behavior_card = card(theme, card_opacity)
-            .child(toggle_row(
-                "Auto-Approve Tools",
-                "Allow the agent to run tools without per-action approval.",
-                Switch::new("auto-approve-toggle")
-                    .checked(self.auto_approve)
-                    .small()
-                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                        this.auto_approve = *checked;
-                        cx.notify();
-                    })),
-                theme,
-                mobile,
-            ))
-            .child(row_separator(theme))
-            .child(row_input_with_hint(
-                "Max Turns",
-                "Tool-use turns before the session is forced to stop.",
-                &max_turns_input,
-                theme,
-                mobile,
-            ))
-            .child(row_separator(theme))
-            .child(row_input_with_hint(
-                "Temperature",
-                "Blank for provider default.",
-                &temperature_input,
-                theme,
-                mobile,
-            ));
-
-        let ai_layout = div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .gap(rems(1.5))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.0))
-                    .child(group_label("Routing", theme))
-                    .child(routing_card),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.0))
-                    .child(group_label("Behavior", theme))
-                    .child(behavior_card),
-            );
-
-        section_content("AI", "Model selection and AI harness configuration.", theme)
-            .child(ai_layout)
-    }
-
-    fn render_providers(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let theme = cx.theme();
-        let card_opacity = self.card_opacity();
-        let viewport_w = window.viewport_size().width.as_f32();
-        let mode = ResponsiveMode::from_width(viewport_w);
-        let mobile = mode.is_mobile();
-        let compact = matches!(mode, ResponsiveMode::Compact);
-        let narrow = matches!(mode, ResponsiveMode::Narrow | ResponsiveMode::Mobile);
-        let settings_sidebar_w = if mobile {
-            0.0
-        } else if narrow {
-            48.0
-        } else if compact {
-            144.0
-        } else {
-            160.0
-        };
-        let settings_content_pad = if narrow {
-            14.0
-        } else if compact {
-            18.0
-        } else {
-            24.0
-        };
-        let settings_surface_w = if self.standalone {
-            viewport_w
-        } else {
-            ((viewport_w * 0.76).clamp(680.0, 980.0)).min((viewport_w - 32.0).max(320.0))
-        };
-        let provider_content_w =
-            (settings_surface_w - settings_sidebar_w - settings_content_pad * 2.0)
-                .clamp(0.0, 840.0);
-        let provider_sidebar_w = if mobile {
-            px(0.0)
-        } else if provider_content_w < 600.0 {
-            px(148.0)
-        } else {
-            px(180.0)
-        };
-        let model_input = self.model_input.clone();
-        let api_key_input = self.api_key_input.clone();
-        let base_url_input = self.base_url_input.clone();
-        let max_tokens_input = self.max_tokens_input.clone();
-        let models = self
-            .registry
-            .models_for_config(&self.selected_provider, &self.read_provider_inputs(cx));
-        let model_select = self.model_select.clone();
-        let endpoint_preset_select = self.endpoint_preset_select.clone();
-        let endpoint_presets = Self::provider_endpoint_presets(&self.selected_provider);
-        let can_fetch_models = matches!(
-            self.selected_provider,
-            ProviderKind::OpenAICompatible | ProviderKind::ChatGPT | ProviderKind::CodexLocal
-        );
-        let is_codex_local = self.selected_provider == ProviderKind::CodexLocal;
-        let protocol_switch_label = Self::protocol_switch_label(&self.selected_provider);
-        let protocol_switch_hint = Self::protocol_switch_hint(&self.selected_provider);
-        let anthropic_protocol_enabled = Self::uses_anthropic_protocol(&self.selected_provider);
-
-        let mut provider_list = div().flex().flex_col();
-        let active_sidebar_provider = Self::sidebar_provider_kind(&self.selected_provider);
-        for provider in SIDEBAR_PROVIDERS.iter() {
-            let is_selected = *provider == active_sidebar_provider;
-            let is_configured = self.provider_is_configured(provider, cx);
-            let label = provider_label(provider);
-            let icon_path = Self::provider_icon_path(provider);
-            let icon_color = if is_selected {
-                theme.primary
-            } else if is_configured {
-                theme.foreground.opacity(0.76)
-            } else {
-                theme.muted_foreground.opacity(0.38)
-            };
-            let label_color = if is_selected {
-                theme.foreground
-            } else if is_configured {
-                theme.foreground.opacity(0.74)
-            } else {
-                theme.muted_foreground
-            };
-            let status_color = if is_configured {
-                theme.success.opacity(if is_selected { 0.92 } else { 0.74 })
-            } else {
-                theme.muted_foreground.opacity(0.18)
-            };
-            let provider_clone = provider.clone();
-
-            provider_list = provider_list.child(
-                div()
-                    .id(SharedString::from(format!("prov-{label}")))
-                    .debug_selector(|| format!("settings-provider-{label}"))
-                    .min_h(rems(2.125))
-                    .px(px(8.0))
-                    .flex()
-                    .items_center()
-                    .gap(px(7.0))
-                    .rounded(px(8.0))
-                    .cursor_pointer()
-                    .bg(if is_selected {
-                        theme.primary.opacity(0.08)
-                    } else {
-                        theme.transparent
-                    })
-                    .hover(|s| {
-                        if is_selected {
-                            s
-                        } else {
-                            s.bg(theme.muted.opacity(0.06))
-                        }
-                    })
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, window, cx| {
-                            this.select_provider(provider_clone.clone(), window, cx);
-                        }),
-                    )
-                    .child(
-                        div()
-                            .w(px(2.0))
-                            .h(px(16.0))
-                            .rounded(px(1.0))
-                            .bg(if is_selected {
-                                theme.primary
-                            } else {
-                                theme.transparent
-                            }),
-                    )
-                    .child(
-                        div()
-                            .size(px(22.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(6.0))
-                            .bg(if is_selected {
-                                theme.primary.opacity(0.11)
-                            } else if is_configured {
-                                theme.muted.opacity(0.08)
-                            } else {
-                                theme.transparent
-                            })
-                            .child(
-                                svg()
-                                    .path(icon_path)
-                                    .size(ui_icon_px(theme, 13.0))
-                                    .text_color(icon_color),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_xs()
-                            .line_height(rems(1.0))
-                            .font_weight(if is_selected {
-                                FontWeight::MEDIUM
-                            } else {
-                                FontWeight::NORMAL
-                            })
-                            .text_color(label_color)
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(label),
-                    )
-                    .child(div().size(px(6.0)).rounded_full().bg(status_color)),
-            );
-        }
-
-        let oauth_state = self.oauth_state(&self.selected_provider).cloned();
-        let has_key_override = !self.api_key_input.read(cx).value().is_empty();
-        let oauth_cache_present = Self::provider_oauth_cache_present(&Self::sidebar_provider_kind(
-            &self.selected_provider,
-        ));
-        let provider_has_oauth = Self::provider_has_oauth(&self.selected_provider);
-        let oauth_ready = provider_has_oauth && self.provider_oauth_ready(&self.selected_provider);
-        let (connection_ready, connection_label) = provider_connection_status(
-            provider_has_oauth,
-            oauth_ready,
-            oauth_state.as_ref(),
-            oauth_cache_present,
-            has_key_override,
-        );
-
-        let (connection_ready, connection_label) = if is_codex_local {
-            (false, "Codex-managed")
-        } else {
-            (connection_ready, connection_label)
-        };
-
-        let model_card_content = card(theme, card_opacity).child(
-            div()
-                .px(rems(1.0))
-                .py(px(12.0))
-                .flex()
-                .flex_col()
-                .gap(px(8.0))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap(px(12.0))
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("Provider Default Model"),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(div().size(px(6.0)).rounded_full().bg(if connection_ready {
-                                    theme.success
-                                } else {
-                                    theme.muted_foreground.opacity(0.2)
-                                }))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child(connection_label),
-                                ),
-                        ),
-                )
-                .child(if models.is_empty() {
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .child(Input::new(&model_input).small())
-                } else {
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(8.0))
-                        .child(
-                            div().w_full().min_w_0().child(
-                                Select::new(&model_select)
-                                    .placeholder("Select a known model…")
-                                    .small(),
-                            ),
-                        )
-                        .child(
-                            div()
-                                .w_full()
-                                .min_w_0()
-                                .child(Input::new(&model_input).small()),
-                        )
-                })
-                .children((self.selected_provider == ProviderKind::ChatGPT).then(|| self.subscription_controls(cx)))
-                .children(can_fetch_models.then(|| {
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .items_center()
-                        .justify_between()
-                        .gap(px(10.0))
-                        .pt(px(2.0))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w(px(220.0))
-                                .text_xs()
-                                .line_height(rems(1.125))
-                                .text_color(if self.provider_model_status_error {
-                                    theme.danger
-                                } else {
-                                    theme.muted_foreground
-                                })
-                                .child(
-                                    self.provider_model_status.clone().unwrap_or_else(|| {
-                                        if is_codex_local {
-                                            "Leave the model blank to use Codex's configured default. Fetch available models from the local app-server.".to_string()
-                                        } else if self.selected_provider == ProviderKind::ChatGPT {
-                                            "Fetch the current ChatGPT Subscription model list after OAuth sign-in. Or enter the model ID.".to_string()
-                                        } else {
-                                            "Fetch /models when the provider exposes a model list. Or enter the model ID.".to_string()
-                                        }
-                                    }),
-                                ),
-                        )
-                        .child(
-                            div().debug_selector(|| "settings-provider-fetch".into()).flex_shrink_0().child(
-                                Button::new("fetch-openai-compatible-models")
-                                    .small()
-                                    .ghost()
-                                    .label("Fetch Models")
-                                    .loading(self.provider_model_fetching)
-                                    .disabled(self.provider_model_fetching)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.fetch_selected_provider_models(window, cx);
-                                    })),
-                            ),
-                        )
-                })),
-        );
-
-        let right_col = div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .gap(px(12.0))
-            .child(model_card_content)
-            .child(
-                card(theme, card_opacity).child(
-                    div()
-                        .px(rems(1.0))
-                        .py(px(12.0))
-                        .flex()
-                        .flex_col()
-                        .gap(px(12.0))
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("Connection"),
-                        )
-                        .children(protocol_switch_label.map(|switch_label| {
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(8.0))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .justify_between()
-                                        .gap(px(12.0))
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_col()
-                                                .gap(px(2.0))
-                                                .child(div().text_sm().child("Protocol"))
-                                                .child(
-                                                    div()
-                                                        .text_xs()
-                                                        .text_color(theme.muted_foreground)
-                                                        .child(protocol_switch_hint.unwrap_or(
-                                                            "Choose the provider transport.",
-                                                        )),
-                                                ),
-                                        )
-                                        .child(
-                                            Switch::new(format!(
-                                                "provider-protocol-{}",
-                                                provider_label(&Self::sidebar_provider_kind(
-                                                    &self.selected_provider
-                                                ))
-                                            ))
-                                            .checked(anthropic_protocol_enabled)
-                                            .label(switch_label)
-                                            .on_click(cx.listener(
-                                                |this, checked: &bool, window, cx| {
-                                                    this.toggle_selected_provider_protocol(
-                                                        *checked, window, cx,
-                                                    );
-                                                },
-                                            )),
-                                        ),
-                                )
-                                .into_any_element()
-                        }))
-                        .children(if protocol_switch_label.is_some() {
-                            Some(div().child(row_separator(theme)))
-                        } else {
-                            None
-                        })
-                        .children(Self::provider_oauth_label(&self.selected_provider).map(
-                            |provider_name| {
-                                let oauth = oauth_state.clone().unwrap_or_default();
-                                let oauth_ready =
-                                    self.provider_oauth_ready(&self.selected_provider);
-                                let provider_for_click = self.selected_provider.clone();
-                                let prompt = oauth.prompt.clone();
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(10.0))
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .justify_between()
-                                            .gap(px(12.0))
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .flex_col()
-                                                    .gap(px(2.0))
-                                                    .child(
-                                                        div().text_sm().child(format!(
-                                                            "{provider_name} OAuth"
-                                                        )),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .text_xs()
-                                                            .text_color(theme.muted_foreground)
-                                                            .child("Device login"),
-                                                    ),
-                                            )
-                                            .child(
-                                                Button::new(format!(
-                                                    "oauth-connect-{}",
-                                                    provider_label(&self.selected_provider)
-                                                ))
-                                                .label(if oauth_ready && !oauth.in_progress {
-                                                    "Reconnect"
-                                                } else {
-                                                    Self::provider_oauth_button_label(
-                                                        &self.selected_provider,
-                                                    )
-                                                    .unwrap_or("Sign In")
-                                                })
-                                                .small()
-                                                .primary()
-                                                .loading(oauth.in_progress)
-                                                .disabled(oauth.in_progress)
-                                                .on_click(cx.listener(
-                                                    move |this, _, window, cx| {
-                                                        this.start_provider_oauth(
-                                                            provider_for_click.clone(),
-                                                            window,
-                                                            cx,
-                                                        );
-                                                    },
-                                                )),
-                                            ),
-                                    )
-                                    .children(oauth.status_message.as_ref().map(|message| {
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme.muted_foreground)
-                                            .child(message.clone())
-                                    }))
-                                    .children(oauth.error_message.as_ref().map(|message| {
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme.danger)
-                                            .child(message.clone())
-                                    }))
-                                    .children(prompt.map(|prompt| {
-                                        div()
-                                            .flex()
-                                            .flex_col()
-                                            .gap(px(8.0))
-                                            .p(px(10.0))
-                                            .rounded(px(8.0))
-                                            .bg(theme.muted.opacity(0.05))
-                                            .child(
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(theme.muted_foreground)
-                                                    .child("Browser authorization"),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .items_center()
-                                                    .justify_between()
-                                                    .gap(px(8.0))
-                                                    .child(
-                                                        div()
-                                                            .flex()
-                                                            .flex_col()
-                                                            .gap(px(2.0))
-                                                            .child(
-                                                                div()
-                                                                    .text_xs()
-                                                                    .text_color(
-                                                                        theme.muted_foreground,
-                                                                    )
-                                                                    .child("Code"),
-                                                            )
-                                                            .child(
-                                                                div()
-                                                                    .font_weight(
-                                                                        FontWeight::SEMIBOLD,
-                                                                    )
-                                                                    .child(
-                                                                        prompt.user_code.clone(),
-                                                                    ),
-                                                            ),
-                                                    )
-                                                    .child(
-                                                        Clipboard::new(format!(
-                                                            "oauth-code-{}",
-                                                            provider_label(&self.selected_provider)
-                                                        ))
-                                                        .value(SharedString::from(
-                                                            prompt.user_code.clone(),
-                                                        )),
-                                                    ),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .items_center()
-                                                    .justify_between()
-                                                    .gap(px(8.0))
-                                                    .child(
-                                                        div()
-                                                            .flex_1()
-                                                            .text_xs()
-                                                            .text_color(theme.muted_foreground)
-                                                            .child(prompt.verification_uri.clone()),
-                                                    )
-                                                    .child(
-                                                        Button::new(format!(
-                                                            "oauth-open-{}",
-                                                            provider_label(&self.selected_provider)
-                                                        ))
-                                                        .label("Open Browser")
-                                                        .small()
-                                                        .ghost()
-                                                        .on_click(move |_, _, cx| {
-                                                            cx.open_url(&prompt.verification_uri);
-                                                        }),
-                                                    ),
-                                            )
-                                    }))
-                                    .into_any_element()
-                            },
-                        ))
-                        .children(if Self::provider_has_oauth(&self.selected_provider) {
-                            Some(div().child(row_separator(theme)))
-                        } else {
-                            None
-                        })
-                        .children(is_codex_local.then(|| {
-                            div().text_xs().line_height(rems(1.25))
-                                .text_color(theme.muted_foreground)
-                                .child("Con starts codex app-server locally and uses Codex's own login and configuration. Install the Codex CLI and run codex login first. No API key or OAuth sign-in in Con is needed. Commands and edits still use Con tools and approvals.")
-                        }))
-                        .children((!is_codex_local).then(|| stacked_input_field(
-                            Self::provider_api_key_label(&self.selected_provider),
-                            Self::provider_api_key_hint(&self.selected_provider),
-                            &api_key_input,
-                            theme,
-                        )))
-                        .children((!is_codex_local).then(|| stacked_input_field(
-                            "Base URL",
-                            Self::provider_base_url_hint(&self.selected_provider),
-                            &base_url_input,
-                            theme,
-                        )))
-                        .children(if endpoint_presets.is_empty() {
-                            None
-                        } else {
-                            Some(div().child(select_row(
-                                "Endpoint Preset",
-                                "Switch region or protocol",
-                                &endpoint_preset_select,
-                                theme,
-                                mobile,
-                            )))
-                        }),
-                ),
-            )
-            .children((!is_codex_local).then(||
-                card(theme, card_opacity).child(
-                    div()
-                        .px(rems(1.0))
-                        .py(px(12.0))
-                        .flex()
-                        .flex_col()
-                        .gap(px(12.0))
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("Provider Limits"),
-                        )
-                        .child(stacked_input_field(
-                            "Max Tokens",
-                            "Per-provider token ceiling.",
-                            &max_tokens_input,
-                            theme,
-                        )),
-                )
-            ));
-
-        let provider_column = if mobile {
-            div().w_full().min_w_0().child(
-                card(theme, card_opacity).child(
-                    div().px(rems(1.0)).py(px(12.0)).child(
-                        Select::new(&self.provider_navigation_select)
-                            .placeholder("Select a provider…")
-                            .small(),
-                    ),
-                ),
-            )
-        } else {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(6.0))
-                .w(provider_sidebar_w)
-                .flex_shrink_0()
-                .child(
-                    card(theme, card_opacity)
-                        .child(div().px(px(4.0)).py(px(4.0)).child(provider_list)),
-                )
-        };
-
-        section_content(
-            "Providers",
-            "Manage credentials, endpoints, and provider-specific defaults independently from the app-wide AI behavior.",
-            theme,
-        )
-        .child(
-            div()
-                .flex()
-                .when(mobile, |this| this.flex_col())
-                .flex_1()
-                .min_w_0()
-                .gap(px(16.0))
-                .child(provider_column)
-                .child(right_col),
-        )
     }
 
     fn render_keys(&mut self, window: &Window, cx: &mut Context<Self>) -> Div {
@@ -6233,10 +3389,7 @@ impl Render for SettingsPanel {
         let content = match active {
             SettingsSection::General => self.render_general(window, cx),
             SettingsSection::Appearance => self.render_appearance(window, cx),
-            SettingsSection::Ai => self.render_ai(window, cx),
-            SettingsSection::Providers => self.render_providers(window, cx),
             SettingsSection::Keys => self.render_keys(window, cx),
-            SettingsSection::Experimental => self.render_experimental(window, cx),
             SettingsSection::Configuration => self.render_configuration(window, cx),
         };
 
@@ -6268,7 +3421,6 @@ impl Render for SettingsPanel {
         let card_height = {
             let target = match active {
                 SettingsSection::Appearance => (viewport_h * 0.82).clamp(440.0, 780.0),
-                SettingsSection::Providers => (viewport_h * 0.80).clamp(440.0, 760.0),
                 _ => (viewport_h * 0.76).clamp(420.0, 720.0),
             };
             px(target.min(viewport_h - 32.0))
@@ -7384,39 +4536,6 @@ fn toggle_row(
         .child(div().pt(px(2.0)).flex_shrink_0().child(toggle))
 }
 
-fn stacked_input_field(
-    label: &str,
-    hint: &str,
-    input: &Entity<InputState>,
-    theme: &gpui_component::Theme,
-) -> Div {
-    div()
-        .debug_selector(|| format!("settings-provider-field-{label}"))
-        .flex()
-        .flex_col()
-        .gap(px(6.0))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(2.0))
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(label.to_string()),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .line_height(rems(1.125))
-                        .text_color(theme.muted_foreground)
-                        .child(hint.to_string()),
-                ),
-        )
-        .child(Input::new(input))
-}
-
 /// Access a keybinding config field by settings-panel field name.
 fn keybinding_field_mut<'a>(
     kb: &'a mut con_core::config::KeybindingConfig,
@@ -7434,10 +4553,8 @@ fn keybinding_field_mut<'a>(
         "previous_tab" => Some(&mut kb.previous_tab),
         "settings" => Some(&mut kb.settings),
         "command_palette" => Some(&mut kb.command_palette),
-        "toggle_agent" => Some(&mut kb.toggle_agent),
         "toggle_input_bar" => Some(&mut kb.toggle_input_bar),
         "focus_input" => Some(&mut kb.focus_input),
-        "ask_ai" => Some(&mut kb.ask_ai),
         "cycle_input_mode" => Some(&mut kb.cycle_input_mode),
         "split_right" => Some(&mut kb.split_right),
         "split_down" => Some(&mut kb.split_down),
@@ -7475,10 +4592,8 @@ fn keybinding_field<'a>(
         "previous_tab" => Some(&kb.previous_tab),
         "settings" => Some(&kb.settings),
         "command_palette" => Some(&kb.command_palette),
-        "toggle_agent" => Some(&kb.toggle_agent),
         "toggle_input_bar" => Some(&kb.toggle_input_bar),
         "focus_input" => Some(&kb.focus_input),
-        "ask_ai" => Some(&kb.ask_ai),
         "cycle_input_mode" => Some(&kb.cycle_input_mode),
         "split_right" => Some(&kb.split_right),
         "split_down" => Some(&kb.split_down),
@@ -7595,33 +4710,6 @@ fn key_row(action: &str, shortcut: &str, theme: &gpui_component::Theme) -> Div {
         )
 }
 
-pub(crate) fn provider_label(provider: &ProviderKind) -> &'static str {
-    match provider {
-        ProviderKind::Anthropic => "Anthropic",
-        ProviderKind::OpenAI => "OpenAI",
-        ProviderKind::CodexLocal => "Codex Local",
-        ProviderKind::ChatGPT => "ChatGPT Subscription",
-        ProviderKind::GitHubCopilot => "GitHub Copilot",
-        ProviderKind::OpenAICompatible => "OpenAI Compatible",
-        ProviderKind::MiniMax => "MiniMax",
-        ProviderKind::MiniMaxAnthropic => "MiniMax / Anthropic",
-        ProviderKind::Moonshot => "Moonshot",
-        ProviderKind::MoonshotAnthropic => "Moonshot / Anthropic",
-        ProviderKind::ZAI => "Z.AI",
-        ProviderKind::ZAIAnthropic => "Z.AI / Anthropic",
-        ProviderKind::DeepSeek => "DeepSeek",
-        ProviderKind::Groq => "Groq",
-        ProviderKind::Cohere => "Cohere",
-        ProviderKind::Gemini => "Gemini",
-        ProviderKind::Ollama => "Ollama",
-        ProviderKind::OpenRouter => "OpenRouter",
-        ProviderKind::Perplexity => "Perplexity",
-        ProviderKind::Mistral => "Mistral",
-        ProviderKind::Together => "Together",
-        ProviderKind::XAI => "xAI",
-    }
-}
-
 fn display_theme_name(name: &str) -> String {
     match name {
         "flexoki-dark" => "Flexoki Dark".into(),
@@ -7653,14 +4741,9 @@ fn display_theme_name(name: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "settings_panel/codex_tests.rs"]
-mod codex_tests;
-
-#[cfg(test)]
 mod tests {
     use super::{
-        ProviderKind, ProviderOAuthState, ResponsiveMode, SettingsPanel, keybinding_default,
-        keybinding_field, keybinding_field_mut, provider_connection_status,
+        ResponsiveMode, SettingsPanel, keybinding_default, keybinding_field, keybinding_field_mut,
     };
 
     #[gpui::test]
@@ -7675,18 +4758,12 @@ mod tests {
             (375.0, 16.0, gpui_component::ThemeMode::Dark),
             (375.0, 24.0, gpui_component::ThemeMode::Light),
         ] {
-            let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
-            let (panel, view) = cx.add_window_view(|window, cx| {
+            let _runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
+            let (_panel, view) = cx.add_window_view(|window, cx| {
                 gpui_component::Theme::change(mode, Some(window), cx);
                 gpui_component::Theme::update(cx, |theme| theme.font_size = gpui::px(font_size));
                 window.set_rem_size(gpui::px(font_size));
-                let mut panel = SettingsPanel::new(
-                    &con_core::Config::default(),
-                    crate::model_registry::ModelRegistry::new(),
-                    runtime,
-                    window,
-                    cx,
-                );
+                let mut panel = SettingsPanel::new(&con_core::Config::default(), window, cx);
                 panel.standalone = true;
                 panel.visible = true;
                 panel.active_section = super::SettingsSection::Appearance;
@@ -7705,16 +4782,6 @@ mod tests {
                     "settings-choice-app-icon-raccoon-tail-a6-image",
                     "settings-choice-app-icon-raccoon-tail-a6-label",
                 ),
-                (
-                    "settings-choice-agent-avatar-raccoon",
-                    "settings-choice-agent-avatar-raccoon-image",
-                    "settings-choice-agent-avatar-raccoon-label",
-                ),
-                (
-                    "settings-choice-agent-avatar-raccoon-girl-longhair",
-                    "settings-choice-agent-avatar-raccoon-girl-longhair-image",
-                    "settings-choice-agent-avatar-raccoon-girl-longhair-label",
-                ),
             ] {
                 let tile = view
                     .debug_bounds(tile)
@@ -7730,15 +4797,8 @@ mod tests {
                 assert!(name.bottom() <= tile.bottom());
                 assert_eq!(image.center().x, name.center().x);
             }
-            let selector = "settings-choice-agent-avatar-raccoon-girl-longhair-label";
-            let before = view.debug_bounds(selector).unwrap();
-            panel.update(view, |panel, cx| {
-                panel.config.appearance.agent_avatar = "raccoon-girl-longhair".into();
-                cx.notify();
-            });
-            assert_eq!(before, view.debug_bounds(selector).unwrap());
             assert!(
-                view.debug_bounds("settings-choice-agent-avatar-raccoon-girl-longhair-selected")
+                view.debug_bounds("settings-choice-app-icon-raccoon-tail-a6-selected")
                     .is_some()
             );
         }
@@ -7753,15 +4813,9 @@ mod tests {
         let main_window = cx
             .add_empty_window()
             .update(|window, _| window.window_handle());
-        let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
+        let _runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
         let (panel, view) = cx.add_window_view(|window, cx| {
-            let mut panel = SettingsPanel::new(
-                &con_core::Config::default(),
-                crate::model_registry::ModelRegistry::new(),
-                runtime,
-                window,
-                cx,
-            );
+            let mut panel = SettingsPanel::new(&con_core::Config::default(), window, cx);
             panel.open_standalone(window, cx);
             panel
         });
@@ -7810,17 +4864,11 @@ mod tests {
         cx.update(gpui_component::init);
         let family = "JetBrainsMonoNL Nerd Font Complete Very Long Family Name";
         for width in [920.0, 375.0] {
-            let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
+            let _runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
             let (panel, view) = cx.add_window_view(|window, cx| {
                 let mut config = con_core::Config::default();
                 config.terminal.font_family = family.to_string();
-                let mut panel = SettingsPanel::new(
-                    &config,
-                    crate::model_registry::ModelRegistry::new(),
-                    runtime,
-                    window,
-                    cx,
-                );
+                let mut panel = SettingsPanel::new(&config, window, cx);
                 panel.standalone = true;
                 panel.visible = true;
                 panel.active_section = super::SettingsSection::Appearance;
@@ -7851,15 +4899,9 @@ mod tests {
     fn long_save_errors_leave_settings_content_visible(cx: &mut gpui::TestAppContext) {
         con_core::release_channel::init();
         cx.update(gpui_component::init);
-        let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
+        let _runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
         let (_panel, cx) = cx.add_window_view(|window, cx| {
-            let mut panel = SettingsPanel::new(
-                &con_core::Config::default(),
-                crate::model_registry::ModelRegistry::new(),
-                runtime,
-                window,
-                cx,
-            );
+            let mut panel = SettingsPanel::new(&con_core::Config::default(), window, cx);
             panel.standalone = true;
             panel.visible = true;
             panel.save_error =
@@ -7897,19 +4939,13 @@ mod tests {
             (16.0, 375.0),
             (24.0, 375.0),
         ] {
-            let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
+            let _runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
             let (panel, view) = cx.add_window_view(move |window, cx| {
                 gpui_component::Theme::update(cx, |theme| {
                     theme.font_size = gpui::px(font_size);
                 });
                 window.set_rem_size(gpui::px(font_size));
-                let mut panel = SettingsPanel::new(
-                    &con_core::Config::default(),
-                    crate::model_registry::ModelRegistry::new(),
-                    runtime,
-                    window,
-                    cx,
-                );
+                let mut panel = SettingsPanel::new(&con_core::Config::default(), window, cx);
                 panel.standalone = true;
                 panel.visible = true;
                 panel
@@ -7991,7 +5027,6 @@ mod tests {
                 "settings-group-Fonts",
                 "settings-group-Cursor",
                 "settings-group-App Icon",
-                "settings-group-Agent Avatar",
             ]
             .map(|selector| view.debug_bounds(selector).expect("appearance section"));
             for pair in ordered_sections.windows(2) {
@@ -8059,29 +5094,6 @@ mod tests {
                 );
             }
             panel.update(view, |panel, cx| {
-                panel.active_section = super::SettingsSection::Ai;
-                cx.notify();
-            });
-            let ai_controls = [
-                "settings-control-Active Provider",
-                "settings-control-Active Model",
-                "settings-control-Suggestions Provider",
-                "settings-control-Suggestions Model",
-                "settings-field-Max Turns-control",
-                "settings-field-Temperature-control",
-            ]
-            .map(|selector| view.debug_bounds(selector).expect("AI control"));
-            for control in &ai_controls[1..] {
-                assert!(
-                    (control.left() - ai_controls[0].left()).abs() <= gpui::px(1.0),
-                    "AI control columns differ at {font_size}px / {width}px: {ai_controls:?}"
-                );
-                assert!(
-                    (control.right() - ai_controls[0].right()).abs() <= gpui::px(1.0),
-                    "AI control edges differ at {font_size}px / {width}px: {ai_controls:?}"
-                );
-            }
-            panel.update(view, |panel, cx| {
                 panel.preview_snapshot = Some(panel.config.clone());
                 panel.config.terminal.theme = "flexoki-dark".into();
                 panel.close_confirmation_visible = true;
@@ -8125,50 +5137,6 @@ mod tests {
         assert_eq!(ResponsiveMode::from_width(980.0), ResponsiveMode::Regular);
     }
 
-    #[test]
-    fn oauth_providers_are_ready_with_key_override() {
-        for provider in [ProviderKind::ChatGPT, ProviderKind::GitHubCopilot] {
-            let status = provider_connection_status(
-                SettingsPanel::provider_has_oauth(&provider),
-                false,
-                None,
-                false,
-                true,
-            );
-            assert_eq!(status, (true, "Ready"), "provider: {provider:?}");
-        }
-    }
-
-    #[test]
-    fn oauth_labels_take_precedence_over_key_override() {
-        let signing_in = ProviderOAuthState {
-            in_progress: true,
-            ..Default::default()
-        };
-        assert_eq!(
-            provider_connection_status(true, true, Some(&signing_in), false, true),
-            (true, "Signing In")
-        );
-
-        let connected = ProviderOAuthState {
-            connected: true,
-            ..Default::default()
-        };
-        assert_eq!(
-            provider_connection_status(true, true, Some(&connected), false, true),
-            (true, "Signed In")
-        );
-        assert_eq!(
-            provider_connection_status(true, true, None, true, true),
-            (true, "Signed In")
-        );
-    }
-
-    // --- #181: dirty-state detection used by the unsaved-changes
-    // confirmation prompt. We test the underlying `config_matches` helper
-    // directly because `has_unsaved_changes` needs a GPUI `Context` to
-    // sync from the form controls; the comparison logic is the actual
-    // contract that determines whether the prompt is shown.
     #[test]
     fn config_matches_returns_true_for_identical_configs() {
         use con_core::Config;

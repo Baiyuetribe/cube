@@ -16,7 +16,6 @@ use gpui_component::{
 use serde_json::json;
 use tokio::sync::oneshot;
 
-const AGENT_PANEL_DEFAULT_WIDTH: f32 = 400.0;
 const AGENT_PANEL_MIN_WIDTH: f32 = 200.0;
 const TERMINAL_MIN_CONTENT_WIDTH: f32 = 360.0;
 /// macOS caption row: 5pt between the 22pt controls, the window top and the
@@ -43,7 +42,6 @@ const TAB_DROP_PREVIEW_HEIGHT: f32 = TOP_BAR_TABS_HEIGHT - TAB_DROP_PREVIEW_TOP;
 const CHROME_TRANSITION_SEAM_COVER: f32 = 4.0;
 const CHROME_MOTION_SEAM_OVERDRAW: f32 = 6.0;
 #[cfg(target_os = "macos")]
-const CHROME_SNAP_GUARD_MS: u64 = 160;
 #[cfg(target_os = "macos")]
 const CHROME_RELEASE_COVER_MS: u64 = 48;
 const MAX_SHELL_HISTORY_PER_PANE: usize = 80;
@@ -54,11 +52,6 @@ const TAB_DRAG_PREVIEW_WIDTH: f32 = 180.0;
 const TAB_DRAG_PREVIEW_HEIGHT: f32 = TOP_BAR_TAB_HEIGHT - 4.0;
 
 use crate::activity_bar::{ActivityBar, ActivitySlot, ActivitySlotChanged, ActivityTogglePanel};
-use crate::agent_panel::{
-    AgentPanel, CancelRequest, DeleteConversation, InlineInputSubmit,
-    InlineSkillAutocompleteChanged, LoadConversation, NewConversation, PanelState,
-    RerunFromMessage, SelectSessionModel, SelectSessionProvider, SetAutoApprove,
-};
 use crate::command_palette::{
     CommandPalette, PaletteDismissed, PaletteSelect, ToggleCommandPalette,
 };
@@ -68,7 +61,6 @@ use crate::input_bar::{
     EscapeInput, InputBar, InputEdited, InputMode, InputScopeChanged, PaneInfo,
     SkillAutocompleteChanged, SubmitInput, TogglePaneScopePicker as TogglePaneScopePickerRequested,
 };
-use crate::model_registry::ModelRegistry;
 use crate::motion::{MotionValue, SidebarMotion};
 use crate::pane_tree::{
     PaneTree, SplitDirection, SplitPlacement, SurfaceCreateOptions, SurfaceRenameEditor,
@@ -103,38 +95,25 @@ use crate::{
     NewTab, NextSurface, NextTab, OpenWorkspaceLayoutWindow, Paste, PreviousSurface, PreviousTab,
     Quit, RenameSurface, SearchFiles, SelectAll, SelectTab1, SelectTab2, SelectTab3, SelectTab4,
     SelectTab5, SelectTab6, SelectTab7, SelectTab8, SelectTab9, SplitDown, SplitLeft, SplitRight,
-    SplitUp, ToggleAgentPanel, ToggleLeftPanel, TogglePaneScopePicker, TogglePaneZoom, Undo,
-};
-use con_agent::{
-    AgentConfig, Conversation, ProviderKind, TerminalExecRequest, TerminalExecResponse,
+    SplitUp, ToggleLeftPanel, TogglePaneScopePicker, TogglePaneZoom, Undo,
 };
 use con_core::config::{
     AppearanceConfig, Config, TabsOrientation, TerminalConfig, sanitize_app_icon,
     sanitize_terminal_font_fallback, sanitize_terminal_font_family,
 };
 use con_core::control::{
-    AgentAskResult, ControlCommand, ControlError, ControlRequestEnvelope, ControlResult,
-    SystemIdentifyResult, TabInfo,
-};
-use con_core::harness::{
-    AgentHarness, AgentSession, HarnessEvent, InputKind, SkillScanJob, SkillScanResult,
+    ControlCommand, ControlError, ControlRequestEnvelope, ControlResult, SystemIdentifyResult,
+    TabInfo,
 };
 use con_core::session::{
-    AgentModelOverrideState, AgentRoutingState, GlobalHistoryState, PaneLayoutState,
-    PaneSplitDirection, Session, TabState,
+    GlobalHistoryState, PaneLayoutState, PaneSplitDirection, Session, TabState,
 };
 use con_core::workspace_layout::WorkspaceLayout;
-use con_core::{
-    SuggestionContext, SuggestionEngine, TabIconKind, TabSummary, TabSummaryEngine,
-    TabSummaryRequest,
-};
+use con_terminal::{TerminalExecRequest, TerminalExecResponse};
 
-mod agent_handoff;
-mod agent_panel_events;
 mod caption;
 mod chrome;
 mod chrome_actions;
-mod control_agent_tools;
 mod control_requests;
 mod control_surfaces;
 mod editor_actions;
@@ -144,6 +123,7 @@ mod helpers;
 mod input_events;
 mod lifecycle;
 mod pane_actions;
+mod pane_control_requests;
 mod render;
 mod session_state;
 mod session_worker;
@@ -200,21 +180,14 @@ pub struct ConWorkspace {
     background_image_position: String,
     background_image_fit: String,
     background_image_repeat: bool,
-    agent_panel: Entity<AgentPanel>,
     input_bar: Entity<InputBar>,
     settings_panel: Entity<SettingsPanel>,
     settings_window: Option<AnyWindowHandle>,
-    handoff_window: Option<AnyWindowHandle>,
     settings_window_panel: Option<Entity<SettingsPanel>>,
     command_palette: Entity<CommandPalette>,
-    model_registry: ModelRegistry,
-    harness: AgentHarness,
-    shell_suggestion_engine: SuggestionEngine,
     global_shell_history: VecDeque<CommandSuggestionEntry>,
     global_input_history: VecDeque<String>,
     pane_scope_picker_open: bool,
-    agent_panel_open: bool,
-    agent_panel_motion: SidebarMotion,
     left_panel_motion: SidebarMotion,
     #[cfg(target_os = "macos")]
     caption_dock: frame::CaptionLayout,
@@ -222,7 +195,6 @@ pub struct ConWorkspace {
     canvas_depth_progress: f32,
     #[cfg(target_os = "macos")]
     canvas_surround: frame::CanvasSurround,
-    agent_panel_width: f32,
     tab_strip_motion: MotionValue,
     tab_slot_motion: tab_motion::TabSlotMotion,
     input_bar_visible: bool,
@@ -233,8 +205,6 @@ pub struct ConWorkspace {
     ghostty_hidden: bool,
     #[cfg(target_os = "macos")]
     native_tab_handoff_pending: bool,
-    /// Agent panel drag state: start X position and start width when drag began.
-    agent_panel_drag: Option<(f32, f32)>,
     /// Vertical tabs panel drag state: start X position and start width when drag began.
     sidebar_drag: Option<(f32, f32)>,
     /// Current terminal color theme
@@ -245,10 +215,6 @@ pub struct ConWorkspace {
     last_ghostty_wake_generation: u64,
     #[cfg(target_os = "macos")]
     chrome_transition_underlay_until: Option<Instant>,
-    #[cfg(target_os = "macos")]
-    agent_panel_snap_guard_until: Option<Instant>,
-    #[cfg(target_os = "macos")]
-    agent_panel_release_cover_until: Option<Instant>,
     #[cfg(target_os = "linux")]
     linux_window_shape_signature: Option<(u32, u32, crate::LinuxWindowShapeRadii)>,
     /// Pending create-pane requests that need a window context to process.
@@ -259,32 +225,24 @@ pub struct ConWorkspace {
     pending_surface_control_requests: Vec<PendingSurfaceControlRequest>,
     /// Inline editor for the pane-local surface rail.
     surface_rename: Option<SurfaceRenameEditor>,
+    /// Monotonic counter for [`Tab::summary_id`].
+    next_tab_summary_id: u64,
+    /// Shared tokio runtime for control-plane and background work.
+    runtime: std::sync::Arc<tokio::runtime::Runtime>,
+    /// 右侧 Agent 面板已移除；保留布局字段以维持现有渲染结构。
+    /// 恒为 false，宽度恒为 0，动画停在关闭状态。
+    agent_panel_open: bool,
+    agent_panel_width: f32,
+    agent_panel_motion: SidebarMotion,
+    agent_panel_drag: Option<(f32, f32)>,
+    #[cfg(target_os = "macos")]
+    agent_panel_snap_guard_until: Option<Instant>,
+    #[cfg(target_os = "macos")]
+    agent_panel_release_cover_until: Option<Instant>,
     /// Control-plane requests from the external `con-cli` socket bridge.
     control_request_rx: crossbeam_channel::Receiver<ControlRequestEnvelope>,
     /// Keeps the Unix socket alive for this workspace instance.
     control_socket: Option<con_core::ControlSocketHandle>,
-    /// Pending external agent requests keyed by 0-based tab index.
-    pending_control_agent_requests: HashMap<usize, PendingControlAgentRequest>,
-    shell_suggestion_rx: crossbeam_channel::Receiver<ShellSuggestionResult>,
-    shell_suggestion_tx: crossbeam_channel::Sender<ShellSuggestionResult>,
-    /// Background AI engine that produces optional tab labels and icons.
-    /// Shares the harness's tokio runtime and the user's
-    /// `agent.suggestion_model` settings.
-    tab_summary_engine: TabSummaryEngine,
-    tab_summary_rx: crossbeam_channel::Receiver<(u64, u64, TabSummary)>,
-    tab_summary_tx: crossbeam_channel::Sender<(u64, u64, TabSummary)>,
-    skill_scan_rx: crossbeam_channel::Receiver<SkillScanResult>,
-    skill_scan_tx: crossbeam_channel::Sender<SkillScanResult>,
-    /// Bumped whenever summary-model settings change so late async
-    /// responses from the old configuration are ignored.
-    tab_summary_generation: u64,
-    /// Monotonic counter for [`Tab::summary_id`] — stable across the
-    /// window's lifetime so the summary engine's per-tab cache
-    /// survives reorders and tab close/reopen.
-    next_tab_summary_id: u64,
-    /// Monotonic request id for control-plane agent asks so stale timeout tasks cannot
-    /// cancel a newer request on the same tab.
-    next_control_agent_request_id: u64,
     /// Window handle used to re-enter a window-aware context from deferred control work.
     window_handle: AnyWindowHandle,
     /// Weak self handle for deferred window callbacks.

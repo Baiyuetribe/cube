@@ -1,4 +1,3 @@
-use con_agent::ProviderKind;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -9,17 +8,12 @@ pub const WORKSPACE_ERROR_SURFACE_OWNER: &str = "con:workspace-error";
 pub struct Session {
     pub tabs: Vec<TabState>,
     pub active_tab: usize,
-    pub agent_panel_open: bool,
-    #[serde(default)]
-    pub agent_panel_width: Option<f32>,
     #[serde(default = "default_input_bar_visible")]
     pub input_bar_visible: bool,
     #[serde(default)]
     pub global_shell_history: Vec<CommandHistoryEntryState>,
     #[serde(default)]
     pub input_history: Vec<String>,
-    #[serde(default)]
-    pub conversation_id: Option<String>,
     /// User-resized width for the left sidebar panel.
     #[serde(default, alias = "vertical_tabs_width")]
     pub left_panel_width: Option<f32>,
@@ -64,13 +58,6 @@ pub struct TabState {
     pub panes: Vec<PaneState>,
     #[serde(default)]
     pub shell_history: Vec<PaneCommandHistoryState>,
-    /// Per-tab conversation ID (persisted across restarts)
-    #[serde(default)]
-    pub conversation_id: Option<String>,
-    /// Per-tab agent routing overrides. Global settings still provide credentials
-    /// and shared behavior; tabs only persist the selected provider and model choices.
-    #[serde(default)]
-    pub agent_routing: AgentRoutingState,
     /// Optional user-supplied label that overrides every auto-derived name
     /// (focused-process, cwd basename, shell name) shown in the vertical
     /// tabs panel and horizontal tab strip. Set via the inline rename
@@ -101,25 +88,6 @@ pub enum TabAccentColor {
     /// Catch-all for color tags added in future builds.
     #[serde(other)]
     Unknown,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct AgentRoutingState {
-    pub provider: Option<ProviderKind>,
-    pub model_overrides: Vec<AgentModelOverrideState>,
-}
-
-impl AgentRoutingState {
-    pub fn is_empty(&self) -> bool {
-        self.provider.is_none() && self.model_overrides.is_empty()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentModelOverrideState {
-    pub provider: ProviderKind,
-    pub model: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,18 +167,13 @@ impl Default for Session {
                 focused_pane_id: Some(0),
                 panes: vec![PaneState { cwd: None }],
                 shell_history: Vec::new(),
-                conversation_id: None,
-                agent_routing: AgentRoutingState::default(),
                 user_label: None,
                 color: None,
             }],
             active_tab: 0,
-            agent_panel_open: false,
-            agent_panel_width: None,
             input_bar_visible: true,
             global_shell_history: Vec::new(),
             input_history: Vec::new(),
-            conversation_id: None,
             left_panel_width: None,
             vertical_tabs_pinned: None,
             activity_slot: None,

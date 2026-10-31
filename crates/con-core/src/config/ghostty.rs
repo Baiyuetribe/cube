@@ -74,6 +74,23 @@ fn decode_string(raw: &str, key: &str) -> Result<String> {
     Ok(raw[1..raw.len() - 1].to_owned())
 }
 
+/// Con keys that were removed when the built-in agent and session handoff
+/// were deleted. Older configuration files still carry them; they are
+/// accepted and dropped so an upgrade never fails to load settings.
+fn is_retired_con_key(key: &str) -> bool {
+    const RETIRED_PREFIXES: &[&str] = &["con.agent.", "con.skills."];
+    const RETIRED_KEYS: &[&str] = &[
+        "con.appearance.agent_avatar",
+        "con.keybindings.toggle_agent",
+        "con.keybindings.ask_ai",
+        "con.experimental.handoff",
+    ];
+    RETIRED_KEYS.contains(&key)
+        || RETIRED_PREFIXES
+            .iter()
+            .any(|prefix| key.starts_with(prefix))
+}
+
 fn path_for_key(key: &str) -> Option<String> {
     if key == "con.version" {
         return None;
@@ -99,15 +116,7 @@ enum ScalarKind {
     Integer,
 }
 
-fn scalar_kind(path: &str, schema: &Value) -> ScalarKind {
-    if path == "agent.temperature" {
-        return ScalarKind::Float;
-    }
-    if path == "agent.max_turns"
-        || (path.starts_with("agent.providers.") && path.ends_with(".max_tokens"))
-    {
-        return ScalarKind::Integer;
-    }
+fn scalar_kind(_path: &str, schema: &Value) -> ScalarKind {
     match schema {
         Value::Bool(_) => ScalarKind::Bool,
         Value::Number(n) if n.is_u64() || n.is_i64() => ScalarKind::Integer,
@@ -143,61 +152,7 @@ fn parse_scalar(raw: &str, kind: ScalarKind, key: &str) -> Result<Value> {
 }
 
 fn complete_schema() -> Result<Value> {
-    let mut schema = serde_json::to_value(Config::default())?;
-    let providers = [
-        "anthropic",
-        "openai",
-        "codex-local",
-        "chatgpt",
-        "github-copilot",
-        "openaicompatible",
-        "minimax",
-        "minimax-anthropic",
-        "moonshot",
-        "moonshot-anthropic",
-        "z-ai",
-        "z-ai-anthropic",
-        "deepseek",
-        "groq",
-        "cohere",
-        "gemini",
-        "ollama",
-        "openrouter",
-        "perplexity",
-        "mistral",
-        "together",
-        "xai",
-    ];
-    for provider in providers {
-        insert(
-            &mut schema,
-            &format!("agent.providers.{provider}.model"),
-            Value::Null,
-            false,
-        );
-        for field in ["api_key", "api_key_env", "base_url"] {
-            insert(
-                &mut schema,
-                &format!("agent.providers.{provider}.{field}"),
-                Value::Null,
-                false,
-            );
-        }
-        if provider == "chatgpt" {
-            insert(
-                &mut schema,
-                "agent.providers.chatgpt.reasoning_effort",
-                Value::Null,
-                false,
-            );
-        }
-        insert(
-            &mut schema,
-            &format!("agent.providers.{provider}.max_tokens"),
-            Value::Number(0u64.into()),
-            false,
-        );
-    }
+    let schema = serde_json::to_value(Config::default())?;
     Ok(schema)
 }
 
@@ -266,6 +221,9 @@ pub(crate) fn parse(source: &str, path: Option<PathBuf>) -> Result<Config> {
             continue;
         }
         let Some(field) = path_for_key(key) else {
+            if is_retired_con_key(key) {
+                continue;
+            }
             if key.starts_with("con.") {
                 bail!("unknown Con key `{key}` at line {}", index + 1);
             }
@@ -278,6 +236,9 @@ pub(crate) fn parse(source: &str, path: Option<PathBuf>) -> Result<Config> {
             );
         }
         let Some(shape) = schema_value(&defaults, &field) else {
+            if is_retired_con_key(key) {
+                continue;
+            }
             if key.starts_with("con.") {
                 bail!("unknown Con key `{key}` at line {}", index + 1);
             }
@@ -369,16 +330,6 @@ pub(crate) fn parse(source: &str, path: Option<PathBuf>) -> Result<Config> {
     }
     let mut config: Config = serde_json::from_value(document)
         .map_err(|_| anyhow!("invalid Con configuration value type"))?;
-    let has_key = |expected| {
-        source
-            .lines()
-            .filter_map(parse_line)
-            .any(|(key, _)| key == expected)
-    };
-    if has_key("con.agent.provider") && !has_key("con.agent.provider_is_explicit") {
-        config.agent.provider_is_explicit = true;
-    }
-    config.agent.migrate_legacy();
     config.normalize();
     // Snapshot resolved state, not defaults or pre-normalized input. This keeps
     // an unrelated settings edit from materializing implicit values.
@@ -581,11 +532,10 @@ mod tests {
 
     #[test]
     fn native_and_namespaced_fields_parse_with_ordered_lists() {
-        let source = "# keep\nfont-family = Fira Code\nfont-family = C:\\Fonts\\Emoji\nfont-size = 15.5\ncon.skills.project_paths = one\ncon.skills.project_paths = two\nunknown-native = yes\n";
+        let source = "# keep\nfont-family = Fira Code\nfont-family = C:\\Fonts\\Emoji\nfont-size = 15.5\nunknown-native = yes\n";
         let config = parse(source, None).unwrap();
         assert_eq!(config.terminal.font_family, "Fira Code");
         assert_eq!(config.terminal.font_fallback, ["C:\\Fonts\\Emoji"]);
-        assert_eq!(config.skills.project_paths, ["one", "two"]);
         assert!(
             config
                 .native_entries()
@@ -601,7 +551,7 @@ mod tests {
         let output = render(&config).unwrap();
         assert!(output.contains("# authored\nunknown = value\ntheme = custom\n"));
         assert!(output.contains("font-size = 18"));
-        assert!(!output.contains("con.skills"));
+        assert!(!output.contains("con.terminal"));
     }
 
     #[test]
@@ -634,27 +584,6 @@ mod tests {
             .to_string();
         assert!(error.contains("expected finite number"));
         assert!(!error.contains("definitely-secret"));
-        let error = parse("con.agent.provider = definitely-secret", None).unwrap_err();
-        assert!(!format!("{error:#}").contains("definitely-secret"));
-    }
-
-    #[test]
-    fn authored_provider_is_explicit_unless_marked_automatic() {
-        assert!(
-            parse("con.agent.provider = anthropic\n", None)
-                .unwrap()
-                .agent
-                .provider_is_explicit
-        );
-        assert!(
-            !parse(
-                "con.agent.provider = anthropic\ncon.agent.provider_is_explicit = false\n",
-                None
-            )
-            .unwrap()
-            .agent
-            .provider_is_explicit
-        );
     }
 
     #[test]
@@ -690,67 +619,6 @@ mod tests {
             serde_json::to_value(config).unwrap(),
             serde_json::to_value(decoded).unwrap()
         );
-    }
-
-    #[test]
-    fn codex_local_model_round_trips_without_con_credentials() {
-        let config = parse(
-            "con.version = 1\ncon.agent.provider = codex-local\ncon.agent.providers.codex-local.model = local-codex-model\n",
-            None,
-        ).unwrap();
-        assert_eq!(config.agent.provider, con_agent::ProviderKind::CodexLocal);
-        let provider = config.agent.providers.codex_local.as_ref().unwrap();
-        assert_eq!(provider.model.as_deref(), Some("local-codex-model"));
-        assert!(provider.api_key.is_none());
-        let text = render(&config).unwrap();
-        let restored = parse(&text, None).unwrap();
-        assert_eq!(restored.agent.provider, con_agent::ProviderKind::CodexLocal);
-        assert_eq!(
-            restored.agent.providers.codex_local,
-            config.agent.providers.codex_local
-        );
-    }
-
-    #[test]
-    fn subscription_reasoning_effort_round_trips_and_rejects_unknown_wire_values() {
-        let config = parse(
-            "con.agent.providers.chatgpt.reasoning_effort = high\n",
-            None,
-        )
-        .unwrap();
-        assert_eq!(
-            config
-                .agent
-                .providers
-                .chatgpt
-                .as_ref()
-                .unwrap()
-                .reasoning_effort,
-            Some(con_agent::chatgpt_subscription::ReasoningEffort::High)
-        );
-        let text = render(&config).unwrap();
-        assert!(text.contains("con.agent.providers.chatgpt.reasoning_effort = high"));
-        assert_eq!(
-            parse(&text, None).unwrap().agent.providers.chatgpt,
-            config.agent.providers.chatgpt
-        );
-        assert!(
-            parse(
-                "con.agent.providers.chatgpt.reasoning_effort = future-mode\n",
-                None
-            )
-            .is_err()
-        );
-        assert!(parse("con.agent.providers.openai.reasoning_effort = high\n", None).is_err());
-    }
-
-    #[test]
-    fn reset_empty_lists_round_trips() {
-        let mut config = parse("con.skills.project_paths = old\n", None).unwrap();
-        config.skills.project_paths.clear();
-        let text = render(&config).unwrap();
-        assert!(text.contains("con.skills.project_paths = \n"));
-        assert!(parse(&text, None).unwrap().skills.project_paths.is_empty());
     }
 
     #[test]
@@ -844,13 +712,8 @@ mod tests {
 
     #[test]
     fn section_assignments_are_rejected_before_leaf_insertion() {
-        for section in [
-            "agent",
-            "skills",
-            "agent.providers",
-            "agent.providers.anthropic",
-        ] {
-            let source = format!("con.{section} = invalid\ncon.agent.provider = anthropic\n");
+        for section in ["appearance", "terminal", "keybindings"] {
+            let source = format!("con.{section} = invalid\n");
             assert!(
                 parse(&source, None)
                     .unwrap_err()
@@ -862,9 +725,8 @@ mod tests {
 
     #[test]
     fn quoted_numbers_list_resets_and_included_font_edits() {
-        let config = parse("font-size = \"17\"\ncon.skills.project_paths = old\ncon.skills.project_paths =\ncon.skills.project_paths = new\n", None).unwrap();
+        let config = parse("font-size = \"17\"\n", None).unwrap();
         assert_eq!(config.terminal.font_size, 17.0);
-        assert_eq!(config.skills.project_paths, ["new"]);
         let mut included = parse("config-file = child\n", None).unwrap();
         included.terminal.font_family = "Other Font".into();
         assert!(
@@ -873,5 +735,33 @@ mod tests {
                 .to_string()
                 .contains("config-file")
         );
+    }
+}
+
+#[cfg(test)]
+mod retired_key_tests {
+    use super::parse;
+
+    #[test]
+    fn retired_agent_keys_are_accepted_and_dropped() {
+        let config = parse(
+            "con.version = 1\n\
+             con.appearance.agent_avatar = \"raccoon\"\n\
+             con.agent.provider = \"anthropic\"\n\
+             con.agent.max_turns = 30\n\
+             con.agent.providers.anthropic.model = \"x\"\n\
+             con.skills.project_paths = \"skills\"\n\
+             con.keybindings.toggle_agent = \"secondary-l\"\n\
+             con.experimental.handoff = true\n\
+             con.appearance.app_icon = \"raccoon-tail-a6\"\n",
+            None,
+        )
+        .expect("retired keys must not fail the load");
+        assert_eq!(config.appearance.app_icon, "raccoon-tail-a6");
+    }
+
+    #[test]
+    fn genuinely_unknown_con_keys_still_fail() {
+        assert!(parse("con.no_such_field = 1\n", None).is_err());
     }
 }

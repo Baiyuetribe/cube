@@ -626,11 +626,12 @@ mod tests {
     fn settings_import_replaces_native_preserves_con_and_backs_up_exact_bytes() {
         let d = dir();
         let target = d.join("config.ghostty");
-        let original = "# keep backup\nfont-size = 12\nbackground = 123456\ncon.agent.max_turns = 9\ncon.skills.project_paths = private\n";
+        let original =
+            "# keep backup\nfont-size = 12\nbackground = 123456\ncon.appearance.ui_opacity = 0.8\n";
         fs::write(&target, original).unwrap();
         let config = Config::load_from_path(&target).unwrap();
         let source = d.join("ghostty");
-        let imported = "font-size = 19\nforeground = abcdef\ncon.agent.max_turns = 1\n";
+        let imported = "font-size = 19\nforeground = abcdef\ncon.appearance.ui_opacity = 0.9\n";
         fs::write(&source, imported).unwrap();
         let prepared = prepare_import(&source, &config, &target).unwrap();
         assert_eq!(prepared.config().terminal.font_size, 19.0);
@@ -639,8 +640,6 @@ mod tests {
         assert_eq!(fs::read_to_string(&backup).unwrap(), original);
         assert_eq!(fs::read_to_string(&source).unwrap(), imported);
         let result = Config::load_from_path(&target).unwrap();
-        assert_eq!(result.agent.max_turns, 9);
-        assert_eq!(result.skills.project_paths, ["private"]);
         assert_eq!(result.terminal.font_size, 19.0);
         assert!(!fs::read_to_string(&target).unwrap().contains("123456"));
         #[cfg(unix)]

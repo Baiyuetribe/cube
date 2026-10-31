@@ -1,5 +1,4 @@
 use anyhow::{Context as _, Result};
-use con_agent::{AgentConfig, ProviderKind};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -175,8 +174,6 @@ pub struct AppearanceConfig {
     /// Selectable app icon id from [`APP_ICONS`]. Unknown values fall back to
     /// [`DEFAULT_APP_ICON`].
     pub app_icon: String,
-    /// Avatar shown beside replies from Con's built-in agent.
-    pub agent_avatar: String,
 }
 
 impl Default for AppearanceConfig {
@@ -199,7 +196,6 @@ impl Default for AppearanceConfig {
             tabs_orientation: TabsOrientation::Vertical,
             close_to_quit: true,
             app_icon: default_app_icon(),
-            agent_avatar: default_agent_avatar(),
         }
     }
 }
@@ -236,59 +232,7 @@ impl AppearanceConfig {
         )
         .max(self.tab_accent_inactive_alpha);
         self.app_icon = sanitize_app_icon(&self.app_icon);
-        self.agent_avatar = sanitize_agent_avatar(&self.agent_avatar);
     }
-}
-
-pub const DEFAULT_AGENT_AVATAR: &str = "raccoon";
-pub const DEFAULT_AGENT_AVATAR_ASSET: &str = "con-agent-avatar.png";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AgentAvatarChoice {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub asset: &'static str,
-}
-
-pub const AGENT_AVATARS: &[AgentAvatarChoice] = &[
-    AgentAvatarChoice {
-        id: DEFAULT_AGENT_AVATAR,
-        label: "Raccoon",
-        asset: DEFAULT_AGENT_AVATAR_ASSET,
-    },
-    AgentAvatarChoice {
-        id: "raccoon-girl",
-        label: "Raccoon Girl",
-        asset: "con-agent-avatar-girl.png",
-    },
-    AgentAvatarChoice {
-        id: "raccoon-girl-longhair",
-        label: "Raccoon Girl II",
-        asset: "con-agent-avatar-girl-longhair.png",
-    },
-];
-
-fn default_agent_avatar() -> String {
-    DEFAULT_AGENT_AVATAR.to_string()
-}
-
-pub fn agent_avatar_by_id(id: &str) -> Option<&'static AgentAvatarChoice> {
-    AGENT_AVATARS.iter().find(|avatar| avatar.id == id)
-}
-
-pub fn sanitize_agent_avatar(id: &str) -> String {
-    let trimmed = id.trim();
-    if agent_avatar_by_id(trimmed).is_some() {
-        trimmed.to_string()
-    } else {
-        DEFAULT_AGENT_AVATAR.to_string()
-    }
-}
-
-pub fn agent_avatar_asset(id: &str) -> &'static str {
-    agent_avatar_by_id(id)
-        .map(|avatar| avatar.asset)
-        .unwrap_or(DEFAULT_AGENT_AVATAR_ASSET)
 }
 
 pub const DEFAULT_APP_ICON: &str = "raccoon-tail-a6";
@@ -453,15 +397,6 @@ pub fn app_icon_asset(id: &str) -> &'static str {
 // app-level modifier space instead of borrowing terminal control
 // characters like Ctrl+D, which terminals consume as EOF before Con's
 // keybindings ever see them.
-#[cfg(target_os = "macos")]
-fn default_toggle_agent() -> String {
-    "secondary-l".into()
-}
-#[cfg(not(target_os = "macos"))]
-fn default_toggle_agent() -> String {
-    "ctrl-shift-l".into()
-}
-
 fn default_command_palette() -> String {
     // Ctrl+Shift+P on Windows / Linux, Cmd+Shift+P on macOS.
     "secondary-shift-p".into()
@@ -590,20 +525,6 @@ fn default_focus_input() -> String {
     "ctrl-shift-i".into()
 }
 
-#[cfg(target_os = "macos")]
-fn default_ask_ai() -> String {
-    // Pairs with Cmd+L (toggle agent): Cmd+Shift+L sends the current
-    // terminal selection to the agent input, matching the editor
-    // convention of "add selection to chat".
-    "secondary-shift-l".into()
-}
-#[cfg(not(target_os = "macos"))]
-fn default_ask_ai() -> String {
-    // Ctrl+Shift+L is taken by toggle-agent off macOS; Ctrl+Shift+A
-    // ("Ask") stays free of terminal control characters.
-    "ctrl-shift-a".into()
-}
-
 fn default_toggle_input_bar() -> String {
     "ctrl-`".into()
 }
@@ -713,7 +634,6 @@ fn default_quick_terminal() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct KeybindingConfig {
-    pub toggle_agent: String,
     pub command_palette: String,
     pub new_window: String,
     pub new_tab: String,
@@ -727,7 +647,6 @@ pub struct KeybindingConfig {
     pub split_right: String,
     pub split_down: String,
     pub focus_input: String,
-    pub ask_ai: String,
     pub cycle_input_mode: String,
     pub toggle_input_bar: String,
     pub toggle_pane_scope: String,
@@ -785,10 +704,8 @@ impl KeybindingConfig {
             ("Toggle Pane Zoom", self.toggle_pane_zoom.as_str()),
             ("Settings", self.settings.as_str()),
             ("Command Palette", self.command_palette.as_str()),
-            ("Toggle Agent", self.toggle_agent.as_str()),
             ("Toggle Input Bar", self.toggle_input_bar.as_str()),
             ("Toggle Input / Terminal", self.focus_input.as_str()),
-            ("Ask AI About Selection", self.ask_ai.as_str()),
             ("Cycle Input Mode", self.cycle_input_mode.as_str()),
             ("Split Right", self.split_right.as_str()),
             ("Split Down", self.split_down.as_str()),
@@ -861,7 +778,6 @@ impl KeybindingConfig {
 impl Default for KeybindingConfig {
     fn default() -> Self {
         Self {
-            toggle_agent: default_toggle_agent(),
             command_palette: default_command_palette(),
             new_window: default_new_window(),
             new_tab: default_new_tab(),
@@ -875,7 +791,6 @@ impl Default for KeybindingConfig {
             split_right: default_split_right(),
             split_down: default_split_down(),
             focus_input: default_focus_input(),
-            ask_ai: default_ask_ai(),
             cycle_input_mode: default_cycle_input_mode(),
             toggle_input_bar: default_toggle_input_bar(),
             toggle_pane_scope: default_toggle_pane_scope(),
@@ -1049,9 +964,7 @@ impl Default for ExperimentalConfig {
 pub struct Config {
     pub terminal: TerminalConfig,
     pub appearance: AppearanceConfig,
-    pub agent: AgentConfig,
     pub keybindings: KeybindingConfig,
-    pub skills: SkillsConfig,
     pub network: NetworkConfig,
     pub experimental: ExperimentalConfig,
     /// Authored source/provenance used for lossless, collision-safe saves.
@@ -1064,9 +977,7 @@ impl Clone for Config {
         Self {
             terminal: self.terminal.clone(),
             appearance: self.appearance.clone(),
-            agent: self.agent.clone(),
             keybindings: self.keybindings.clone(),
-            skills: self.skills.clone(),
             network: self.network.clone(),
             experimental: self.experimental.clone(),
             source: std::sync::Mutex::new(
@@ -1081,71 +992,6 @@ impl Clone for Config {
 
 /// Configuration for skill discovery paths.
 ///
-/// Skills are SKILL.md files following the open skills ecosystem format (skills.sh).
-/// con scans both project-local and global directories for skills.
-///
-/// # Defaults
-/// ```toml
-/// [skills]
-/// project_paths = [".con/skills"]
-/// global_paths = ["~/.config/con/skills"]
-/// ```
-/// On Windows, the default global path uses `~/.config/con-terminal/skills`
-/// because `con` is a reserved DOS device name.
-///
-/// # Sharing with other agents
-/// ```toml
-/// [skills]
-/// # Scan other agent-specific and shared paths too
-/// project_paths = [".con/skills", ".agents/skills"]
-/// global_paths = ["~/.config/con/skills", "~/.agents/skills"]
-/// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct SkillsConfig {
-    /// Project-local skill directories (relative to cwd).
-    /// Scanned in order; later entries override earlier ones on name collision.
-    pub project_paths: Vec<String>,
-    /// Global skill directories (absolute paths, ~ expanded).
-    /// Scanned before project paths; project skills override global on collision.
-    pub global_paths: Vec<String>,
-}
-
-impl Default for SkillsConfig {
-    fn default() -> Self {
-        Self {
-            project_paths: vec![
-                "skills".into(),
-                ".agents/skills".into(),
-                ".con/skills".into(),
-            ],
-            global_paths: vec![
-                con_paths::default_global_skills_path(),
-                "~/.agents/skills".into(),
-            ],
-        }
-    }
-}
-
-impl SkillsConfig {
-    /// Resolve global paths, expanding ~ to the user's home directory.
-    pub fn resolved_global_paths(&self) -> Vec<PathBuf> {
-        let home = dirs::home_dir();
-        self.global_paths
-            .iter()
-            .map(|p| match (p.strip_prefix("~/"), &home) {
-                (Some(rest), Some(home)) => home.join(rest),
-                _ => PathBuf::from(p),
-            })
-            .collect()
-    }
-
-    /// Resolve project-local paths relative to a cwd.
-    pub fn resolved_project_paths(&self, cwd: &std::path::Path) -> Vec<PathBuf> {
-        self.project_paths.iter().map(|p| cwd.join(p)).collect()
-    }
-}
-
 impl Config {
     pub fn normalize(&mut self) {
         self.terminal.shell = self
@@ -1164,10 +1010,7 @@ impl Config {
     }
 
     pub fn load() -> Result<Self> {
-        let mut config =
-            Self::load_from_paths(Self::config_path(), con_paths::legacy_config_file())?;
-        config.apply_zero_touch_chatgpt_default();
-        Ok(config)
+        Self::load_from_paths(Self::config_path(), con_paths::legacy_config_file())
     }
 
     /// Pure load/parse entry point. It never performs credential discovery.
@@ -1216,14 +1059,11 @@ impl Config {
         let document: toml::Value = toml::from_str(&content).map_err(|_| {
             anyhow::anyhow!("invalid legacy TOML configuration; original file was not modified")
         })?;
-        let provenance = config_declares_agent_provider_provenance(&document);
         let mut config: Config = document.try_into().map_err(|_| {
             anyhow::anyhow!(
                 "invalid legacy configuration value type; original file was not modified"
             )
         })?;
-        config.agent.migrate_legacy();
-        migrate_agent_provider_provenance(&mut config, provenance);
         config.normalize();
         config
             .source
@@ -1290,34 +1130,6 @@ impl Config {
     ///
     /// Best-effort: failures are logged, never fatal. Conservative: a user who
     /// configured Anthropic or picked another provider is never redirected
-    /// (see [`con_agent::preferred_default_provider`]).
-    fn apply_zero_touch_chatgpt_default(&mut self) {
-        match con_agent::ensure_chatgpt_oauth_synced_from_codex() {
-            Ok(true) => log::info!("[config] Synced ChatGPT OAuth cache from Codex"),
-            Ok(false) => {}
-            Err(err) => {
-                log::warn!("[config] Failed to sync ChatGPT OAuth cache from Codex: {err}")
-            }
-        }
-        if let Some(provider) = con_agent::preferred_default_provider(&self.agent) {
-            log::info!(
-                "[config] Recomputed automatic agent provider as {provider} from credential readiness"
-            );
-            self.agent.provider = provider;
-            if !self.agent.provider_is_explicit
-                && let Some(authored) = self
-                    .source
-                    .lock()
-                    .expect("config source mutex poisoned")
-                    .authored
-                    .as_mut()
-            {
-                authored["agent"]["provider"] = serde_json::to_value(&self.agent.provider)
-                    .expect("provider serialization cannot fail");
-            }
-        }
-    }
-
     pub fn config_path() -> PathBuf {
         con_paths::config_file()
     }
@@ -1404,19 +1216,6 @@ fn write_private_atomic_no_clobber(path: &Path, content: &[u8]) -> Result<()> {
     })();
     let _ = std::fs::remove_file(&tmp);
     result
-}
-
-fn config_declares_agent_provider_provenance(document: &toml::Value) -> bool {
-    document
-        .get("agent")
-        .and_then(toml::Value::as_table)
-        .is_some_and(|agent| agent.contains_key("provider_is_explicit"))
-}
-
-fn migrate_agent_provider_provenance(config: &mut Config, provenance_is_present: bool) {
-    if !provenance_is_present && config.agent.provider != ProviderKind::default() {
-        config.agent.provider_is_explicit = true;
-    }
 }
 
 pub(crate) fn write_private_atomic(path: &Path, content: &[u8]) -> Result<()> {
@@ -1506,13 +1305,10 @@ fn replace_file(tmp_path: &Path, path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AGENT_AVATARS, APP_ICONS, Config, DEFAULT_AGENT_AVATAR, DEFAULT_AGENT_AVATAR_ASSET,
-        DEFAULT_APP_ICON, DEFAULT_APP_ICON_ASSET, DEFAULT_TERMINAL_FONT_FAMILY, NetworkConfig,
-        SkillsConfig, TabsOrientation, agent_avatar_asset, app_icon_asset,
-        config_declares_agent_provider_provenance, migrate_agent_provider_provenance,
-        sanitize_terminal_font_fallback, sanitize_terminal_font_family,
+        APP_ICONS, Config, DEFAULT_APP_ICON, DEFAULT_APP_ICON_ASSET, DEFAULT_TERMINAL_FONT_FAMILY,
+        NetworkConfig, TabsOrientation, app_icon_asset, sanitize_terminal_font_fallback,
+        sanitize_terminal_font_family,
     };
-    use con_agent::ProviderKind;
 
     #[cfg(unix)]
     #[test]
@@ -1595,14 +1391,12 @@ mod tests {
         let target = root.join(con_paths::CONFIG_FILE_NAME);
         let previous = root.join("config.ghostty");
         let toml = root.join("config.toml");
-        let source =
-            "# keep comment\nfont-size = 19\nconfig-file = colors.conf\ncon.agent.max_turns = 7\n";
+        let source = "# keep comment\nfont-size = 19\nconfig-file = colors.conf\ncon.appearance.ui_opacity = 0.8\n";
         std::fs::write(&previous, source).unwrap();
         std::fs::write(&toml, "[terminal]\nfont_size = 11\n").unwrap();
         std::fs::write(root.join("colors.conf"), "background = 123456\n").unwrap();
         let config = Config::load_from_paths(&target, &toml).unwrap();
         assert_eq!(config.terminal.font_size, 19.0);
-        assert_eq!(config.agent.max_turns, 7);
         assert_eq!(config.source.lock().unwrap().path.as_ref(), Some(&target));
         assert_eq!(std::fs::read_to_string(&target).unwrap(), source);
         assert_eq!(std::fs::read_to_string(&previous).unwrap(), source);
@@ -1631,15 +1425,15 @@ mod tests {
         let previous = root.join("config.ghostty");
         let toml = root.join("config.toml");
         std::fs::write(&toml, "[terminal]\nfont_size = 11\n").unwrap();
-        std::fs::write(&previous, "con.agent.max_turns = invalid\n").unwrap();
+        std::fs::write(&previous, "con.terminal.font_size = invalid\n").unwrap();
         assert!(Config::load_from_paths(&target, &toml).is_err());
         assert!(!target.exists());
         std::fs::write(&previous, "font-size = 19\n").unwrap();
-        std::fs::write(&target, "con.agent.max_turns = invalid\n").unwrap();
+        std::fs::write(&target, "con.terminal.font_size = invalid\n").unwrap();
         assert!(Config::load_from_paths(&target, &toml).is_err());
         assert_eq!(
             std::fs::read_to_string(&target).unwrap(),
-            "con.agent.max_turns = invalid\n"
+            "con.terminal.font_size = invalid\n"
         );
         std::fs::remove_file(&target).unwrap();
         std::fs::remove_file(&previous).unwrap();
@@ -1669,65 +1463,6 @@ mod tests {
             let decoded: Config = toml::from_str(&encoded).unwrap();
             assert_eq!(decoded.terminal.clipboard_write, enabled);
         }
-    }
-
-    #[test]
-    fn explicit_agent_provider_choice_round_trips_with_provenance() {
-        let mut config = Config::default();
-        config.agent.select_provider(ProviderKind::Anthropic);
-        let encoded = toml::to_string(&config).unwrap();
-        let decoded: Config = toml::from_str(&encoded).unwrap();
-
-        assert!(encoded.contains("provider_is_explicit = true"));
-        assert!(decoded.agent.provider_is_explicit);
-    }
-
-    #[test]
-    fn legacy_serialized_default_provider_remains_implicit() {
-        let document: toml::Value = toml::from_str("[agent]\nprovider = \"anthropic\"").unwrap();
-        let provenance_is_present = config_declares_agent_provider_provenance(&document);
-        let mut config: Config = document.try_into().unwrap();
-        migrate_agent_provider_provenance(&mut config, provenance_is_present);
-
-        assert_eq!(config.agent.provider, ProviderKind::Anthropic);
-        assert!(!config.agent.provider_is_explicit);
-    }
-
-    #[test]
-    fn legacy_non_default_provider_is_migrated_as_explicit() {
-        let document: toml::Value = toml::from_str("[agent]\nprovider = \"chatgpt\"").unwrap();
-        let provenance_is_present = config_declares_agent_provider_provenance(&document);
-        let mut config: Config = document.try_into().unwrap();
-        migrate_agent_provider_provenance(&mut config, provenance_is_present);
-
-        assert!(config.agent.provider_is_explicit);
-    }
-
-    #[test]
-    fn serialized_automatic_provider_remains_automatic() {
-        let mut config = Config::default();
-        config.agent.provider = ProviderKind::ChatGPT;
-        let encoded = toml::to_string(&config).unwrap();
-        let document: toml::Value = toml::from_str(&encoded).unwrap();
-        let provenance_is_present = config_declares_agent_provider_provenance(&document);
-        let mut decoded: Config = document.try_into().unwrap();
-        migrate_agent_provider_provenance(&mut decoded, provenance_is_present);
-
-        assert!(encoded.contains("provider_is_explicit = false"));
-        assert!(!decoded.agent.provider_is_explicit);
-    }
-
-    #[test]
-    fn default_skill_path_uses_shared_app_path_policy() {
-        let config = SkillsConfig::default();
-        assert_eq!(
-            config.global_paths.first().map(String::as_str),
-            Some(if cfg!(target_os = "windows") {
-                "~/.config/con-terminal/skills"
-            } else {
-                "~/.config/con/skills"
-            })
-        );
     }
 
     #[test]
@@ -2136,32 +1871,6 @@ app_icon = "raccoon-suit-a1"
     }
 
     #[test]
-    fn agent_avatar_defaults_and_unknown_ids_are_safe() {
-        let default = Config::default();
-        assert_eq!(default.appearance.agent_avatar, DEFAULT_AGENT_AVATAR);
-        assert_eq!(
-            agent_avatar_asset(DEFAULT_AGENT_AVATAR),
-            DEFAULT_AGENT_AVATAR_ASSET
-        );
-
-        let mut configured: Config = toml::from_str(
-            r#"
-[appearance]
-agent_avatar = "raccoon-girl"
-"#,
-        )
-        .unwrap();
-        configured.normalize();
-        assert_eq!(configured.appearance.agent_avatar, "raccoon-girl");
-
-        configured.appearance.agent_avatar = "future-avatar".into();
-        configured.normalize();
-        assert_eq!(configured.appearance.agent_avatar, DEFAULT_AGENT_AVATAR);
-        assert_eq!(agent_avatar_asset("missing"), DEFAULT_AGENT_AVATAR_ASSET);
-        assert_eq!(AGENT_AVATARS.len(), 3);
-    }
-
-    #[test]
     fn loaded_configs_preserve_explicit_quick_terminal_fields() {
         let content = r#"
 [keybindings]
@@ -2178,14 +1887,14 @@ quick_terminal = "cmd-\\"
     fn keybinding_conflicts_detect_duplicate_configured_shortcuts() {
         let mut config = Config::default();
         config.keybindings.command_palette = "ctrl-shift-p".to_string();
-        config.keybindings.toggle_agent = "control-shift-p".to_string();
+        config.keybindings.new_tab = "control-shift-p".to_string();
 
         let conflicts = config.keybindings.shortcut_conflicts(&[]);
 
         assert_eq!(conflicts.len(), 1);
         assert_eq!(
             conflicts[0].actions,
-            vec!["Command Palette".to_string(), "Toggle Agent".to_string()]
+            vec!["New Tab".to_string(), "Command Palette".to_string()]
         );
     }
 
@@ -2193,7 +1902,7 @@ quick_terminal = "cmd-\\"
     fn keybinding_conflicts_match_secondary_to_platform_modifier() {
         let mut config = Config::default();
         config.keybindings.command_palette = "secondary-shift-p".to_string();
-        config.keybindings.toggle_agent = if cfg!(target_os = "macos") {
+        config.keybindings.new_tab = if cfg!(target_os = "macos") {
             "cmd-shift-p".to_string()
         } else {
             "ctrl-shift-p".to_string()
@@ -2204,7 +1913,7 @@ quick_terminal = "cmd-\\"
         assert_eq!(conflicts.len(), 1);
         assert_eq!(
             conflicts[0].actions,
-            vec!["Command Palette".to_string(), "Toggle Agent".to_string()]
+            vec!["New Tab".to_string(), "Command Palette".to_string()]
         );
     }
 
@@ -2212,14 +1921,14 @@ quick_terminal = "cmd-\\"
     fn keybinding_conflicts_include_minus_key_shortcuts() {
         let mut config = Config::default();
         config.keybindings.command_palette = "ctrl--".to_string();
-        config.keybindings.toggle_agent = "control--".to_string();
+        config.keybindings.new_tab = "control--".to_string();
 
         let conflicts = config.keybindings.shortcut_conflicts(&[]);
 
         assert_eq!(conflicts.len(), 1);
         assert_eq!(
             conflicts[0].actions,
-            vec!["Command Palette".to_string(), "Toggle Agent".to_string()]
+            vec!["New Tab".to_string(), "Command Palette".to_string()]
         );
     }
 

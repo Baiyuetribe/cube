@@ -1,34 +1,6 @@
 use super::*;
 
 impl ConWorkspace {
-    pub(super) fn panel_state_from_conversation(&self, conv: &Conversation) -> PanelState {
-        let mut state = PanelState::new();
-        for msg in &conv.messages {
-            match msg.role {
-                con_agent::MessageRole::User => {
-                    let visible = self
-                        .harness
-                        .display_label_for_user_message(&msg.content)
-                        .unwrap_or_else(|| msg.content.clone());
-                    state.restore_message("user", &visible, None, None);
-                }
-                con_agent::MessageRole::Assistant => {
-                    state.restore_message(
-                        "assistant",
-                        &msg.content,
-                        msg.model.as_deref(),
-                        msg.duration_ms,
-                    );
-                    state.restore_last_assistant_trace(msg.thinking.as_deref(), &msg.steps);
-                }
-                con_agent::MessageRole::System | con_agent::MessageRole::Tool => {
-                    state.restore_message("system", &msg.content, None, None);
-                }
-            }
-        }
-        state
-    }
-
     pub(super) fn snapshot_session(&self, cx: &App) -> Session {
         self.snapshot_session_with_options(cx, self.config.appearance.restore_terminal_text)
     }
@@ -84,8 +56,6 @@ impl ConWorkspace {
                     focused_pane_id: Some(focused_pane_id),
                     panes: pane_states,
                     shell_history,
-                    conversation_id: Some(tab.session.conversation_id()),
-                    agent_routing: tab.agent_routing.clone(),
                     user_label: tab.user_label.clone(),
                     color: tab.color,
                 }
@@ -95,8 +65,6 @@ impl ConWorkspace {
         Session {
             tabs,
             active_tab: self.active_tab,
-            agent_panel_open: self.agent_panel_open,
-            agent_panel_width: Some(self.agent_panel_width),
             input_bar_visible: self.input_bar_visible,
             global_shell_history: self
                 .global_shell_history
@@ -107,7 +75,6 @@ impl ConWorkspace {
                 })
                 .collect(),
             input_history: self.global_input_history.iter().cloned().collect(),
-            conversation_id: None, // deprecated — per-tab now
             left_panel_width: Some(self.sidebar.read(cx).panel_width()),
             vertical_tabs_pinned: Some(self.sidebar.read(cx).is_pinned()),
             activity_slot: Some(self.activity_slot.as_str().to_string()),
@@ -257,110 +224,6 @@ impl ConWorkspace {
             }
         }
         aggregated
-    }
-
-    pub(super) fn default_agent_routing(config: &AgentConfig) -> AgentRoutingState {
-        let mut model_overrides = Vec::new();
-        for provider in [
-            ProviderKind::Anthropic,
-            ProviderKind::OpenAI,
-            ProviderKind::CodexLocal,
-            ProviderKind::ChatGPT,
-            ProviderKind::GitHubCopilot,
-            ProviderKind::OpenAICompatible,
-            ProviderKind::MiniMax,
-            ProviderKind::MiniMaxAnthropic,
-            ProviderKind::Moonshot,
-            ProviderKind::MoonshotAnthropic,
-            ProviderKind::ZAI,
-            ProviderKind::ZAIAnthropic,
-            ProviderKind::DeepSeek,
-            ProviderKind::Groq,
-            ProviderKind::Cohere,
-            ProviderKind::Gemini,
-            ProviderKind::Ollama,
-            ProviderKind::OpenRouter,
-            ProviderKind::Perplexity,
-            ProviderKind::Mistral,
-            ProviderKind::Together,
-            ProviderKind::XAI,
-        ] {
-            if let Some(model) = config
-                .providers
-                .get(&provider)
-                .and_then(|entry| entry.model.clone())
-            {
-                model_overrides.push(AgentModelOverrideState { provider, model });
-            }
-        }
-
-        AgentRoutingState {
-            provider: Some(config.provider.clone()),
-            model_overrides,
-        }
-    }
-
-    pub(super) fn apply_agent_routing(
-        base: &AgentConfig,
-        routing: &AgentRoutingState,
-    ) -> AgentConfig {
-        let mut config = base.clone();
-        if let Some(provider) = routing.provider.as_ref() {
-            config.provider = provider.clone();
-        }
-
-        for override_state in &routing.model_overrides {
-            if override_state.model.trim().is_empty() {
-                continue;
-            }
-            let mut provider_config = config.providers.get_or_default(&override_state.provider);
-            provider_config.model = Some(override_state.model.clone());
-            config
-                .providers
-                .set(&override_state.provider, provider_config);
-        }
-
-        config
-    }
-
-    pub(super) fn tab_agent_config(&self, tab_idx: usize) -> AgentConfig {
-        Self::apply_agent_routing(self.harness.config(), &self.tabs[tab_idx].agent_routing)
-    }
-
-    pub(super) fn active_tab_agent_config(&self) -> AgentConfig {
-        self.tab_agent_config(self.active_tab)
-    }
-
-    pub(super) fn provider_models_for_config(&self, config: &AgentConfig) -> Vec<String> {
-        self.model_registry.models_for_config(
-            &config.provider,
-            &config.providers.get_or_default(&config.provider),
-        )
-    }
-
-    pub(super) fn set_tab_provider_override(&mut self, tab_idx: usize, provider: ProviderKind) {
-        self.tabs[tab_idx].agent_routing.provider = Some(provider);
-    }
-
-    pub(super) fn set_tab_model_override(
-        &mut self,
-        tab_idx: usize,
-        provider: ProviderKind,
-        model: String,
-    ) {
-        let routing = &mut self.tabs[tab_idx].agent_routing;
-        if let Some(existing) = routing
-            .model_overrides
-            .iter_mut()
-            .find(|entry| entry.provider == provider)
-        {
-            existing.model = model;
-            return;
-        }
-
-        routing
-            .model_overrides
-            .push(AgentModelOverrideState { provider, model });
     }
 
     pub(super) fn merge_shell_histories(

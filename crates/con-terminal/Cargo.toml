@@ -6,3 +6,6 @@ version.workspace = true
 
 [dependencies]
 con-paths.workspace = true
+serde.workspace = true
+crossbeam-channel.workspace = true
+log.workspace = true

@@ -217,7 +217,7 @@ impl Surface {
                     _ => true,
                 })
                 .collect();
-            con_agent::context::classify_screen_agent_cli(None, &lines)
+            con_terminal::classify_screen_agent_cli(None, &lines)
                 .or_else(|| agent_from_screen_text(&lines))
                 .map(|agent| (agent, IdentityScope::Screen))
         } else {
@@ -483,7 +483,7 @@ impl ConWorkspace {
         });
         let mut changed = state.presented_focus != focus;
         state.presented_focus = focus;
-        for (index, tab) in self.tabs.iter_mut().enumerate() {
+        for tab in self.tabs.iter_mut() {
             let terminals = tab.pane_tree.all_surface_terminals();
             for terminal in &terminals {
                 let icon = state.surfaces.get(&terminal.entity_id().as_u64()).map_or(
@@ -509,7 +509,7 @@ impl ConWorkspace {
                 .pane_tree
                 .focused_terminal_entity_id()
                 .map(|id| id.as_u64());
-            let mut statuses: Vec<_> = terminals
+            let statuses: Vec<_> = terminals
                 .iter()
                 .filter_map(|terminal| state.surfaces.get(&terminal.entity_id().as_u64()))
                 .filter_map(|surface| surface.status.status(now))
@@ -521,21 +521,6 @@ impl ConWorkspace {
             if tab.agent_cli != focused_agent {
                 tab.agent_cli = focused_agent;
                 changed = true;
-            }
-            let activity = if index == self.active_tab {
-                self.agent_panel.read(cx).state().activity()
-            } else {
-                tab.panel_state.activity()
-            };
-            if activity > con_core::terminal_status::Activity::Idle {
-                statuses.push(con_core::terminal_status::Status {
-                    // GPUI entity IDs are nonzero. The built-in session is not
-                    // a terminal surface and never wins the focused-pane tie.
-                    surface_id: 0,
-                    activity,
-                    evidence: con_core::terminal_status::Evidence::BuiltinAgent,
-                    percent: None,
-                });
             }
             let status = con_core::terminal_status::aggregate(statuses, focused);
             let detail = status

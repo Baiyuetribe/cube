@@ -1,11 +1,11 @@
 //! TerminalPane — Ghostty-backed terminal pane wrapper.
 
-use con_agent::context::{PaneObservationFrame, PaneObservationSupport, derive_screen_hints};
 #[cfg(not(target_os = "macos"))]
 use con_ghostty::TerminalColors;
 use con_ghostty::{GhosttyTerminal, TerminalProgress, TerminalPromptState};
 #[cfg(not(target_os = "macos"))]
 use con_terminal::TerminalTheme;
+use con_terminal::{PaneObservationFrame, PaneObservationSupport, derive_screen_hints};
 use gpui::*;
 
 use crate::ghostty_view::GhosttyView;
@@ -163,27 +163,8 @@ impl TerminalPane {
     /// straight to the PTY instead of being queued for a surface that may
     /// never come up. Reports whether such a write was observed; `false`
     /// means the delivery result is unknown and must be reconciled by the user.
-    pub fn write_observed(&self, data: &[u8], cx: &mut App) -> bool {
-        self.entity.update(cx, |view, _| {
-            if view.terminal().is_none() || !view.is_alive() {
-                return false;
-            }
-            view.write_or_queue(data);
-            true
-        })
-    }
-
     /// Automation bytes bypass keyboard encoding and paste transformations.
     #[cfg(target_os = "macos")]
-    pub fn write_raw_observed(&self, data: &[u8], cx: &mut App) -> bool {
-        let view = self.entity.read(cx);
-        if !view.is_alive() {
-            return false;
-        }
-        view.terminal()
-            .is_some_and(|terminal| terminal.write_raw_to_pty(data).unwrap_or(false))
-    }
-
     #[cfg(not(target_os = "macos"))]
     pub fn write_raw_observed(&self, _data: &[u8], _cx: &mut App) -> bool {
         false
@@ -291,10 +272,6 @@ impl TerminalPane {
     }
 
     #[cfg(target_os = "macos")]
-    pub fn set_handoff_menu_entry_enabled(&self, enabled: bool, cx: &App) {
-        self.entity.read(cx).set_handoff_menu_entry_enabled(enabled);
-    }
-
     #[cfg(target_os = "macos")]
     pub fn set_native_transition_underlay_visible(&self, visible: bool, cx: &App) {
         self.entity

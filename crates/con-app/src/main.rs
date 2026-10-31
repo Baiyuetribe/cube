@@ -11,10 +11,8 @@
 // checking `cfg(feature = "cargo-clippy")`.
 #![allow(unexpected_cfgs)]
 
-mod agent_panel;
 mod app_icon;
 mod assets;
-mod chat_markdown;
 #[cfg(target_os = "macos")]
 mod cli_shim;
 mod command_palette;
@@ -61,6 +59,7 @@ mod ghostty_view;
 mod ghostty_view;
 
 mod activity_bar;
+mod chat_markdown;
 mod editor_browser;
 mod editor_buffer;
 mod editor_lsp;
@@ -72,11 +71,9 @@ mod file_tree_view;
 mod input_bar;
 mod input_chrome;
 mod keycaps;
-mod model_registry;
 mod motion;
 mod mouse_sequence;
 mod pane_tree;
-mod process_name;
 mod reduced_motion;
 mod settings_panel;
 mod sidebar;
@@ -855,7 +852,6 @@ fn fresh_window_session_from_persisted(
 ) -> Session {
     // Fresh terminals should still respect the user's last chrome visibility.
     let mut session = Session {
-        agent_panel_open: persisted.agent_panel_open,
         input_bar_visible: persisted.input_bar_visible,
         left_panel_open: persisted.left_panel_open,
         ..Session::default()
@@ -1611,7 +1607,6 @@ fn configurable_app_binding_specs(kb: &KeybindingConfig) -> Vec<BindingSpec> {
     push_global::<NewTab>(&mut specs, &kb.new_tab);
     push_global::<NextTab>(&mut specs, &kb.next_tab);
     push_global::<PreviousTab>(&mut specs, &kb.previous_tab);
-    push_global::<ToggleAgentPanel>(&mut specs, &kb.toggle_agent);
     push_global::<CloseTab>(&mut specs, &kb.close_tab);
     push_global::<ClosePane>(&mut specs, &kb.close_pane);
     push_global::<TogglePaneZoom>(&mut specs, &kb.toggle_pane_zoom);
@@ -1627,7 +1622,6 @@ fn configurable_app_binding_specs(kb: &KeybindingConfig) -> Vec<BindingSpec> {
     push_global::<RenameSurface>(&mut specs, &kb.rename_surface);
     push_global::<CloseSurface>(&mut specs, &kb.close_surface);
     push_global::<FocusInput>(&mut specs, &kb.focus_input);
-    push_global::<AskAi>(&mut specs, &kb.ask_ai);
     push_global::<CycleInputMode>(&mut specs, &kb.cycle_input_mode);
     push_global::<ToggleInputBar>(&mut specs, &kb.toggle_input_bar);
     push_global::<TogglePaneScopePicker>(&mut specs, &kb.toggle_pane_scope);
@@ -1981,12 +1975,10 @@ mod tests {
 
     #[test]
     fn fresh_window_preserves_chrome_visibility_without_restoring_tabs() {
-        for flags in 0..8 {
+        for flags in 0..4 {
             let input_visible = flags & 1 != 0;
             let sidebar_visible = flags & 2 != 0;
-            let agent_visible = flags & 4 != 0;
             let mut persisted = super::Session {
-                agent_panel_open: agent_visible,
                 input_bar_visible: input_visible,
                 left_panel_open: Some(sidebar_visible),
                 ..super::Session::default()
@@ -2006,7 +1998,6 @@ mod tests {
                 Some(std::path::PathBuf::from("/tmp/project")),
             );
 
-            assert_eq!(session.agent_panel_open, agent_visible);
             assert_eq!(session.input_bar_visible, input_visible);
             assert_eq!(session.left_panel_open, Some(sidebar_visible));
             assert_eq!(session.tabs.len(), 1);
@@ -2029,7 +2020,6 @@ mod tests {
             None,
         );
         assert!(session.input_bar_visible);
-        assert!(!session.agent_panel_open);
         assert_eq!(session.left_panel_open, None);
     }
 
