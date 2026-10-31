@@ -1470,6 +1470,37 @@ fn show_about_window(cx: &mut App) {
     }
 }
 
+/// Point AppKit's `windowsMenu` at the localized "窗口" menu. gpui does this
+/// only for a menu literally named "Window", so without this macOS stops
+/// managing the window list (Minimize/Zoom items and the open-window entries).
+#[cfg(target_os = "macos")]
+fn install_localized_windows_menu() {
+    use objc::{class, msg_send, sel, sel_impl};
+
+    unsafe {
+        let app: *mut objc::runtime::Object = msg_send![class!(NSApplication), sharedApplication];
+        let main_menu: *mut objc::runtime::Object = msg_send![app, mainMenu];
+        if main_menu.is_null() {
+            return;
+        }
+        let items: *mut objc::runtime::Object = msg_send![main_menu, itemArray];
+        let count: usize = msg_send![items, count];
+        for index in 0..count {
+            let item: *mut objc::runtime::Object = msg_send![items, objectAtIndex: index];
+            let title: *mut objc::runtime::Object = msg_send![item, title];
+            let title: *const std::os::raw::c_char = msg_send![title, UTF8String];
+            if title.is_null() {
+                continue;
+            }
+            if std::ffi::CStr::from_ptr(title).to_bytes() == "窗口".as_bytes() {
+                let submenu: *mut objc::runtime::Object = msg_send![item, submenu];
+                let _: () = msg_send![app, setWindowsMenu: submenu];
+                return;
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(not(test), allow(dead_code))]
 enum BindingScope {
@@ -2830,108 +2861,107 @@ fn main() {
             Menu {
                 name: "con".into(),
                 items: vec![
-                    MenuItem::action("About con", ShowAbout),
+                    MenuItem::action("关于 con", ShowAbout),
                     MenuItem::separator(),
-                    MenuItem::action("Check for Updates…", CheckForUpdates),
+                    MenuItem::action("检查更新…", CheckForUpdates),
                     MenuItem::separator(),
-                    MenuItem::action("Settings…", settings_panel::ToggleSettings),
+                    MenuItem::action("设置…", settings_panel::ToggleSettings),
                     MenuItem::separator(),
-                    MenuItem::action("Hide con", HideApp),
-                    MenuItem::action("Hide Others", HideOtherApps),
-                    MenuItem::action("Show All", ShowAllApps),
+                    MenuItem::action("隐藏 con", HideApp),
+                    MenuItem::action("隐藏其他", HideOtherApps),
+                    MenuItem::action("显示全部", ShowAllApps),
                     MenuItem::separator(),
-                    MenuItem::action("Quit con", Quit),
+                    MenuItem::action("退出 con", Quit),
                 ],
                 disabled: false,
             },
             Menu {
-                name: "File".into(),
+                name: "文件".into(),
                 items: vec![
-                    MenuItem::action("New Window", NewWindow),
-                    MenuItem::action("New Tab", NewTab),
+                    MenuItem::action("新建窗口", NewWindow),
+                    MenuItem::action("新建标签", NewTab),
                     MenuItem::separator(),
-                    MenuItem::action("Close Tab", CloseTab),
-                    MenuItem::action("Close Pane", ClosePane),
-                    MenuItem::action("Toggle Pane Zoom", TogglePaneZoom),
+                    MenuItem::action("关闭标签", CloseTab),
+                    MenuItem::action("关闭分屏", ClosePane),
+                    MenuItem::action("切换分屏缩放", TogglePaneZoom),
                     MenuItem::separator(),
-                    MenuItem::action("Split Right", SplitRight),
-                    MenuItem::action("Split Down", SplitDown),
-                    MenuItem::action("Split Left", SplitLeft),
-                    MenuItem::action("Split Up", SplitUp),
+                    MenuItem::action("向右拆分", SplitRight),
+                    MenuItem::action("向下拆分", SplitDown),
+                    MenuItem::action("向左拆分", SplitLeft),
+                    MenuItem::action("向上拆分", SplitUp),
                     MenuItem::separator(),
-                    MenuItem::action("Clear Terminal", ClearTerminal),
-                    MenuItem::action(
-                        "Clear Restored Terminal History",
-                        ClearRestoredTerminalHistory,
-                    ),
+                    MenuItem::action("清空终端", ClearTerminal),
+                    MenuItem::action("清空已恢复的终端历史", ClearRestoredTerminalHistory),
                     MenuItem::separator(),
-                    MenuItem::action("New Surface Tab", NewSurface),
-                    MenuItem::action("New Surface Pane Right", NewSurfaceSplitRight),
-                    MenuItem::action("New Surface Pane Down", NewSurfaceSplitDown),
-                    MenuItem::action("Next Surface Tab", NextSurface),
-                    MenuItem::action("Previous Surface Tab", PreviousSurface),
-                    MenuItem::action("Rename Current Surface", RenameSurface),
-                    MenuItem::action("Close Current Surface", CloseSurface),
+                    MenuItem::action("新建 Surface 标签", NewSurface),
+                    MenuItem::action("向右新建 Surface 分屏", NewSurfaceSplitRight),
+                    MenuItem::action("向下新建 Surface 分屏", NewSurfaceSplitDown),
+                    MenuItem::action("下一个 Surface 标签", NextSurface),
+                    MenuItem::action("上一个 Surface 标签", PreviousSurface),
+                    MenuItem::action("重命名当前 Surface", RenameSurface),
+                    MenuItem::action("关闭当前 Surface", CloseSurface),
                 ],
                 disabled: false,
             },
             Menu {
-                name: "Workspace".into(),
+                name: "工作区".into(),
                 items: vec![
-                    MenuItem::action("Save Layout Profile…", ExportWorkspaceLayout),
+                    MenuItem::action("保存布局方案…", ExportWorkspaceLayout),
                     MenuItem::separator(),
-                    MenuItem::action("Add Tabs from Layout Profile…", AddWorkspaceLayoutTabs),
-                    MenuItem::action(
-                        "Open Layout Profile in New Window…",
-                        OpenWorkspaceLayoutWindow,
-                    ),
+                    MenuItem::action("从布局方案添加标签…", AddWorkspaceLayoutTabs),
+                    MenuItem::action("在新窗口中打开布局方案…", OpenWorkspaceLayoutWindow),
                 ],
                 disabled: false,
             },
             Menu {
-                name: "Edit".into(),
+                name: "编辑".into(),
                 items: vec![
-                    MenuItem::os_action("Undo", Undo, OsAction::Undo),
-                    MenuItem::os_action("Redo", Redo, OsAction::Redo),
+                    MenuItem::os_action("撤销", Undo, OsAction::Undo),
+                    MenuItem::os_action("重做", Redo, OsAction::Redo),
                     MenuItem::separator(),
-                    MenuItem::os_action("Cut", Cut, OsAction::Cut),
-                    MenuItem::os_action("Copy", Copy, OsAction::Copy),
-                    MenuItem::os_action("Paste", Paste, OsAction::Paste),
+                    MenuItem::os_action("剪切", Cut, OsAction::Cut),
+                    MenuItem::os_action("复制", Copy, OsAction::Copy),
+                    MenuItem::os_action("粘贴", Paste, OsAction::Paste),
                     MenuItem::separator(),
-                    MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
+                    MenuItem::os_action("全选", SelectAll, OsAction::SelectAll),
                     #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
                     MenuItem::separator(),
                     #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-                    MenuItem::action("Find in Terminal", FindInTerminal),
+                    MenuItem::action("在终端中查找", FindInTerminal),
                 ],
                 disabled: false,
             },
             Menu {
-                name: "View".into(),
+                name: "视图".into(),
                 items: vec![
                     #[cfg(target_os = "macos")]
-                    MenuItem::action("Quick Terminal", ToggleQuickTerminal),
-                    MenuItem::action("Command Palette", command_palette::ToggleCommandPalette),
+                    MenuItem::action("快速终端", ToggleQuickTerminal),
+                    MenuItem::action("命令面板", command_palette::ToggleCommandPalette),
                     MenuItem::separator(),
-                    MenuItem::action("Focus Files", FocusFiles),
-                    MenuItem::action("Search Files", SearchFiles),
+                    MenuItem::action("聚焦文件", FocusFiles),
+                    MenuItem::action("搜索文件", SearchFiles),
                 ],
                 disabled: false,
             },
             #[cfg(target_os = "macos")]
             Menu {
-                name: "Window".into(),
+                name: "窗口".into(),
                 items: vec![
-                    MenuItem::action("Minimize", Minimize),
+                    MenuItem::action("最小化", Minimize),
                     MenuItem::separator(),
-                    MenuItem::action("Next Window", NextWindow),
-                    MenuItem::action("Previous Window", PreviousWindow),
+                    MenuItem::action("下一个窗口", NextWindow),
+                    MenuItem::action("上一个窗口", PreviousWindow),
                 ],
                 disabled: false,
             },
         ]);
 
-        cx.set_dock_menu(vec![MenuItem::action("New Window", NewWindow)]);
+        cx.set_dock_menu(vec![MenuItem::action("新建窗口", NewWindow)]);
+
+        // gpui only wires AppKit's `windowsMenu` when a menu is literally
+        // named "Window". Ours is localized, so register it ourselves.
+        #[cfg(target_os = "macos")]
+        install_localized_windows_menu();
 
         #[cfg(target_os = "macos")]
         first_run::start(config.clone(), startup.clone(), cx);
