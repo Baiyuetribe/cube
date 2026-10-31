@@ -68,8 +68,6 @@ mod editor_syntax;
 mod editor_tab_actions;
 mod editor_view;
 mod file_tree_view;
-mod input_bar;
-mod input_chrome;
 mod keycaps;
 mod motion;
 mod mouse_sequence;
@@ -142,7 +140,6 @@ actions!(
         ToggleSummon,
         ToggleQuickTerminal,
         ToggleAgentPanel,
-        ToggleInputBar,
         CollapseSidebar,
         CloseTab,
         ClosePane,
@@ -163,10 +160,7 @@ actions!(
         PreviousSurface,
         RenameSurface,
         CloseSurface,
-        FocusInput,
-        AskAi,
         HandoffAgent,
-        CycleInputMode,
         TogglePaneScopePicker,
         ToggleLeftPanel,
         FocusFiles,
@@ -1621,9 +1615,6 @@ fn configurable_app_binding_specs(kb: &KeybindingConfig) -> Vec<BindingSpec> {
     push_global::<PreviousSurface>(&mut specs, &kb.previous_surface);
     push_global::<RenameSurface>(&mut specs, &kb.rename_surface);
     push_global::<CloseSurface>(&mut specs, &kb.close_surface);
-    push_global::<FocusInput>(&mut specs, &kb.focus_input);
-    push_global::<CycleInputMode>(&mut specs, &kb.cycle_input_mode);
-    push_global::<ToggleInputBar>(&mut specs, &kb.toggle_input_bar);
     push_global::<TogglePaneScopePicker>(&mut specs, &kb.toggle_pane_scope);
     push_global::<ToggleLeftPanel>(&mut specs, &kb.toggle_left_panel);
     // Text inputs/editors may consume file/search navigation chords for
@@ -1962,8 +1953,8 @@ fn payload_as_str(payload: &(dyn std::any::Any + Send)) -> Option<&str> {
 mod tests {
     use super::{
         BindingSpec, EditorDeleteBackward, EditorInsertNewline, FileSidebarShortcutBindings,
-        FindInTerminal, FocusFiles, FocusInput, NewTab, SearchFiles, SelectTab1, ToggleAgentPanel,
-        Undo, binding_specs, command_palette, keystroke_matches_single_binding, push_app_override,
+        FindInTerminal, FocusFiles, NewTab, SearchFiles, SelectTab1, Undo, binding_specs,
+        command_palette, keystroke_matches_single_binding, push_app_override,
     };
     use con_core::config::KeybindingConfig;
     use gpui::Keystroke;
@@ -2144,10 +2135,6 @@ mod tests {
                 "SelectTab1",
                 scope_names(&specs_for_action::<SelectTab1>(&specs)),
             ),
-            (
-                "FocusInput",
-                scope_names(&specs_for_action::<FocusInput>(&specs)),
-            ),
         ] {
             assert_eq!(
                 scopes,
@@ -2283,7 +2270,7 @@ mod tests {
     #[test]
     fn explicit_multi_context_override_can_be_represented() {
         let mut specs = Vec::new();
-        push_app_override::<ToggleAgentPanel>(&mut specs, "secondary-test");
+        push_app_override::<NewTab>(&mut specs, "secondary-test");
 
         let refs = specs.iter().collect::<Vec<_>>();
         assert_eq!(
@@ -2359,7 +2346,6 @@ mod tests {
                 action == TypeId::of::<NewTab>()
                     || action == TypeId::of::<SelectTab1>()
                     || action == TypeId::of::<command_palette::ToggleCommandPalette>()
-                    || action == TypeId::of::<FocusInput>()
             })
             .filter(|spec| spec.scope.name().is_some())
             .collect::<Vec<_>>();
@@ -2756,7 +2742,6 @@ fn main() {
         // Initialize gpui-component subsystems (theme, input, dialog, etc.)
         gpui_component::init(cx);
         reduced_motion::init(cx);
-        input_bar::InputBar::init(cx);
 
         // Load and activate con's design theme (synced to terminal theme)
         theme::init_theme(
@@ -2924,14 +2909,9 @@ fn main() {
             Menu {
                 name: "View".into(),
                 items: vec![
-                    MenuItem::action("Toggle Agent Panel", ToggleAgentPanel),
-                    MenuItem::action("Toggle Input Bar", ToggleInputBar),
                     #[cfg(target_os = "macos")]
                     MenuItem::action("Quick Terminal", ToggleQuickTerminal),
                     MenuItem::action("Command Palette", command_palette::ToggleCommandPalette),
-                    MenuItem::separator(),
-                    MenuItem::action("Toggle Input / Terminal", FocusInput),
-                    MenuItem::action("Cycle Input Mode", CycleInputMode),
                     MenuItem::separator(),
                     MenuItem::action("Focus Files", FocusFiles),
                     MenuItem::action("Search Files", SearchFiles),

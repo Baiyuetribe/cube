@@ -21,12 +21,8 @@ impl ConWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let input_bar_focused =
-            self.input_bar_visible && self.input_bar.focus_handle(cx).is_focused(window);
-        let check_editor_or_terminal = !input_bar_focused;
-        let editor_has_keyboard_focus =
-            check_editor_or_terminal && self.editor_has_keyboard_focus(window, cx);
-        let active_pane_is_editor = check_editor_or_terminal && self.has_active_tab() && {
+        let editor_has_keyboard_focus = self.editor_has_keyboard_focus(window, cx);
+        let active_pane_is_editor = self.has_active_tab() && {
             let pane_tree = &self.tabs[self.active_tab].pane_tree;
             pane_tree
                 .editor_view_for_pane(pane_tree.focused_pane_id())
@@ -34,13 +30,9 @@ impl ConWorkspace {
         };
 
         match activation_focus_target_for_reassertion(
-            input_bar_focused,
             editor_has_keyboard_focus,
             active_pane_is_editor,
         ) {
-            ActivationFocusTarget::InputBar => {
-                self.input_bar.focus_handle(cx).focus(window, cx);
-            }
             ActivationFocusTarget::ActiveEditor => {
                 self.focus_active_editor_or_workspace(window, cx);
             }
@@ -73,24 +65,6 @@ impl ConWorkspace {
         self.tabs.clear();
     }
 
-    pub(super) fn focus_input(
-        &mut self,
-        _: &FocusInput,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.is_modal_open(cx) {
-            return;
-        }
-
-        if self.is_input_surface_focused(window, cx) {
-            self.focus_first_terminal(window, cx);
-            return;
-        }
-
-        self.focus_preferred_input_surface(window, cx);
-    }
-
     /// Send the focused terminal's selection to the agent input.
     ///
     /// Grabs the current selection (if any), routes it to the preferred
@@ -98,54 +72,11 @@ impl ConWorkspace {
     /// input when the bar is hidden), and focuses that input so the user
     /// can type their question immediately. Without a selection this still
     /// focuses the agent input, so the shortcut doubles as "ask AI".
-    pub(super) fn ask_ai(&mut self, _: &AskAi, window: &mut Window, cx: &mut Context<Self>) {
-        if self.is_modal_open(cx) {
-            return;
-        }
-
-        let _selection = self
-            .has_active_tab()
-            .then(|| {
-                self.tabs[self.active_tab]
-                    .pane_tree
-                    .try_visible_focus_terminal()
-                    .and_then(|(_, terminal)| terminal.selection_text(cx))
-            })
-            .flatten()
-            .map(|text| text.trim_end().to_string())
-            .filter(|text| !text.is_empty());
-
-        self.focus_input_bar_surface(window, cx);
-    }
-
-    pub(super) fn is_input_surface_focused(&self, window: &Window, cx: &App) -> bool {
-        self.input_bar_visible && self.input_bar.focus_handle(cx).is_focused(window)
-    }
-
-    pub(super) fn focus_preferred_input_surface(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.focus_input_bar_surface(window, cx);
-    }
-
-    pub(super) fn focus_input_bar_surface(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.input_bar_visible {
-            self.input_bar_visible = true;
-            self.save_session(cx);
-        }
-        self.input_bar_motion.set_target(1.0);
-        self.input_bar.focus_handle(cx).focus(window, cx);
-        cx.notify();
-    }
-
     pub(super) fn focus_first_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.has_active_tab() {
             return;
         }
 
-        self.pane_scope_picker_open = false;
         let (pane_id, terminal) = {
             let pane_tree = &self.tabs[self.active_tab].pane_tree;
             let Some((pane_id, terminal)) = pane_tree.try_visible_focus_terminal() else {
@@ -156,19 +87,6 @@ impl ConWorkspace {
         };
         self.tabs[self.active_tab].pane_tree.focus(pane_id);
         terminal.focus(window, cx);
-        self.sync_active_terminal_focus_states(cx);
-        cx.notify();
-    }
-
-    pub(super) fn cycle_input_mode(
-        &mut self,
-        _: &CycleInputMode,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.input_bar.update(cx, |bar, cx| {
-            bar.cycle_mode(window, cx);
-        });
         self.sync_active_terminal_focus_states(cx);
         cx.notify();
     }

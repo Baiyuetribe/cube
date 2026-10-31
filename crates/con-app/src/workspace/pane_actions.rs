@@ -1,40 +1,6 @@
 use super::*;
 
 impl ConWorkspace {
-    pub(super) fn execute_shell(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let target_ids = self.input_bar.read(cx).target_pane_ids();
-        let pane_tree = &self.tabs[self.active_tab].pane_tree;
-        let all_terminals = pane_tree.all_terminals();
-        let mut history_records = Vec::new();
-
-        for terminal in &all_terminals {
-            if all_terminals.len() == 1
-                || target_ids
-                    .iter()
-                    .any(|&tid| pane_tree.terminal_has_pane_id(terminal, tid))
-            {
-                terminal.write(format!("{}\n", cmd).as_bytes(), cx);
-                if let Some(pane_id) = pane_tree.pane_id_for_terminal(terminal) {
-                    history_records.push((pane_id, terminal.current_dir(cx)));
-                }
-            }
-        }
-
-        for (pane_id, cwd) in history_records {
-            self.record_shell_command(self.active_tab, pane_id, cmd, cwd);
-        }
-        self.after_shell_command_recorded(cx);
-
-        self.input_bar.update(cx, |bar, _cx| {
-            bar.clear_completion_ui();
-        });
-        self.save_session(cx);
-
-        // Always keep focus on input bar after sending a command —
-        // the terminal output is visible, and the user can click to focus it.
-        self.input_bar.focus_handle(cx).focus(window, cx);
-    }
-
     pub(super) fn create_surface_in_focused_pane(
         &mut self,
         window: &mut Window,

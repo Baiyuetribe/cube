@@ -60,7 +60,6 @@ pub(crate) fn terminal_context_menu(
     menu.min_w(px(240.0))
         .item(action_item("粘贴", Box::new(crate::Paste)))
         .item(action_item("复制", Box::new(crate::Copy)))
-        .item(action_item("询问 AI", Box::new(crate::AskAi)))
         .item(action_item("清空终端", Box::new(crate::ClearTerminal)))
         .separator()
         .submenu("拆分分屏", window, cx, |menu, _window, _cx| {
@@ -100,7 +99,6 @@ pub(crate) fn terminal_context_menu(
                 .item(action_item("关闭当前", Box::new(crate::CloseSurface)))
         })
         .separator()
-        .item(action_item("聚焦输入框", Box::new(crate::FocusInput)))
         .item(action_item(
             "设置",
             Box::new(crate::settings_panel::ToggleSettings),

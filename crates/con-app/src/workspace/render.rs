@@ -1,4 +1,3 @@
-mod popups;
 mod top_bar;
 
 use super::*;
@@ -127,8 +126,7 @@ impl ConWorkspace {
         }
 
         let top_bar_height = self.current_top_bar_height();
-        let input_bar_height =
-            self.input_bar.read(cx).rendered_height(cx).as_f32() * self.input_bar_motion.current();
+        let input_bar_height = 0.0_f32;
         let win_w = f32::from(win.bounds().size.width);
         let win_h = f32::from(win.bounds().size.height);
         let effective_agent_panel_width = self.agent_panel_width.min(max_agent_panel_width(win_w));
@@ -199,9 +197,6 @@ impl Render for ConWorkspace {
 
         // If a modal was dismissed internally (escape/backdrop), restore terminal focus
         let is_modal_open = self.is_modal_open(cx);
-        let has_skill_popup = !self.input_bar.read(cx).filtered_skills(cx).is_empty();
-        let has_path_popup = self.input_bar.read(cx).has_path_completion_candidates();
-        let _has_inline_skill_popup = false;
         let needs_ghostty_hidden = false;
 
         // A palette action can hand focus to a newly opened inline editor.
@@ -239,59 +234,6 @@ impl Render for ConWorkspace {
             log::trace!(target: "con::activity", "chrome_prepare");
             self.refresh_cached_tab_presentation(cx);
             self.reconcile_runtime_trackers_for_tab(self.active_tab);
-
-            // Sync pane info and CWD to input bar
-            let pane_tree = &self.tabs[self.active_tab].pane_tree;
-            let focused_pane_id = pane_tree.focused_pane_id();
-            let pane_infos: Vec<PaneInfo> = pane_tree
-                .pane_terminals()
-                .into_iter()
-                .map(|(id, terminal)| {
-                    let hostname = self
-                        .cached_runtime_for_tab(self.active_tab, &terminal)
-                        .and_then(|runtime| runtime.remote_host);
-                    let title = terminal.title(cx);
-                    let current_dir = terminal.current_dir(cx);
-                    let name = pane_display_name(&hostname, &title, &current_dir, id);
-                    let is_busy = terminal.is_busy(cx);
-                    let is_alive = terminal.is_alive(cx);
-                    PaneInfo {
-                        id,
-                        name,
-                        hostname,
-                        is_busy,
-                        is_alive,
-                    }
-                })
-                .collect();
-
-            let cwd = active_terminal.as_ref().and_then(|t| t.current_dir(cx));
-            if self.file_tree_view.read(cx).root().is_none() {
-                self.sync_file_tree_from_active_focus(cx);
-            }
-            let display_cwd = cwd
-                .map(|cwd| match dirs::home_dir() {
-                    Some(home) => {
-                        let home_str = home.to_string_lossy().to_string();
-                        if cwd.starts_with(&home_str) {
-                            format!("~{}", &cwd[home_str.len()..])
-                        } else {
-                            cwd
-                        }
-                    }
-                    None => cwd,
-                })
-                .unwrap_or_else(|| "~".to_string());
-
-            self.input_bar.update(cx, |bar, cx| {
-                bar.set_panes(pane_infos, focused_pane_id, window, cx);
-                bar.set_cwd(display_cwd, cx);
-            });
-            // Up/Down is command-bar recall, not shell suggestion ranking. Keep it
-            // backed by the global submitted-input history across all modes.
-            let recent_commands = self.recent_input_history(80);
-            self.input_bar
-                .update(cx, |bar, cx| bar.set_recent_commands(recent_commands, cx));
         }
 
         // Resolve boolean state here so all reveal paths (keyboard, Files,
@@ -827,12 +769,8 @@ impl Render for ConWorkspace {
             );
         }
 
-        let input_bar_reserved_for_layout = self.input_bar_visible || input_bar_progress > 0.0;
-        let full_input_bar_height = if input_bar_reserved_for_layout {
-            self.input_bar.read(cx).rendered_height(cx).as_f32()
-        } else {
-            0.0
-        };
+        let input_bar_reserved_for_layout = false;
+        let full_input_bar_height = 0.0_f32;
         #[cfg(target_os = "macos")]
         let input_popup_progress = if input_bar_reserved_for_layout {
             1.0
@@ -889,52 +827,6 @@ impl Render for ConWorkspace {
                         gpui::white().opacity(0.55 * canvas_depth)
                     })
                     .opacity(ui_surface_opacity);
-                // The pinned view-cache key includes clipping but not inherited
-                // opacity. Keep only the settled, fully opaque input cached.
-                let input = if input_bar_transitioning {
-                    self.input_bar.clone().into_any_element()
-                } else {
-                    self.input_bar
-                        .clone()
-                        .cached(
-                            StyleRefinement::default()
-                                .w_full()
-                                .h(px(full_input_bar_height)),
-                        )
-                        .into_any_element()
-                };
-                // One fixed tray fades as a unit. Reserve its final viewport
-                // immediately instead of resizing again when the fade settles.
-                terminal_area = terminal_area
-                    .child(
-                        div()
-                            .h(px(frame::input_reserved_height(
-                                full_input_bar_height,
-                                self.input_bar_visible,
-                                input_bar_progress,
-                                canvas_depth,
-                            )))
-                            .flex_shrink_0()
-                            .bg(top_bar_surface_color),
-                    )
-                    .child(
-                        frame::input_reveal_clip(
-                            full_input_bar_height,
-                            input_bar_progress,
-                            canvas_depth,
-                        )
-                        .child(
-                            frame::input_card(
-                                width,
-                                full_input_bar_height,
-                                canvas_depth,
-                                island,
-                                theme.foreground,
-                                theme.is_dark(),
-                            )
-                            .child(input),
-                        ),
-                    );
             }
         }
 
@@ -1165,8 +1057,7 @@ impl Render for ConWorkspace {
                     }
 
                     let top_bar_height = this.current_top_bar_height();
-                    let input_bar_height = this.input_bar.read(cx).rendered_height(cx).as_f32()
-                        * this.input_bar_motion.current();
+                    let input_bar_height = 0.0_f32;
 
                     // Compute layout-dependent inputs *before* re-borrowing
                     // `this` mutably for the pane tree, otherwise we
@@ -1234,7 +1125,6 @@ impl Render for ConWorkspace {
             )
             .on_action(cx.listener(Self::quit))
             .on_action(cx.listener(Self::minimize))
-            .on_action(cx.listener(Self::toggle_input_bar))
             .on_action(cx.listener(Self::collapse_sidebar))
             .on_action(cx.listener(Self::toggle_settings))
             .on_action(cx.listener(Self::toggle_command_palette))
@@ -1271,8 +1161,6 @@ impl Render for ConWorkspace {
             .on_action(cx.listener(Self::previous_surface))
             .on_action(cx.listener(Self::rename_current_surface))
             .on_action(cx.listener(Self::close_surface))
-            .on_action(cx.listener(Self::focus_input))
-            .on_action(cx.listener(Self::ask_ai))
             .on_action(cx.listener(Self::editor_move_left))
             .on_action(cx.listener(Self::editor_move_right))
             .on_action(cx.listener(Self::editor_move_up))
@@ -1297,8 +1185,6 @@ impl Render for ConWorkspace {
             .on_action(cx.listener(Self::editor_cut))
             .on_action(cx.listener(Self::editor_paste))
             .on_action(cx.listener(Self::editor_select_all))
-            .on_action(cx.listener(Self::cycle_input_mode))
-            .on_action(cx.listener(Self::toggle_pane_scope_picker))
             .on_action(cx.listener(Self::toggle_left_panel))
             .on_action(cx.listener(Self::focus_files_panel))
             .on_action(cx.listener(Self::search_files_panel))
@@ -1308,43 +1194,10 @@ impl Render for ConWorkspace {
                 {
                     return;
                 }
-                if focused_editor_pane_key_fallback_allowed(
-                    this.is_input_surface_focused(window, cx),
-                ) && this.handle_focused_editor_pane_key_down(event, window, cx)
+                if focused_editor_pane_key_fallback_allowed(false)
+                    && this.handle_focused_editor_pane_key_down(event, window, cx)
                 {
                     return;
-                }
-
-                if !this.pane_scope_picker_open {
-                    return;
-                }
-
-                let mods = &event.keystroke.modifiers;
-                let key = event.keystroke.key.as_str();
-                let local_picker_key = !mods.control && !mods.alt && !mods.platform;
-                let unshifted_local_picker_key = local_picker_key && !mods.shift;
-
-                let mut handled = false;
-                if key == "escape" {
-                    this.close_pane_scope_picker(cx);
-                    handled = true;
-                } else if local_picker_key && key.eq_ignore_ascii_case("a") {
-                    this.set_scope_broadcast(window, cx);
-                    handled = true;
-                } else if local_picker_key && key.eq_ignore_ascii_case("f") {
-                    this.set_scope_focused(window, cx);
-                    handled = true;
-                } else if unshifted_local_picker_key
-                    && let Some(digit) = key.chars().next().and_then(|c| c.to_digit(10))
-                {
-                    let pane_index = if digit == 0 { 9 } else { (digit - 1) as usize };
-                    this.toggle_scope_pane_by_index(pane_index, window, cx);
-                    handled = true;
-                }
-
-                if handled {
-                    window.prevent_default();
-                    cx.stop_propagation();
                 }
             }))
             .on_action(cx.listener(|this, _: &InputEscape, window, cx| {
@@ -1659,42 +1512,6 @@ impl Render for ConWorkspace {
                         }),
                     ),
             );
-        }
-
-        // Workspace-level popups render above embedded terminal surfaces.
-        if has_skill_popup
-            && let Some(popup) = self.render_skill_popup(
-                terminal_content_left,
-                terminal_content_width,
-                elevated_ui_surface_opacity,
-                cx,
-            )
-        {
-            root = root.child(popup);
-        }
-
-        if has_path_popup
-            && !has_skill_popup
-            && let Some(popup) = self.render_path_popup(
-                terminal_content_left,
-                terminal_content_width,
-                elevated_ui_surface_opacity,
-                cx,
-            )
-        {
-            root = root.child(popup);
-        }
-
-        if let Some(picker) = self.render_pane_scope_picker(
-            terminal_content_left,
-            terminal_content_width,
-            input_popup_progress,
-            ui_surface_opacity,
-            elevated_ui_surface_opacity,
-            window,
-            cx,
-        ) {
-            root = root.child(picker);
         }
 
         let settings_visible = self.settings_panel.read(cx).is_overlay_visible();

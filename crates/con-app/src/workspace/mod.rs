@@ -57,10 +57,6 @@ use crate::command_palette::{
 };
 use crate::editor_view::{ActiveFileChanged, EditorEmptied, EditorView};
 use crate::file_tree_view::{FileTreeView, OpenFile};
-use crate::input_bar::{
-    EscapeInput, InputBar, InputEdited, InputMode, InputScopeChanged, PaneInfo,
-    SkillAutocompleteChanged, SubmitInput, TogglePaneScopePicker as TogglePaneScopePickerRequested,
-};
 use crate::motion::{MotionValue, SidebarMotion};
 use crate::pane_tree::{
     PaneTree, SplitDirection, SplitPlacement, SurfaceCreateOptions, SurfaceRenameEditor,
@@ -85,17 +81,17 @@ use crate::ghostty_view::{
     GhosttyProgressChanged, GhosttySplitRequested, GhosttyTitleChanged, GhosttyView,
 };
 use crate::{
-    AddWorkspaceLayoutTabs, AskAi, ClearRestoredTerminalHistory, ClearTerminal, ClosePane,
-    CloseSurface, CloseTab, CollapseSidebar, Copy, Cut, CycleInputMode, EditorDeleteBackward,
-    EditorDeleteForward, EditorInsertNewline, EditorMoveDown, EditorMoveEnd, EditorMoveHome,
-    EditorMoveLeft, EditorMoveLineEnd, EditorMoveLineStart, EditorMoveRight, EditorMoveUp,
-    EditorSave, EditorSelectDown, EditorSelectEnd, EditorSelectHome, EditorSelectLeft,
-    EditorSelectRight, EditorSelectUp, EditorTogglePreview, ExportWorkspaceLayout, FindInTerminal,
-    FocusFiles, FocusInput, Minimize, NewSurface, NewSurfaceSplitDown, NewSurfaceSplitRight,
-    NewTab, NextSurface, NextTab, OpenWorkspaceLayoutWindow, Paste, PreviousSurface, PreviousTab,
-    Quit, RenameSurface, SearchFiles, SelectAll, SelectTab1, SelectTab2, SelectTab3, SelectTab4,
-    SelectTab5, SelectTab6, SelectTab7, SelectTab8, SelectTab9, SplitDown, SplitLeft, SplitRight,
-    SplitUp, ToggleLeftPanel, TogglePaneScopePicker, TogglePaneZoom, Undo,
+    AddWorkspaceLayoutTabs, ClearRestoredTerminalHistory, ClearTerminal, ClosePane, CloseSurface,
+    CloseTab, CollapseSidebar, Copy, Cut, EditorDeleteBackward, EditorDeleteForward,
+    EditorInsertNewline, EditorMoveDown, EditorMoveEnd, EditorMoveHome, EditorMoveLeft,
+    EditorMoveLineEnd, EditorMoveLineStart, EditorMoveRight, EditorMoveUp, EditorSave,
+    EditorSelectDown, EditorSelectEnd, EditorSelectHome, EditorSelectLeft, EditorSelectRight,
+    EditorSelectUp, EditorTogglePreview, ExportWorkspaceLayout, FindInTerminal, FocusFiles,
+    Minimize, NewSurface, NewSurfaceSplitDown, NewSurfaceSplitRight, NewTab, NextSurface, NextTab,
+    OpenWorkspaceLayoutWindow, Paste, PreviousSurface, PreviousTab, Quit, RenameSurface,
+    SearchFiles, SelectAll, SelectTab1, SelectTab2, SelectTab3, SelectTab4, SelectTab5, SelectTab6,
+    SelectTab7, SelectTab8, SelectTab9, SplitDown, SplitLeft, SplitRight, SplitUp, ToggleLeftPanel,
+    TogglePaneScopePicker, TogglePaneZoom, Undo,
 };
 use con_core::config::{
     AppearanceConfig, Config, TabsOrientation, TerminalConfig, sanitize_app_icon,
@@ -120,7 +116,6 @@ mod editor_actions;
 #[cfg(target_os = "macos")]
 pub(crate) mod frame;
 mod helpers;
-mod input_events;
 mod lifecycle;
 mod pane_actions;
 mod pane_control_requests;
@@ -180,7 +175,6 @@ pub struct ConWorkspace {
     background_image_position: String,
     background_image_fit: String,
     background_image_repeat: bool,
-    input_bar: Entity<InputBar>,
     settings_panel: Entity<SettingsPanel>,
     settings_window: Option<AnyWindowHandle>,
     settings_window_panel: Option<Entity<SettingsPanel>>,
@@ -189,6 +183,10 @@ pub struct ConWorkspace {
     global_input_history: VecDeque<String>,
     pane_scope_picker_open: bool,
     left_panel_motion: SidebarMotion,
+    /// 底部输入栏已移除；保留布局字段以维持现有渲染结构。
+    /// 恒为不可见，动画停在关闭状态。
+    input_bar_visible: bool,
+    input_bar_motion: SidebarMotion,
     #[cfg(target_os = "macos")]
     caption_dock: frame::CaptionLayout,
     #[cfg(target_os = "macos")]
@@ -197,8 +195,6 @@ pub struct ConWorkspace {
     canvas_surround: frame::CanvasSurround,
     tab_strip_motion: MotionValue,
     tab_slot_motion: tab_motion::TabSlotMotion,
-    input_bar_visible: bool,
-    input_bar_motion: SidebarMotion,
     /// Tracks whether a modal was open on the last render, so we can
     /// restore terminal focus when a modal dismisses itself internally.
     modal_was_open: bool,

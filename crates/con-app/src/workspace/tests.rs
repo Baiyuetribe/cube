@@ -161,21 +161,17 @@ fn editor_only_tabs_focus_editor_when_no_terminal_exists() {
 }
 
 #[test]
-fn window_activation_focus_prefers_input_bar_then_editor_then_terminal() {
+fn window_activation_focus_prefers_editor_then_terminal() {
     assert_eq!(
-        activation_focus_target_for_reassertion(true, true, true),
-        ActivationFocusTarget::InputBar
-    );
-    assert_eq!(
-        activation_focus_target_for_reassertion(false, true, false),
+        activation_focus_target_for_reassertion(true, false),
         ActivationFocusTarget::ActiveEditor
     );
     assert_eq!(
-        activation_focus_target_for_reassertion(false, false, true),
+        activation_focus_target_for_reassertion(false, true),
         ActivationFocusTarget::ActiveEditor
     );
     assert_eq!(
-        activation_focus_target_for_reassertion(false, false, false),
+        activation_focus_target_for_reassertion(false, false),
         ActivationFocusTarget::Terminal
     );
 }
@@ -1000,7 +996,6 @@ fn top_bar_clickables_explicitly_consume_left_mouse_down() {
     for control_id in [
         "tab-new",
         "toggle-left-sidebar",
-        "toggle-input-bar",
         "toggle-settings",
     ] {
         assert!(

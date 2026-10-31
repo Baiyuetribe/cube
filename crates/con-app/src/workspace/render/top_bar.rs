@@ -2847,27 +2847,6 @@ impl ConWorkspace {
                 })),
             );
         }
-
-        // Input bar toggle
-        let input_bar_tooltip = if self.input_bar_visible {
-            "Hide input bar"
-        } else {
-            "Show input bar"
-        };
-        tab_controls = tab_controls.child(
-            chrome_button(
-                "toggle-input-bar",
-                "phosphor/square-half-bottom-fill.svg",
-                Some(self.input_bar_visible),
-                input_bar_tooltip,
-                Some(Box::new(crate::ToggleInputBar)),
-                cx,
-            )
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.toggle_input_bar(&crate::ToggleInputBar, window, cx);
-            })),
-        );
-
         // Settings button — only on platforms without a native menu
         // bar. macOS exposes Settings through `App → Settings…` (and
         // ⌘,) so a gear in the chrome would be redundant there. On

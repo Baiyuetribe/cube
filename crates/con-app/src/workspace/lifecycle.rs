@@ -319,38 +319,12 @@ impl ConWorkspace {
             Self::merge_shell_histories(global_shell_history, &persisted_history);
         let global_input_history =
             Self::restore_global_input_history(&session, &persisted_history, &global_shell_history);
-        let input_bar = cx.new(|cx| InputBar::new(window, cx));
         let settings_panel = cx.new(|cx| SettingsPanel::new(&config, window, cx));
         let command_palette = cx.new(|cx| CommandPalette::new(window, cx));
-        let initial_recent_inputs = global_input_history
-            .iter()
-            .rev()
-            .take(80)
-            .cloned()
-            .collect::<Vec<_>>();
-        input_bar.update(cx, |bar, cx| {
-            bar.set_recent_commands(initial_recent_inputs, cx);
-        });
         sidebar.update(cx, |s, cx| s.set_ui_opacity(effective_ui_opacity, cx));
         command_palette.update(cx, |palette, _cx| {
             palette.set_ui_opacity(effective_ui_opacity)
         });
-        cx.subscribe_in(&input_bar, window, Self::on_input_submit)
-            .detach();
-        cx.subscribe_in(&input_bar, window, Self::on_input_edited)
-            .detach();
-        cx.subscribe_in(&input_bar, window, Self::on_input_scope_changed)
-            .detach();
-        cx.subscribe_in(&input_bar, window, Self::on_input_escape)
-            .detach();
-        cx.subscribe_in(&input_bar, window, Self::on_skill_autocomplete_changed)
-            .detach();
-        cx.subscribe_in(
-            &input_bar,
-            window,
-            Self::on_toggle_pane_scope_picker_requested,
-        )
-        .detach();
         cx.subscribe_in(&settings_panel, window, Self::on_settings_saved)
             .detach();
         cx.subscribe_in(&settings_panel, window, Self::on_theme_preview)
@@ -679,7 +653,6 @@ impl ConWorkspace {
             background_image_position,
             background_image_fit,
             background_image_repeat,
-            input_bar,
             settings_panel,
             settings_window: None,
             settings_window_panel: None,
@@ -700,8 +673,8 @@ impl ConWorkspace {
             }),
             tab_strip_motion: MotionValue::new(initial_tab_strip_target),
             tab_slot_motion: Default::default(),
-            input_bar_visible: session.input_bar_visible,
-            input_bar_motion: SidebarMotion::new(if session.input_bar_visible { 1.0 } else { 0.0 }),
+            input_bar_visible: false,
+            input_bar_motion: SidebarMotion::new(0.0),
             modal_was_open: false,
             ghostty_hidden: false,
             #[cfg(target_os = "macos")]
@@ -1052,35 +1025,8 @@ impl ConWorkspace {
         let pane_tree = &self.tabs[self.active_tab].pane_tree;
         let surface_terminals = pane_tree.surface_terminals();
         let focused_id = pane_tree.focused_pane_id();
-        let (_mode, is_broadcast, is_focused, selected_ids) = {
-            let input_bar = self.input_bar.read(cx);
-            (
-                input_bar.mode(),
-                input_bar.is_broadcast_scope(),
-                input_bar.is_focused_scope(),
-                input_bar.scope_selected_ids(),
-            )
-        };
-        let all_ids = surface_terminals
-            .iter()
-            .map(|(pane_id, _, _)| *pane_id)
-            .collect::<HashSet<_>>();
 
-        let target_ids: HashSet<usize> = if is_focused {
-            [focused_id].into_iter().collect()
-        } else if is_broadcast {
-            all_ids
-        } else {
-            let selected = selected_ids
-                .into_iter()
-                .filter(|pane_id| all_ids.contains(pane_id))
-                .collect::<HashSet<_>>();
-            if selected.is_empty() {
-                [focused_id].into_iter().collect()
-            } else {
-                selected
-            }
-        };
+        let target_ids: HashSet<usize> = [focused_id].into_iter().collect();
 
         for (pane_id, is_active_surface, terminal) in surface_terminals {
             terminal.set_focus_state(is_active_surface && target_ids.contains(&pane_id), cx);

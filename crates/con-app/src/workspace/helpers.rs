@@ -54,7 +54,6 @@ pub(super) enum ActivePaneFocusTarget {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ActivationFocusTarget {
-    InputBar,
     ActiveEditor,
     Terminal,
 }
@@ -73,13 +72,10 @@ pub(super) fn active_pane_focus_target(
 }
 
 pub(super) fn activation_focus_target_for_reassertion(
-    input_bar_focused: bool,
     editor_has_keyboard_focus: bool,
     active_pane_is_editor: bool,
 ) -> ActivationFocusTarget {
-    if input_bar_focused {
-        ActivationFocusTarget::InputBar
-    } else if editor_has_keyboard_focus || active_pane_is_editor {
+    if editor_has_keyboard_focus || active_pane_is_editor {
         ActivationFocusTarget::ActiveEditor
     } else {
         ActivationFocusTarget::Terminal

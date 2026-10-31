@@ -782,9 +782,6 @@ impl ConWorkspace {
                     t.focus(window, cx);
                 }
             }
-            "toggle-input-bar" => {
-                self.toggle_input_bar(&crate::ToggleInputBar, window, cx);
-            }
             "toggle-left-sidebar" => {
                 self.toggle_left_panel(&ToggleLeftPanel, window, cx);
             }
@@ -796,12 +793,6 @@ impl ConWorkspace {
             }
             "collapse-sidebar" => {
                 self.collapse_sidebar(&CollapseSidebar, window, cx);
-            }
-            "cycle-input-mode" => {
-                self.input_bar.update(cx, |bar, cx| {
-                    bar.cycle_mode(window, cx);
-                });
-                self.sync_active_terminal_focus_states(cx);
             }
             "check-for-updates" => {
                 cx.dispatch_action(&crate::CheckForUpdates);
