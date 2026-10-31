@@ -820,10 +820,10 @@ fn try_apply_embedded_initial_output_patch(ghostty_dir: &Path) -> Result<(), Str
     ])?;
 
     println!("cargo:rustc-cfg=con_ghostty_embedded_initial_output");
-    println!("cargo:rerun-if-changed={}", embedded.display());
-    println!("cargo:rerun-if-changed={}", surface.display());
-    println!("cargo:rerun-if-changed={}", exec.display());
-    println!("cargo:rerun-if-changed={}", header.display());
+    // 不要为这些路径声明 rerun-if-changed：本脚本每次运行都会重写它们，
+    // 声明后会让 cargo 在每次构建时都判定 con-ghostty 过期，形成
+    // “build script → 重写文件 → 触发自身重跑”的自反馈循环。
+    // 上游源码变更已由 resolve_ghostty_source 的 git 检测覆盖。
     Ok(())
 }
 
