@@ -158,7 +158,7 @@ impl Render for GhosttyView {
                 div()
                     .text_sm()
                     .text_color(theme.foreground.opacity(0.5))
-                    .child("Linux port — see docs/impl/linux-port.md"),
+                    .child("Linux port — not implemented on this target"),
             )
             .child(
                 div()

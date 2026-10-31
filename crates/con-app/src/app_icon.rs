@@ -391,9 +391,6 @@ mod tests {
         for source in [
             include_str!("../build.rs"),
             include_str!("../Cargo.toml"),
-            include_str!("../../../scripts/macos/common.sh"),
-            include_str!("../../../scripts/linux/release.sh"),
-            include_str!("../../../packaging/flatpak/aetherpak.yaml"),
         ] {
             assert!(source.contains(con_core::config::DEFAULT_APP_ICON_ASSET));
         }

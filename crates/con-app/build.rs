@@ -32,7 +32,7 @@ fn main() {
              `cargo wtest` aliases instead — they select the `con-app`\n\
              binary via `--no-default-features --features con/bin-con-app`.\n\
              Aliases are declared in the workspace `.cargo/config.toml`.\n\n\
-             See `docs/impl/windows-port.md` and `AGENTS.md` for details.\n\
+             See `README.md` for details.\n\
              ========================================================\n"
         );
     }

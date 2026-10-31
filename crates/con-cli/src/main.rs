@@ -743,7 +743,7 @@ fn connect_control_endpoint(path: &Path) -> std::io::Result<ControlStream> {
 fn connect_control_endpoint(_path: &Path) -> std::io::Result<ControlStream> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
-        "con-cli is not supported on this target — see docs/impl/windows-port.md",
+        "con-cli is not supported on this target",
     ))
 }
 
