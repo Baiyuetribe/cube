@@ -597,12 +597,15 @@ pub(crate) fn native_corner_coverage(
     let alpha = chrome_alpha.clamp(0.0, 1.0);
     corner_cutouts(bounds, radii)
         .into_iter()
-        .map(|corner| {
-            let (bounds, _) = corner
-                .presentation(scale)
-                .ok_or_else(|| anyhow::anyhow!("empty corner"))?;
+        .filter_map(|corner| -> Option<anyhow::Result<NativeCornerCoverage>> {
+            // A pane can be laid out at zero or sub-pixel size for a frame
+            // (new window's first layout pass). There is simply no corner to
+            // cover yet; that is a normal state, not an error.
+            let (bounds, _) = corner.presentation(scale)?;
             let side = (bounds.size.width.as_f32() * scale).round() as usize;
-            anyhow::ensure!(side > 0 && side <= 256, "corner tile exceeds raster budget");
+            if side == 0 || side > 256 {
+                return Some(Err(anyhow::anyhow!("corner tile exceeds raster budget")));
+            }
             let key = (side, alpha.to_bits(), corner.mask);
             let cached = CACHE.with(|cache| {
                 cache
@@ -616,14 +619,16 @@ pub(crate) fn native_corner_coverage(
             } else {
                 let renderer =
                     gpui::SvgRenderer::new(std::sync::Arc::new(crate::assets::ConAssets));
-                let image = renderer.render_single_frame(CORNER_MASK, side as f32)?;
-                let pixels = image
-                    .as_bytes(0)
-                    .ok_or_else(|| anyhow::anyhow!("missing corner frame"))?;
-                anyhow::ensure!(
-                    pixels.len() == side * side * 16,
-                    "unexpected SVG supersampling size"
-                );
+                let image = match renderer.render_single_frame(CORNER_MASK, side as f32) {
+                    Ok(image) => image,
+                    Err(err) => return Some(Err(anyhow::anyhow!(err))),
+                };
+                let Some(pixels) = image.as_bytes(0) else {
+                    return Some(Err(anyhow::anyhow!("missing corner frame")));
+                };
+                if pixels.len() != side * side * 16 {
+                    return Some(Err(anyhow::anyhow!("unexpected SVG supersampling size")));
+                }
                 let mut bytes = vec![0; side * side * 4];
                 for y in 0..side {
                     for x in 0..side {
@@ -667,7 +672,7 @@ pub(crate) fn native_corner_coverage(
                 });
                 bytes
             };
-            Ok(NativeCornerCoverage { bounds, side, rgba })
+            Some(Ok(NativeCornerCoverage { bounds, side, rgba }))
         })
         .collect()
 }
@@ -1434,6 +1439,19 @@ mod tests {
         );
         assert_eq!(masks[0].bounds.origin, point(px(589.0), px(0.0)));
         assert_eq!(masks[1].bounds.origin, point(px(592.0), px(392.0)));
+    }
+
+    #[test]
+    fn shared_corner_coverage_skips_corners_on_a_zero_sized_pane() {
+        // A new window lays the terminal out at zero size for its first frame.
+        // That must produce no tiles instead of a stream of per-frame errors.
+        let empty = Bounds::new(point(px(0.0), px(0.0)), gpui::size(px(0.0), px(0.0)));
+        let tiles = native_corner_coverage(empty, gpui::Corners::all(px(8.0)), 2.0, 0.82).unwrap();
+        assert!(tiles.is_empty());
+
+        let sliver = Bounds::new(point(px(0.0), px(0.0)), gpui::size(px(10.0), px(0.0)));
+        let tiles = native_corner_coverage(sliver, gpui::Corners::all(px(8.0)), 2.0, 0.82).unwrap();
+        assert!(tiles.is_empty());
     }
 
     #[test]

@@ -993,11 +993,7 @@ fn top_bar_clickables_explicitly_consume_left_mouse_down() {
     let normalized = constructor.split_whitespace().collect::<String>();
     assert!(normalized.contains(".occlude()"));
     assert!(normalized.contains(".on_mouse_down(MouseButton::Left,|_,_,cx|cx.stop_propagation())"));
-    for control_id in [
-        "tab-new",
-        "toggle-left-sidebar",
-        "toggle-settings",
-    ] {
+    for control_id in ["tab-new", "toggle-left-sidebar", "toggle-settings"] {
         assert!(
             source
                 .split_whitespace()
