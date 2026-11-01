@@ -388,10 +388,7 @@ mod tests {
 
     #[test]
     fn distribution_sources_match_the_default_catalog_asset() {
-        for source in [
-            include_str!("../build.rs"),
-            include_str!("../Cargo.toml"),
-        ] {
+        for source in [include_str!("../build.rs"), include_str!("../Cargo.toml")] {
             assert!(source.contains(con_core::config::DEFAULT_APP_ICON_ASSET));
         }
     }

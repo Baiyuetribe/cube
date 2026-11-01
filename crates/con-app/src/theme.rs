@@ -712,7 +712,10 @@ mod tests {
                 ".SystemUIFont",
                 19.0,
             );
-            assert_eq!(Theme::global(cx).mode, ThemeMode::Dark);
+            // An unknown name belongs to Ghostty's native lookup, which Con
+            // cannot map to a palette; fall back to the OS appearance rather
+            // than guessing dark. The test platform reports light.
+            assert_eq!(Theme::global(cx).mode, ThemeMode::Light);
 
             let mut terminal = TerminalTheme::flexoki_dark();
             for (background, expected) in [

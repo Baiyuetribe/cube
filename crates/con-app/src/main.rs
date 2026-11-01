@@ -727,7 +727,7 @@ fn open_con_window_with_startup(
         }
     }
     cx.spawn(async move |cx| {
-        if let Err(err) = cx.open_window(window_options, |window, cx| {
+        let opened = cx.open_window(window_options, |window, cx| {
             let restored_session = session.clone();
             let command = startup.as_ref().and_then(|startup| startup.command.clone());
             #[cfg(target_os = "linux")]
@@ -772,14 +772,27 @@ fn open_con_window_with_startup(
                 let background = cx.theme().background;
                 gpui_component::Root::new(view, window, cx).bg(background)
             })
-        }) {
-            if exit_on_error {
-                eprintln!("Fatal: failed to open window: {err}");
-                std::process::exit(1);
-            } else {
+        });
+        let handle = match opened {
+            Ok(handle) => handle,
+            Err(err) => {
+                if exit_on_error {
+                    eprintln!("Fatal: failed to open window: {err}");
+                    std::process::exit(1);
+                }
                 log::error!("Failed to open window: {err}");
+                return;
             }
-        }
+        };
+        // `open_window` makes the window key inside the app but does not bring
+        // the app itself forward, so launching from a terminal or Spotlight
+        // would leave Con behind the invoker. Activate after the window exists
+        // so macOS has something to order to the front.
+        let handle = handle.into();
+        cx.update(|cx| {
+            cx.activate(true);
+            let _ = cx.update_window(handle, |_, window, _| window.activate_window());
+        });
     })
     .detach();
 }
