@@ -732,7 +732,6 @@ impl ConWorkspace {
             horizontal_tab_reveal_key: Default::default(),
             horizontal_tab_edges: Default::default(),
             pane_title_drag_tab_bounds: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
-            hide_pane_title_bar: config.appearance.hide_pane_title_bar,
 
             // ── Code editor (Phase 1) ──────────────────────────────────────
             activity_bar: activity_bar_entity,

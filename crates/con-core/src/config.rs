@@ -166,10 +166,6 @@ pub struct AppearanceConfig {
     /// Keep bounded private terminal text so restart continuity can show what
     /// was on screen. This is never exported to workspace layout profiles.
     pub restore_terminal_text: bool,
-    /// Hide the per-pane title bar when there are multiple panes. Defaults to
-    /// `false` (title bar visible). When `true` the title bar is suppressed
-    /// even in split layouts; the fullscreen/close buttons are also hidden.
-    pub hide_pane_title_bar: bool,
     /// Workspace tab presentation. Vertical is the default; horizontal remains
     /// available for users who prefer a top tab strip.
     pub tabs_orientation: TabsOrientation,
@@ -206,7 +202,6 @@ impl Default for AppearanceConfig {
             tab_accent_inactive_alpha: default_tab_accent_inactive_alpha(),
             tab_accent_inactive_hover_alpha: default_tab_accent_inactive_hover_alpha(),
             restore_terminal_text: default_restore_terminal_text(),
-            hide_pane_title_bar: false,
             tabs_orientation: TabsOrientation::Horizontal,
             close_to_quit: true,
             app_icon: default_app_icon(),

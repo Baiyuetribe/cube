@@ -289,7 +289,6 @@ pub struct ConWorkspace {
     /// needs to know where the ghost tab sits in the visual layout.
     pane_title_drag_tab_bounds: std::sync::Arc<std::sync::Mutex<Vec<Bounds<Pixels>>>>,
     /// When true, the per-pane title bar is hidden even in split layouts.
-    hide_pane_title_bar: bool,
 
     /// Workspace-level focus handle — focused when an editor pane is active
     /// so keyboard actions (Cmd+T, Cmd+W, etc.) still reach the workspace.

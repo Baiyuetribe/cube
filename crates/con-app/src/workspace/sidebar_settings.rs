@@ -1095,12 +1095,6 @@ impl ConWorkspace {
             );
         }
 
-        let next_hide_pane_title_bar = appearance_config.hide_pane_title_bar;
-        if self.hide_pane_title_bar != next_hide_pane_title_bar {
-            self.hide_pane_title_bar = next_hide_pane_title_bar;
-            cx.notify();
-        }
-
         self.app_icon = sanitize_app_icon(&appearance_config.app_icon);
     }
 

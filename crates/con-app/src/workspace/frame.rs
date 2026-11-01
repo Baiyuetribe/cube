@@ -1031,7 +1031,8 @@ mod tests {
                 for input_height in [0.0, reserved] {
                     let (_, padding_bottom) =
                         agent_vertical_insets(1.0, split, input_height, 0.0, 0.0);
-                    let terminal_bottom = window_bottom - CANVAS_INSET - input_height - PANE_INSET;
+                    let inset = pane_card_geometry(split, 1.0).0;
+                    let terminal_bottom = window_bottom - CANVAS_INSET - input_height - inset;
                     assert_eq!(window_bottom - padding_bottom, terminal_bottom);
                 }
             }
@@ -1050,10 +1051,11 @@ mod tests {
             let depth = canvas_depth_for_layout(tabs, split, left, right);
             assert_eq!(depth, expected);
             if split {
-                assert_eq!(
-                    CANVAS_INSET * depth + pane_card_geometry(split, depth).0,
-                    5.0
-                );
+                // Split panes drop their card inset, so the outer clearance is
+                // the canvas inset alone and the gutter collapses to the 1pt
+                // divider.
+                assert_eq!(pane_card_geometry(split, depth).0, SPLIT_PANE_INSET);
+                assert_eq!(CANVAS_INSET * depth + SPLIT_PANE_INSET, CANVAS_INSET);
             }
         }
     }

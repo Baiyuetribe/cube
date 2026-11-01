@@ -81,6 +81,7 @@ fn is_retired_con_key(key: &str) -> bool {
     const RETIRED_PREFIXES: &[&str] = &["con.agent.", "con.skills."];
     const RETIRED_KEYS: &[&str] = &[
         "con.appearance.agent_avatar",
+        "con.appearance.hide_pane_title_bar",
         "con.keybindings.toggle_agent",
         "con.keybindings.ask_ai",
         "con.experimental.handoff",

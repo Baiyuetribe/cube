@@ -126,7 +126,6 @@ pub struct SettingsPanel {
     background_image_position_select: Entity<SelectState<Vec<String>>>,
     background_image_fit_select: Entity<SelectState<Vec<String>>>,
     background_image_repeat: bool,
-    hide_pane_title_bar: bool,
     close_to_quit: bool,
     /// Whether the light/dark theme grids show every palette or just the
     /// first page. Keeps ~100 embedded palettes from becoming a wall of cards.
@@ -783,7 +782,6 @@ impl SettingsPanel {
             background_image_position_select,
             background_image_fit_select,
             background_image_repeat: config.appearance.background_image_repeat,
-            hide_pane_title_bar: config.appearance.hide_pane_title_bar,
             close_to_quit: config.appearance.close_to_quit,
             show_all_light_themes: false,
             show_all_dark_themes: false,
@@ -985,7 +983,6 @@ impl SettingsPanel {
             );
         });
         self.background_image_repeat = self.config.appearance.background_image_repeat;
-        self.hide_pane_title_bar = self.config.appearance.hide_pane_title_bar;
         self.close_to_quit = self.config.appearance.close_to_quit;
         self.set_recording_key(None);
         // Network / proxy — repopulate so reopening the panel shows current values.
@@ -2420,41 +2417,6 @@ impl SettingsPanel {
                                     } else {
                                         TabsOrientation::Horizontal
                                     };
-                                    cx.emit(AppearancePreview);
-                                    cx.notify();
-                                })),
-                            theme,
-                            mobile,
-                        ))
-                        .child(row_separator(theme))
-                        .child(toggle_row(
-                            "隐藏分屏标题栏",
-                            "隐藏拆分分屏上的标题栏。",
-                            Switch::new("hide-pane-title-bar-toggle")
-                                .checked(self.hide_pane_title_bar)
-                                .small()
-                                .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                                    let previous = this.config.appearance.hide_pane_title_bar;
-                                    this.hide_pane_title_bar = *checked;
-                                    this.config.appearance.hide_pane_title_bar = *checked;
-                                    if let Err(err) = this.persist_config(cx) {
-                                        this.hide_pane_title_bar = previous;
-                                        this.config.appearance.hide_pane_title_bar = previous;
-                                        log::warn!(
-                                            "settings: persist hide_pane_title_bar failed: {err}"
-                                        );
-                                        this.save_error = Some(err.to_string());
-                                        this.save_error_kind = Some(SettingsSaveErrorKind::Other);
-                                        cx.notify();
-                                        return;
-                                    }
-                                    if let Some(snapshot) = &mut this.preview_snapshot {
-                                        snapshot.appearance.hide_pane_title_bar = *checked;
-                                        snapshot.appearance.app_icon =
-                                            this.config.appearance.app_icon.clone();
-                                    }
-                                    this.save_error = None;
-                                    this.save_error_kind = None;
                                     cx.emit(AppearancePreview);
                                     cx.notify();
                                 })),

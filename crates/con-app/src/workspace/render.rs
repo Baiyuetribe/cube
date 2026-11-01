@@ -583,7 +583,6 @@ impl Render for ConWorkspace {
                 chrome_transition_seam_color,
                 tab_accent_color,
                 self.tab_accent_inactive_alpha,
-                self.hide_pane_title_bar,
                 {
                     #[cfg(target_os = "macos")]
                     {
