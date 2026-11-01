@@ -2853,8 +2853,10 @@ fn main() {
             show_about_window(cx);
         });
 
+        // Update checks are disabled in this fork; the action stays registered
+        // so the keybinding/palette entry cannot panic if anything still fires.
         cx.on_action(|_: &CheckForUpdates, _cx: &mut App| {
-            updater::check_for_updates();
+            log::info!("updater: check-for-updates ignored (auto-update disabled)");
         });
         cx.on_action(|_: &HideApp, cx: &mut App| {
             cx.hide();
@@ -2871,8 +2873,6 @@ fn main() {
                 name: "con".into(),
                 items: vec![
                     MenuItem::action("关于 con", ShowAbout),
-                    MenuItem::separator(),
-                    MenuItem::action("检查更新…", CheckForUpdates),
                     MenuItem::separator(),
                     MenuItem::action("设置…", settings_panel::ToggleSettings),
                     MenuItem::separator(),
@@ -2975,9 +2975,13 @@ fn main() {
             cx,
         );
 
+        // Auto-update is intentionally disabled in this personal fork: the
+        // upstream appcast would push builds this tree no longer tracks. The
+        // updater module is kept intact so re-enabling is a one-line change.
+        //
         // Initialize the auto-updater. On macOS this loads Sparkle
         // from the app bundle; on Windows it kicks off a notify-only
         // background check against the release appcast.
-        updater::init();
+        // updater::init();
     });
 }

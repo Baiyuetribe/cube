@@ -768,9 +768,6 @@ impl ConWorkspace {
             "collapse-sidebar" => {
                 self.collapse_sidebar(&CollapseSidebar, window, cx);
             }
-            "check-for-updates" => {
-                cx.dispatch_action(&crate::CheckForUpdates);
-            }
             "quit" => {
                 self.quit(&Quit, window, cx);
             }

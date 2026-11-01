@@ -1552,7 +1552,19 @@ impl SettingsPanel {
             ),
             allow(unused_variables)
         )]
-        let show_updates = channel.polls_for_updates();
+        // Auto-update is disabled in this personal fork (see `main.rs`); the
+        // updater never initializes, so the card would only ever report a
+        // disabled state.
+        #[cfg_attr(
+            all(
+                not(target_os = "macos"),
+                not(target_os = "windows"),
+                not(target_os = "linux")
+            ),
+            allow(unused_variables)
+        )]
+        let show_updates = false;
+        let _ = channel;
 
         #[cfg_attr(
             all(
