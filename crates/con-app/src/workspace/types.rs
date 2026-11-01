@@ -245,15 +245,6 @@ pub(super) struct ResolvedPaneTarget {
     pub(super) pane_id: usize,
 }
 
-#[derive(Clone)]
-pub(super) struct ResolvedSurfaceTarget {
-    pub(super) terminal: TerminalPane,
-    pub(super) pane_index: usize,
-    pub(super) pane_id: usize,
-    pub(super) surface_index: usize,
-    pub(super) surface_id: usize,
-}
-
 /// A deferred create-pane request waiting for a window-aware context.
 pub(super) struct PendingCreatePane {
     pub(super) command: Option<String>,
@@ -269,34 +260,6 @@ pub(super) enum PendingWindowControlRequest {
     },
     TabsClose {
         tab_idx: usize,
-        response_tx: oneshot::Sender<ControlResult>,
-    },
-}
-
-pub(super) enum PendingSurfaceControlRequest {
-    Create {
-        tab_idx: usize,
-        pane: con_core::PaneTarget,
-        title: Option<String>,
-        command: Option<String>,
-        owner: Option<String>,
-        close_pane_when_last: bool,
-        response_tx: oneshot::Sender<ControlResult>,
-    },
-    Split {
-        tab_idx: usize,
-        source: con_core::SurfaceTarget,
-        location: con_terminal::PaneCreateLocation,
-        title: Option<String>,
-        command: Option<String>,
-        owner: Option<String>,
-        close_pane_when_last: bool,
-        response_tx: oneshot::Sender<ControlResult>,
-    },
-    Close {
-        tab_idx: usize,
-        target: con_core::SurfaceTarget,
-        close_empty_owned_pane: bool,
         response_tx: oneshot::Sender<ControlResult>,
     },
 }

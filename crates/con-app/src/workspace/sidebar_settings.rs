@@ -170,19 +170,6 @@ impl ConWorkspace {
             }
         }
 
-        for pending in &mut self.pending_surface_control_requests {
-            let tab_idx = match pending {
-                PendingSurfaceControlRequest::Create { tab_idx, .. }
-                | PendingSurfaceControlRequest::Split { tab_idx, .. }
-                | PendingSurfaceControlRequest::Close { tab_idx, .. } => tab_idx,
-            };
-            if let Some(summary_id) = old_order.get(*tab_idx)
-                && let Some(&new_idx) = new_positions.get(summary_id)
-            {
-                *tab_idx = new_idx;
-            }
-        }
-
         self.remap_tab_rename_state_after_reorder(&old_order);
 
         // Re-locate the active tab by stable summary_id rather than
@@ -251,19 +238,6 @@ impl ConWorkspace {
         for pending in &mut self.pending_window_control_requests {
             if let PendingWindowControlRequest::TabsClose { tab_idx, .. } = pending
                 && let Some(summary_id) = old_order.get(*tab_idx)
-                && let Some(&new_idx) = new_positions.get(summary_id)
-            {
-                *tab_idx = new_idx;
-            }
-        }
-
-        for pending in &mut self.pending_surface_control_requests {
-            let tab_idx = match pending {
-                PendingSurfaceControlRequest::Create { tab_idx, .. }
-                | PendingSurfaceControlRequest::Split { tab_idx, .. }
-                | PendingSurfaceControlRequest::Close { tab_idx, .. } => tab_idx,
-            };
-            if let Some(summary_id) = old_order.get(*tab_idx)
                 && let Some(&new_idx) = new_positions.get(summary_id)
             {
                 *tab_idx = new_idx;

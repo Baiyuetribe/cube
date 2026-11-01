@@ -12,7 +12,7 @@ pub use config::Config;
 pub use control::{
     ControlCommand, ControlError, ControlMethodInfo, ControlRequestEnvelope, ControlResult,
     ControlSocketHandle, DEFAULT_SOCKET_PATH, JSON_RPC_VERSION, JsonRpcRequest, JsonRpcResponse,
-    PaneTarget, SurfaceTarget, SystemIdentifyResult, TabInfo, control_methods, control_socket_path,
+    PaneTarget, SystemIdentifyResult, TabInfo, control_methods, control_socket_path,
     spawn_control_socket_server,
 };
 pub use tab_summary::TabIconKind;

@@ -699,7 +699,6 @@ impl ConWorkspace {
             linux_window_shape_signature: None,
             pending_create_pane_requests: Vec::new(),
             pending_window_control_requests: Vec::new(),
-            pending_surface_control_requests: Vec::new(),
             surface_rename: None,
             control_request_rx,
             control_socket,
@@ -1345,7 +1344,6 @@ impl ConWorkspace {
                     workspace.update(cx, |workspace, cx| {
                         workspace.flush_pending_window_control_requests(window, cx);
                         workspace.flush_pending_create_pane_requests(window, cx);
-                        workspace.flush_pending_surface_control_requests(window, cx);
                     });
                 }
             });

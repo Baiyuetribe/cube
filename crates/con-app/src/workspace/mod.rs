@@ -218,7 +218,6 @@ pub struct ConWorkspace {
     /// Pending window-aware control requests such as tab lifecycle mutations.
     pending_window_control_requests: Vec<PendingWindowControlRequest>,
     /// Pending surface-control requests that need a window context to allocate a terminal view.
-    pending_surface_control_requests: Vec<PendingSurfaceControlRequest>,
     /// Inline editor for the pane-local surface rail.
     surface_rename: Option<SurfaceRenameEditor>,
     /// Monotonic counter for [`Tab::summary_id`].
