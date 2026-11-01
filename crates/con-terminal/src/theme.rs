@@ -1,3 +1,5 @@
+mod tabby;
+
 /// RGBA color.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
@@ -482,10 +484,23 @@ impl TerminalTheme {
             "everforest-dark" | "everforest" => Some(Self::everforest_dark()),
             "everforest-light" => Some(Self::everforest_light()),
             "paper-light" => Some(Self::paper_light()),
-            _ => Self::load_user_themes()
-                .into_iter()
-                .find(|theme| theme.name == name.to_lowercase()),
+            _ => Self::tabby_by_name(name).or_else(|| {
+                Self::load_user_themes()
+                    .into_iter()
+                    .find(|theme| theme.name == name.to_lowercase())
+            }),
         }
+    }
+
+    /// Resolve one of the embedded `tabby-*` palettes. Parsing a few dozen
+    /// `palette =` lines per call is cheap enough at this volume, so this does
+    /// not cache; the caller already memoises per render.
+    fn tabby_by_name(name: &str) -> Option<Self> {
+        let key = name.to_lowercase();
+        let source = tabby::SOURCES
+            .iter()
+            .find_map(|(slug, text)| (*slug == key).then_some(text))?;
+        Self::from_ghostty_format(&key, source)
     }
 
     pub fn all_available() -> Vec<Self> {
@@ -493,6 +508,11 @@ impl TerminalTheme {
             .iter()
             .filter_map(|name| Self::by_name(name))
             .collect();
+        for name in Self::tabby_available() {
+            if let Some(theme) = Self::by_name(name) {
+                themes.push(theme);
+            }
+        }
         for theme in Self::load_user_themes() {
             if !themes.iter().any(|existing| existing.name == theme.name) {
                 themes.push(theme);
@@ -519,6 +539,12 @@ impl TerminalTheme {
             "everforest-light",
             "paper-light",
         ]
+    }
+
+    /// Embedded `tabby-*` palettes, excluding anything the builtin list already
+    /// provides under the same name.
+    pub fn tabby_available() -> impl Iterator<Item = &'static str> {
+        tabby::NAMES.iter().copied()
     }
 
     pub fn from_ghostty_format(name: &str, content: &str) -> Option<Self> {
@@ -626,6 +652,54 @@ fn parse_hex_color(value: &str) -> Option<Color> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WCAG contrast ratio between two colors.
+    fn contrast_ratio(a: Color, b: Color) -> f64 {
+        let (la, lb) = (a.relative_luminance(), b.relative_luminance());
+        let (lighter, darker) = (la.max(lb), la.min(lb));
+        (lighter + 0.05) / (darker + 0.05)
+    }
+
+    #[test]
+    fn every_embedded_tabby_palette_parses_with_readable_contrast() {
+        let mut light = 0;
+        let mut dark = 0;
+        for slug in TerminalTheme::tabby_available() {
+            let theme = TerminalTheme::by_name(slug)
+                .unwrap_or_else(|| panic!("embedded theme {slug} failed to parse"));
+            assert_eq!(theme.name, slug, "name must stay the lookup key");
+            if theme.is_dark() {
+                dark += 1;
+            } else {
+                light += 1;
+            }
+            // Several upstream iTerm2 schemes sit just under WCAG AA; require
+            // only that foreground stays legible against the background.
+            let ratio = contrast_ratio(theme.foreground, theme.background);
+            assert!(
+                ratio >= 3.0,
+                "{slug} foreground/background contrast {ratio:.2}"
+            );
+        }
+        assert!(
+            dark >= 50,
+            "expected a substantial dark selection, got {dark}"
+        );
+        assert!(
+            light >= 15,
+            "expected a substantial light selection, got {light}"
+        );
+    }
+
+    #[test]
+    fn embedded_tabby_names_do_not_shadow_builtin_themes() {
+        for slug in TerminalTheme::tabby_available() {
+            assert!(
+                !TerminalTheme::available().contains(&slug),
+                "{slug} would shadow a builtin theme"
+            );
+        }
+    }
 
     #[test]
     fn mode_is_based_on_background_luminance_not_name() {

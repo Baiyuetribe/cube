@@ -30,7 +30,12 @@ con-process = { path = "crates/con-process" }
 # both together: any snapshot may change GPUI's API, and two snapshots in one
 # tree are incompatible types.
 gpui = { package = "gpui-pre", version = "=0.3.7" }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.7", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.7", features = [
+    "font-kit",
+    "runtime_shaders",
+    "wayland",
+    "x11",
+] }
 reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.7" }
 
 # UI Components — upstream gpui-component, never local 3pp paths
@@ -38,7 +43,9 @@ gpui-component = "=0.7.0"
 gpui-kit-assets = "=0.7.0"
 
 # AI Agent
-rig = { package = "rig-core", version = "0.40.0", default-features = false, features = ["rustls"] }
+rig = { package = "rig-core", version = "0.40.0", default-features = false, features = [
+    "rustls",
+] }
 
 # Async
 tokio = { version = "1", features = ["full"] }
@@ -53,7 +60,10 @@ toml = "0.8"
 schemars = "1"
 
 # Text & Language
-ropey = { version = "=2.0.0-beta.1", features = ["metric_lines_lf", "metric_utf16"] }
+ropey = { version = "=2.0.0-beta.1", features = [
+    "metric_lines_lf",
+    "metric_utf16",
+] }
 sum-tree = { version = "0.2.0", package = "zed-sum-tree" }
 rust-i18n = "3"
 lsp-types = { version = "0.97.0", features = ["proposed"] }
@@ -75,10 +85,16 @@ dirs = "6"
 gethostname = "1"
 notify = "7.0.0"
 smallvec = "1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "json",
+] }
 http = "1"
 url = "2"
-rust-embed = { version = "8.7.2", features = ["interpolate-folder-path", "include-exclude"] }
+rust-embed = { version = "8.7.2", features = [
+    "interpolate-folder-path",
+    "include-exclude",
+] }
 mermaid-rs-renderer = { version = "0.3.1", default-features = false }
 mathjax-svg-rs = "0.4.0"
 

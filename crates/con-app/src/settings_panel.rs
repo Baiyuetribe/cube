@@ -128,6 +128,10 @@ pub struct SettingsPanel {
     background_image_repeat: bool,
     hide_pane_title_bar: bool,
     close_to_quit: bool,
+    /// Whether the light/dark theme grids show every palette or just the
+    /// first page. Keeps ~100 embedded palettes from becoming a wall of cards.
+    show_all_light_themes: bool,
+    show_all_dark_themes: bool,
     save_error: Option<String>,
     save_error_kind: Option<SettingsSaveErrorKind>,
     last_saved_at: Option<std::time::SystemTime>,
@@ -781,6 +785,8 @@ impl SettingsPanel {
             background_image_repeat: config.appearance.background_image_repeat,
             hide_pane_title_bar: config.appearance.hide_pane_title_bar,
             close_to_quit: config.appearance.close_to_quit,
+            show_all_light_themes: false,
+            show_all_dark_themes: false,
             save_error: None,
             save_error_kind: None,
             last_saved_at: std::fs::metadata(Config::config_path())
@@ -2009,16 +2015,52 @@ impl SettingsPanel {
         let light_selected = self.config.appearance.light_theme.clone();
         let dark_selected = self.config.appearance.dark_theme.clone();
 
+        // Around a hundred embedded palettes turn the grid into a wall, so each
+        // side shows a first page and expands on demand. The currently selected
+        // palette is always kept visible so it never hides behind "show more".
+        let expand_theme = cx.theme().clone();
+        let light_page = paged_themes(&light_themes, &light_selected, self.show_all_light_themes);
+        let dark_page = paged_themes(&dark_themes, &dark_selected, self.show_all_dark_themes);
+        let light_expand = theme_expand_button(
+            "light-themes-expand",
+            light_page.is_truncated,
+            self.show_all_light_themes,
+            &theme_collapsed_note(&light_page, &light_themes),
+            &expand_theme,
+            cx,
+            |this, cx| {
+                this.show_all_light_themes = !this.show_all_light_themes;
+                cx.notify();
+            },
+        );
+        let dark_expand = theme_expand_button(
+            "dark-themes-expand",
+            dark_page.is_truncated,
+            self.show_all_dark_themes,
+            &theme_collapsed_note(&dark_page, &dark_themes),
+            &expand_theme,
+            cx,
+            |this, cx| {
+                this.show_all_dark_themes = !this.show_all_dark_themes;
+                cx.notify();
+            },
+        );
+
         // Build theme grids first (these need &mut cx for listeners)
         let light_grid = self.render_scheme_theme_grid(
-            &light_themes,
+            &light_page.themes,
             &light_selected,
             false,
             active_is_dark,
             cx,
         );
-        let dark_grid =
-            self.render_scheme_theme_grid(&dark_themes, &dark_selected, true, active_is_dark, cx);
+        let dark_grid = self.render_scheme_theme_grid(
+            &dark_page.themes,
+            &dark_selected,
+            true,
+            active_is_dark,
+            cx,
+        );
 
         // Build import section
         let custom_theme_name_input = self.custom_theme_name_input.clone();
@@ -2207,6 +2249,7 @@ impl SettingsPanel {
                     .child("浅色主题"),
             )
             .child(light_grid)
+            .child(light_expand)
             .child(
                 div()
                     .text_size(ui_px(theme, 12.0))
@@ -2216,7 +2259,8 @@ impl SettingsPanel {
                     .mb(px(8.0))
                     .child("深色主题"),
             )
-            .child(dark_grid);
+            .child(dark_grid)
+            .child(dark_expand);
 
         let mut content = section_content("外观", "字体、主题与窗口外观。", theme);
 
@@ -2764,6 +2808,8 @@ impl SettingsPanel {
                                             svg()
                                                 .path(icon)
                                                 .size(ui_icon_px(theme, 12.0))
+                                                .flex_shrink_0()
+                                                .flex_shrink_0()
                                                 .text_color(if is_sel {
                                                     theme.foreground
                                                 } else {
@@ -2951,6 +2997,7 @@ impl SettingsPanel {
             .id(SharedString::from(format!("term-theme-{name}")))
             .cursor_pointer()
             .w(ui_px(theme, 150.0))
+            .flex_none()
             .flex()
             .flex_col()
             .rounded(px(10.0))
@@ -2986,6 +3033,8 @@ impl SettingsPanel {
                             svg()
                                 .path("phosphor/check.svg")
                                 .size(ui_icon_px(theme, 10.0))
+                                .flex_shrink_0()
+                                .flex_shrink_0()
                                 .text_color(theme.primary),
                         )
                     } else {
@@ -3718,6 +3767,7 @@ impl Render for SettingsPanel {
                     svg()
                         .path(section.icon())
                         .size(ui_icon_px(theme, 16.0))
+                        .flex_shrink_0()
                         .text_color(if is_active {
                             theme.foreground
                         } else {
@@ -3733,6 +3783,7 @@ impl Render for SettingsPanel {
                         svg()
                             .path(section.icon())
                             .size(ui_icon_px(theme, 15.0))
+                            .flex_shrink_0()
                             .flex_shrink_0()
                             .text_color(if is_active {
                                 theme.foreground
@@ -3912,6 +3963,7 @@ impl Render for SettingsPanel {
                                                 svg()
                                                     .path(icon)
                                                     .size(ui_icon_px(theme, 12.0))
+                                                    .flex_shrink_0()
                                                     .text_color(tone),
                                             )
                                             .child(
@@ -3940,6 +3992,7 @@ impl Render for SettingsPanel {
                                                 svg()
                                                     .path("phosphor/file-text.svg")
                                                     .size(ui_icon_px(theme, 15.0))
+                                                    .flex_shrink_0()
                                                     .text_color(config_button_tone),
                                             )
                                             .on_click(cx.listener(|this, _, _, cx| {
@@ -3961,6 +4014,7 @@ impl Render for SettingsPanel {
                                                 svg()
                                                     .path("phosphor/check.svg")
                                                     .size(ui_icon_px(theme, 12.0))
+                                                    .flex_shrink_0()
                                                     .text_color(save_button_tint),
                                             )
                                             .child(
@@ -4005,6 +4059,7 @@ impl Render for SettingsPanel {
                                     svg()
                                         .path("phosphor/warning.svg")
                                         .size(ui_icon_px(theme, 14.0))
+                                        .flex_shrink_0()
                                         .text_color(theme.warning.opacity(if theme.is_dark() {
                                             0.96
                                         } else {
@@ -4086,6 +4141,7 @@ impl Render for SettingsPanel {
                                             svg()
                                                 .path("phosphor/check.svg")
                                                 .size(ui_icon_px(theme, 12.0))
+                                                .flex_shrink_0()
                                                 .text_color(save_button_tint),
                                         )
                                         .child(
@@ -4332,11 +4388,113 @@ fn appearance_image_choice(
                                 svg()
                                     .path("phosphor/check.svg")
                                     .size(rems(0.625))
+                                    .flex_shrink_0()
                                     .text_color(theme.primary),
                             ),
                     )
                 }),
         )
+}
+
+/// How many palettes one side of the theme picker shows before expanding.
+const THEME_GRID_PAGE_SIZE: usize = 12;
+
+/// One page of theme cards plus whether more remain hidden.
+struct ThemePage<'a> {
+    themes: Vec<&'a con_terminal::TerminalTheme>,
+    is_truncated: bool,
+}
+
+/// Take the first page of `themes`, always keeping the selected palette visible
+/// even when it would otherwise land beyond the cut.
+fn paged_themes<'a>(
+    themes: &[&'a con_terminal::TerminalTheme],
+    selected: &str,
+    show_all: bool,
+) -> ThemePage<'a> {
+    if show_all || themes.len() <= THEME_GRID_PAGE_SIZE {
+        return ThemePage {
+            themes: themes.to_vec(),
+            is_truncated: false,
+        };
+    }
+    let mut page = themes[..THEME_GRID_PAGE_SIZE].to_vec();
+    if !page.iter().any(|theme| theme.name == selected)
+        && let Some(selected_theme) = themes.iter().find(|theme| theme.name == selected)
+    {
+        page.pop();
+        page.push(selected_theme);
+    }
+    ThemePage {
+        themes: page,
+        is_truncated: true,
+    }
+}
+
+fn theme_collapsed_note(page: &ThemePage<'_>, all: &[&con_terminal::TerminalTheme]) -> String {
+    format!("还有 {} 个未显示", all.len() - page.themes.len())
+}
+
+fn theme_expand_button(
+    id: &'static str,
+    is_truncated: bool,
+    is_expanded: bool,
+    collapsed_note: &str,
+    theme: &gpui_component::Theme,
+    cx: &mut Context<SettingsPanel>,
+    on_toggle: impl Fn(&mut SettingsPanel, &mut Context<SettingsPanel>) + 'static,
+) -> Div {
+    if !is_truncated && !is_expanded {
+        return div();
+    }
+    let label = if is_expanded {
+        "收起".to_string()
+    } else {
+        format!("显示全部 · {collapsed_note}")
+    };
+    div().pt(px(10.0)).child(
+        Button::new(id)
+            .ghost()
+            .small()
+            .h(px(26.0))
+            .px(px(8.0))
+            .rounded(px(6.0))
+            .tooltip(label.clone())
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .color(theme.transparent)
+                    .foreground(theme.muted_foreground)
+                    .hover(theme.foreground.opacity(0.06))
+                    .active(theme.foreground.opacity(0.10)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(5.0))
+                    .child(
+                        svg()
+                            .path(if is_expanded {
+                                "phosphor/caret-up.svg"
+                            } else {
+                                "phosphor/caret-down.svg"
+                            })
+                            .size(ui_icon_px(theme, 12.0))
+                            .flex_shrink_0()
+                            .flex_shrink_0()
+                            .text_color(theme.muted_foreground),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .line_height(rems(1.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .whitespace_nowrap()
+                            .child(label),
+                    ),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| on_toggle(this, cx))),
+    )
 }
 
 fn section_content(title: &str, subtitle: &str, theme: &gpui_component::Theme) -> Div {
