@@ -1,7 +1,7 @@
 use con_core::{
     Config,
     config::{
-        APP_ICON_GROUPS, APP_ICONS, AppearanceConfig, DEFAULT_TERMINAL_FONT_FAMILY,
+        APP_ICON_GROUPS, APP_ICONS, AppearanceConfig, ColorScheme, DEFAULT_TERMINAL_FONT_FAMILY,
         MAX_UI_FONT_SIZE, MIN_UI_FONT_SIZE, TabsOrientation, is_bundled_terminal_font_family,
         is_gpui_pseudo_font_family, sanitize_terminal_font_fallback, sanitize_terminal_font_family,
     },
@@ -1111,7 +1111,14 @@ impl SettingsPanel {
             return;
         }
 
-        // Apply the theme
+        // Apply the theme into the slot matching its own light/dark side, so an
+        // imported light palette does not overwrite the dark selection.
+        let is_dark = preview.is_dark();
+        if is_dark {
+            self.config.appearance.dark_theme = preview.name.clone();
+        } else {
+            self.config.appearance.light_theme = preview.name.clone();
+        }
         self.config.terminal.theme = preview.name.clone();
         cx.emit(ThemePreview(preview.name.clone()));
         self.custom_theme_status = Some(format!("已保存并应用：{}", file_path.display()));
@@ -1951,7 +1958,11 @@ impl SettingsPanel {
 
     fn render_appearance(&self, window: &Window, cx: &mut Context<Self>) -> Div {
         let mobile = ResponsiveMode::from_width(window.viewport_size().width.as_f32()).is_mobile();
-        let current_theme = self.config.terminal.theme.clone();
+        let active_is_dark = self
+            .config
+            .appearance
+            .color_scheme
+            .resolve(crate::theme::system_is_dark(window, cx));
         let terminal_font_select = self.terminal_font_select.clone();
         let terminal_fallback_select = self.terminal_fallback_select.clone();
         let terminal_fallback_list = self.render_terminal_fallback_list(cx);
@@ -1983,28 +1994,31 @@ impl SettingsPanel {
                 cx.notify();
             }));
         let all_themes = con_terminal::TerminalTheme::all_available();
+        let total_count = all_themes.len();
 
-        // Split into built-in and user themes
-        let builtin_names: Vec<&str> = con_terminal::TerminalTheme::available().to_vec();
-        let mut builtin_themes = Vec::new();
-        let mut user_themes = Vec::new();
-        for t in all_themes.iter() {
-            if builtin_names.contains(&t.name.as_str()) {
-                builtin_themes.push(t);
-            } else {
-                user_themes.push(t);
-            }
-        }
-        let has_user_themes = !user_themes.is_empty();
-        let total_count = builtin_themes.len() + user_themes.len();
+        // One picker per side of the light/dark pair, so both slots are
+        // editable at the same time.
+        let light_themes = all_themes
+            .iter()
+            .filter(|theme| !theme.is_dark())
+            .collect::<Vec<_>>();
+        let dark_themes = all_themes
+            .iter()
+            .filter(|theme| theme.is_dark())
+            .collect::<Vec<_>>();
+        let light_selected = self.config.appearance.light_theme.clone();
+        let dark_selected = self.config.appearance.dark_theme.clone();
 
         // Build theme grids first (these need &mut cx for listeners)
-        let builtin_grid = self.render_theme_grid(&builtin_themes, &current_theme, cx);
-        let user_grid = if has_user_themes {
-            Some(self.render_theme_grid(&user_themes, &current_theme, cx))
-        } else {
-            None
-        };
+        let light_grid = self.render_scheme_theme_grid(
+            &light_themes,
+            &light_selected,
+            false,
+            active_is_dark,
+            cx,
+        );
+        let dark_grid =
+            self.render_scheme_theme_grid(&dark_themes, &dark_selected, true, active_is_dark, cx);
 
         // Build import section
         let custom_theme_name_input = self.custom_theme_name_input.clone();
@@ -2077,6 +2091,7 @@ impl SettingsPanel {
         };
 
         let app_icon_picker = self.render_app_icon_picker(card_opacity, cx);
+        let color_scheme_row = self.render_color_scheme_row(cx);
 
         // Now all mutable borrows are done — get theme for pure layout
         let theme = cx.theme();
@@ -2151,8 +2166,8 @@ impl SettingsPanel {
             );
         }
 
-        // ── Built-in themes ──
-        let mut theme_card_inner = div()
+        // ── Scheme-aware theme picker ──
+        let theme_card_inner = div()
             .debug_selector(|| "settings-terminal-theme".into())
             .px(rems(1.0))
             .py(px(12.0))
@@ -2161,7 +2176,7 @@ impl SettingsPanel {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .mb(px(12.0))
+                    .mb(px(4.0))
                     .child(
                         div()
                             .text_sm()
@@ -2178,41 +2193,41 @@ impl SettingsPanel {
             .child(
                 div()
                     .text_size(ui_px(theme, 12.0))
+                    .line_height(ui_px(theme, 18.0))
                     .text_color(theme.muted_foreground)
-                    .mb(px(10.0))
-                    .child("也可以导入社区维护的 Ghostty 配色。"),
+                    .mb(px(14.0))
+                    .child("浅色与深色各选一个；跟随系统时会自动采用对应的一套。"),
             )
-            .child(builtin_grid);
-
-        // User-installed themes
-        if let Some(user_grid) = user_grid {
-            theme_card_inner = theme_card_inner.child(
+            .child(
                 div()
+                    .text_size(ui_px(theme, 12.0))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme.muted_foreground)
+                    .mb(px(8.0))
+                    .child("浅色主题"),
+            )
+            .child(light_grid)
+            .child(
+                div()
+                    .text_size(ui_px(theme, 12.0))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme.muted_foreground)
                     .mt(px(16.0))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.0))
-                            .mb(px(10.0))
-                            .child(
-                                svg()
-                                    .path("phosphor/folder.svg")
-                                    .size(ui_icon_px(theme, 12.0))
-                                    .text_color(theme.muted_foreground),
-                            )
-                            .child(
-                                div()
-                                    .text_size(ui_px(theme, 12.0))
-                                    .text_color(theme.muted_foreground)
-                                    .child("已安装"),
-                            ),
-                    )
-                    .child(user_grid),
-            );
-        }
+                    .mb(px(8.0))
+                    .child("深色主题"),
+            )
+            .child(dark_grid);
 
         let mut content = section_content("外观", "字体、主题与窗口外观。", theme);
+
+        content = content.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .child(group_label("配色方案", theme))
+                .child(card(theme, card_opacity).child(color_scheme_row)),
+        );
 
         content = content.child(
             card(theme, card_opacity)
@@ -2670,18 +2685,178 @@ impl SettingsPanel {
         }))
     }
 
-    fn render_theme_grid(
+    /// Three-way picker for 跟随系统 / 白色 / 暗色.
+    fn render_color_scheme_row(&self, cx: &mut Context<Self>) -> Div {
+        let theme = cx.theme();
+        let selected = self.config.appearance.color_scheme;
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(rems(1.0))
+            .px(rems(1.0))
+            .py(px(12.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(3.0))
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("配色方案"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .line_height(rems(1.125))
+                            .text_color(theme.muted_foreground)
+                            .child("跟随系统时，按系统明暗自动选用上面两套主题。"),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(2.0))
+                    .rounded(px(8.0))
+                    .bg(theme.foreground.opacity(0.05))
+                    .p(px(2.0))
+                    .children(
+                        [
+                            (ColorScheme::System, "跟随系统", "phosphor/square-half.svg"),
+                            (ColorScheme::Light, "白色", "phosphor/sun.svg"),
+                            (ColorScheme::Dark, "暗色", "phosphor/moon.svg"),
+                        ]
+                        .map(|(scheme, label, icon)| {
+                            let is_sel = scheme == selected;
+                            Button::new(SharedString::from(format!("color-scheme-{label}")))
+                                .ghost()
+                                .compact()
+                                .h(px(26.0))
+                                .px(px(9.0))
+                                .rounded(px(6.0))
+                                .tooltip(label)
+                                .custom(
+                                    ButtonCustomVariant::new(cx)
+                                        .color(if is_sel {
+                                            theme.foreground.opacity(0.10)
+                                        } else {
+                                            theme.transparent
+                                        })
+                                        .foreground(if is_sel {
+                                            theme.foreground
+                                        } else {
+                                            theme.muted_foreground
+                                        })
+                                        .hover(theme.foreground.opacity(0.07))
+                                        .active(theme.foreground.opacity(0.12)),
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(5.0))
+                                        .child(
+                                            svg()
+                                                .path(icon)
+                                                .size(ui_icon_px(theme, 12.0))
+                                                .text_color(if is_sel {
+                                                    theme.foreground
+                                                } else {
+                                                    theme.muted_foreground
+                                                }),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .line_height(rems(1.0))
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .whitespace_nowrap()
+                                                .child(label),
+                                        ),
+                                )
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.set_color_scheme(scheme, window, cx);
+                                }))
+                        }),
+                    ),
+            )
+    }
+
+    fn set_color_scheme(
+        &mut self,
+        scheme: ColorScheme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.config.appearance.color_scheme == scheme {
+            return;
+        }
+        if self.preview_snapshot.is_none() {
+            self.preview_snapshot = Some(self.config.clone());
+        }
+        self.config.appearance.color_scheme = scheme;
+        // Keep `terminal.theme` on the palette the new scheme resolves to so
+        // the preview and the native config agree. This mirrors what the
+        // workspace does at startup and is overwritten on the next real save.
+        let is_dark = scheme.resolve(crate::theme::system_is_dark(window, cx));
+        self.config.terminal.theme = self.config.appearance.theme_for_scheme(is_dark).to_string();
+        cx.emit(AppearancePreview);
+        cx.notify();
+    }
+
+    /// Grid for one side of the light/dark pair. Clicking a card writes that
+    /// side's slot and previews it only when the scheme currently resolves to
+    /// the same side, so picking the hidden palette never flashes the UI.
+    fn render_scheme_theme_grid(
         &self,
         themes: &[&con_terminal::TerminalTheme],
         current_theme: &str,
+        is_dark: bool,
+        active_is_dark: bool,
         cx: &mut Context<Self>,
     ) -> Div {
         let mut grid = div().flex().flex_wrap().gap(px(10.0));
         for term_theme in themes.iter() {
             let is_sel = term_theme.name.as_str() == current_theme;
-            grid = grid.child(self.render_single_theme_card(term_theme, is_sel, cx));
+            let name = term_theme.name.clone();
+            let is_active_scheme = active_is_dark == is_dark;
+            let card = self.render_single_theme_card(term_theme, is_sel, cx);
+            grid = grid.child(card.on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    this.set_scheme_theme(is_dark, name.clone(), is_active_scheme, cx);
+                }),
+            ));
         }
         grid
+    }
+
+    /// Store `name` into the light or dark slot. When that slot is the one the
+    /// scheme currently resolves to, also make it the live terminal theme.
+    fn set_scheme_theme(
+        &mut self,
+        is_dark: bool,
+        name: String,
+        is_active_scheme: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if is_dark {
+            self.config.appearance.dark_theme = name.clone();
+        } else {
+            self.config.appearance.light_theme = name.clone();
+        }
+        if is_active_scheme {
+            self.config.terminal.theme = name.clone();
+            cx.emit(ThemePreview(name));
+        } else {
+            cx.emit(AppearancePreview);
+        }
+        cx.notify();
     }
 
     /// Render a single theme preview card.
@@ -2693,7 +2868,6 @@ impl SettingsPanel {
     ) -> Stateful<Div> {
         let theme = cx.theme();
         let name = term_theme.name.clone();
-        let theme_name = name.clone();
         let bg = term_theme.background;
         let fg = term_theme.foreground;
         let bg_gpui = gpui::rgb(bg.to_u32());
@@ -2787,14 +2961,6 @@ impl SettingsPanel {
                 theme.muted.opacity(0.04)
             })
             .hover(|s| s.bg(theme.primary.opacity(0.06)))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, _, cx| {
-                    this.config.terminal.theme = theme_name.clone();
-                    cx.emit(ThemePreview(theme_name.clone()));
-                    cx.notify();
-                }),
-            )
             .child(terminal_preview)
             .child(palette_strip)
             .child(
@@ -5074,6 +5240,7 @@ mod tests {
                 cx.notify();
             });
             let ordered_sections = [
+                "settings-group-配色方案",
                 "settings-terminal-theme",
                 "settings-group-字体",
                 "settings-group-光标",

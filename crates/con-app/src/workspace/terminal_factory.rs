@@ -30,8 +30,23 @@ pub(super) fn native_appearance_theme(
 
 /// Expand legacy lowercase Con theme names to palette defaults. Preserve
 /// Ghostty's case-sensitive catalog names and explicit native color overrides.
+///
+/// Windowless callers (validation, CLI, tests) cannot see the OS appearance, so
+/// this seeds from the saved `terminal.theme` itself. Callers with a window go
+/// through [`native_config_for_theme`] with the resolved scheme palette.
 #[cfg(target_os = "macos")]
 pub(crate) fn native_config_for_app(config: &Config) -> Result<String, String> {
+    native_config_for_theme(config, &config.terminal.theme)
+}
+
+/// Same seeding as [`native_config_for_app`], but from an explicit palette
+/// name. A live scheme switch passes the resolved name here instead of
+/// rewriting `config.terminal.theme`, which must keep the saved value.
+#[cfg(target_os = "macos")]
+pub(crate) fn native_config_for_theme(
+    config: &Config,
+    scheme_theme: &str,
+) -> Result<String, String> {
     let source = config
         .native_config_text()
         .map_err(|error| error.to_string())?;
@@ -55,9 +70,7 @@ pub(crate) fn native_config_for_app(config: &Config) -> Result<String, String> {
     {
         return Ok(source);
     }
-    let selected = native_theme
-        .as_deref()
-        .unwrap_or(config.terminal.theme.as_str());
+    let selected = native_theme.as_deref().unwrap_or(scheme_theme);
     let Some(theme) =
         TerminalTheme::by_name(selected).filter(|_| selected == selected.to_lowercase())
     else {
@@ -111,24 +124,54 @@ impl ConWorkspace {
         let base_dir = native_config_base_dir(config)?;
         con_ghostty::GhosttyApp::validate_native_config(text, base_dir).map(|_| ())
     }
+}
 
-    pub(super) fn sync_native_color_scheme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.ghostty_app.set_color_scheme(matches!(
-            window.appearance(),
-            WindowAppearance::Dark | WindowAppearance::VibrantDark
-        ));
-        if let Some(effective) = self.ghostty_app.native_appearance() {
-            self.terminal_theme = native_appearance_theme(
-                self.config.terminal.theme.clone(),
-                effective.foreground,
-                effective.background,
-                &effective.palette,
-            );
-            self.terminal_opacity = effective.background_opacity as f32;
-            self.sync_terminal_surface_appearance(&self.terminal_theme, window, cx);
-            self.sync_gpui_theme_appearance(&self.terminal_theme, cx);
-            cx.notify();
+/// Re-resolve the palette from `appearance.color_scheme` and push it to every
+/// surface. Runs at startup and whenever the OS appearance flips.
+///
+/// The NSApp override is applied by the callers that know the config changed
+/// (startup, settings preview); this function must not touch it, or setting
+/// the appearance from inside the appearance observer would loop.
+impl ConWorkspace {
+    pub(super) fn sync_color_scheme_appearance(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let is_dark = self
+            .config
+            .appearance
+            .color_scheme
+            .resolve(crate::theme::system_is_dark(window, cx));
+        let theme_name = self.config.appearance.theme_for_scheme(is_dark).to_string();
+        if self.terminal_theme.name == theme_name {
+            return;
         }
+        #[cfg(target_os = "macos")]
+        {
+            // The palette is baked into the native config, so Ghostty cannot
+            // swap it on its own; re-apply the config for the new palette.
+            self.ghostty_app.set_color_scheme(is_dark);
+            let config = self.config.clone();
+            if let Err(error) = self.apply_native_config_for_theme(&config, &theme_name) {
+                log::error!("Failed to reapply native config for color scheme: {error}");
+            }
+        }
+        let Some(theme) = TerminalTheme::by_name(&theme_name) else {
+            log::warn!("Configured scheme theme {theme_name:?} was not found");
+            return;
+        };
+        self.terminal_theme = theme;
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(effective) = self.ghostty_app.native_appearance() {
+                self.terminal_opacity = effective.background_opacity as f32;
+            }
+        }
+        let theme = self.terminal_theme.clone();
+        self.sync_terminal_surface_appearance(&theme, window, cx);
+        self.sync_gpui_theme_appearance(&theme, cx);
+        cx.notify();
     }
 }
 

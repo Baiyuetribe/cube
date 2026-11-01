@@ -154,7 +154,7 @@ const FONT_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/IoskeleyMono-
 /// Initialize the con theme system.
 ///
 /// Registers IoskeleyMono fonts, loads built-in themes, and activates the
-/// mode matching the terminal theme.
+/// palette for the currently resolved color scheme.
 pub fn init_theme(
     cx: &mut App,
     terminal_theme: &str,
@@ -188,7 +188,15 @@ pub fn init_theme(
     let config = if let Some(tt) = TerminalTheme::by_name(terminal_theme) {
         dynamic_theme(&tt, cx)
     } else {
-        fallback_theme(terminal_theme, ThemeMode::Dark, cx)
+        fallback_theme(
+            terminal_theme,
+            if ThemeMode::from(cx.window_appearance()).is_dark() {
+                ThemeMode::Dark
+            } else {
+                ThemeMode::Light
+            },
+            cx,
+        )
     };
     apply_theme(
         config,
@@ -551,6 +559,24 @@ fn hex_alpha(c: Color, alpha: u8) -> String {
 #[allow(clippy::many_single_char_names)]
 fn hex_rgb(r: u8, g: u8, b: u8) -> String {
     format!("#{:02X}{:02X}{:02X}", r, g, b)
+}
+
+/// Whether the OS currently asks for dark chrome. The Settings panel and the
+/// workspace both resolve `appearance.color_scheme` against this value.
+pub fn system_is_dark(window: &gpui::Window, cx: &gpui::App) -> bool {
+    let _ = cx;
+    ThemeMode::from(window.appearance()).is_dark()
+}
+
+/// Force NSApp's appearance when the user pins a scheme, and release the
+/// override when they go back to following the system. Only macOS honours the
+/// override; elsewhere the resolved scheme still drives Con's own chrome.
+pub fn apply_window_color_scheme(scheme: con_core::config::ColorScheme, cx: &mut gpui::App) {
+    cx.set_window_appearance(match scheme {
+        con_core::config::ColorScheme::System => None,
+        con_core::config::ColorScheme::Light => Some(gpui::WindowAppearance::Light),
+        con_core::config::ColorScheme::Dark => Some(gpui::WindowAppearance::Dark),
+    });
 }
 
 fn theme_mode(theme: &TerminalTheme) -> ThemeMode {

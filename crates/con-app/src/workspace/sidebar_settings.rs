@@ -910,6 +910,10 @@ impl ConWorkspace {
         }
         // Feature gates (Experimental section) live-apply with the preview so
         // entry points appear/disappear immediately.
+        crate::theme::apply_window_color_scheme(
+            settings.read(cx).appearance_config().color_scheme,
+            cx,
+        );
         self.config.experimental = settings.read(cx).config().experimental.clone();
         let term_config = settings.read(cx).terminal_config().clone();
         let appearance_config = settings.read(cx).appearance_config().clone();
@@ -933,12 +937,27 @@ impl ConWorkspace {
     }
 
     #[cfg(target_os = "macos")]
-    fn apply_native_config(&mut self, config: &Config) -> Result<(), String> {
-        let text = native_config_for_app(config)?;
+    pub(super) fn apply_native_config(&mut self, config: &Config) -> Result<(), String> {
+        // Panel edits already wrote their chosen palette into `terminal.theme`,
+        // so seed the native config from the config itself.
+        let theme_name = config.terminal.theme.clone();
+        self.apply_native_config_for_theme(config, &theme_name)
+    }
+
+    /// Apply the native config seeded from an explicit palette name. Callers
+    /// that just resolved a scheme pass the name in so `terminal.theme` keeps
+    /// the value the user saved.
+    #[cfg(target_os = "macos")]
+    pub(super) fn apply_native_config_for_theme(
+        &mut self,
+        config: &Config,
+        theme_name: &str,
+    ) -> Result<(), String> {
+        let text = native_config_for_theme(config, theme_name)?;
         let base_dir = native_config_base_dir(config)?;
         let effective = self.ghostty_app.apply_native_config(text, base_dir)?;
         self.terminal_theme = native_appearance_theme(
-            config.terminal.theme.clone(),
+            theme_name.to_string(),
             effective.foreground,
             effective.background,
             &effective.palette,
@@ -1073,7 +1092,17 @@ impl ConWorkspace {
         #[cfg(target_os = "macos")]
         let new_theme = Some(self.terminal_theme.clone());
         #[cfg(not(target_os = "macos"))]
-        let new_theme = TerminalTheme::by_name(&term_config.theme);
+        let new_theme = {
+            // Resolve through the scheme so pinning 白色/暗色 swaps the palette
+            // even when the settings panel did not touch a theme card. The
+            // resolved name stays local: `config.terminal.theme` is the value
+            // the user saved and must not be overwritten by a resolution.
+            let is_dark = appearance_config
+                .color_scheme
+                .resolve(crate::theme::system_is_dark(window, cx));
+            let resolved = appearance_config.theme_for_scheme(is_dark);
+            TerminalTheme::by_name(resolved)
+        };
         if let Some(new_theme) = new_theme {
             let theme_changed = new_theme.name != self.terminal_theme.name;
             if theme_changed {
@@ -1087,8 +1116,8 @@ impl ConWorkspace {
             }
         } else {
             log::warn!(
-                "Skipping terminal theme sync; theme {:?} was not found",
-                term_config.theme
+                "Skipping terminal theme sync; scheme theme for {:?} was not found",
+                appearance_config.color_scheme
             );
         }
 

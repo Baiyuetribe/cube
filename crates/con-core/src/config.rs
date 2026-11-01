@@ -19,6 +19,12 @@ fn default_font_size() -> f32 {
 fn default_theme() -> String {
     "flexoki-light".into()
 }
+fn default_light_theme() -> String {
+    "flexoki-light".into()
+}
+fn default_dark_theme() -> String {
+    "flexoki-dark".into()
+}
 fn default_cursor_style() -> String {
     "bar".into()
 }
@@ -174,6 +180,14 @@ pub struct AppearanceConfig {
     /// Selectable app icon id from [`APP_ICONS`]. Unknown values fall back to
     /// [`DEFAULT_APP_ICON`].
     pub app_icon: String,
+    /// Whether Con follows the OS light/dark preference or pins one scheme.
+    /// The resolved scheme picks between [`Self::light_theme`] and
+    /// [`Self::dark_theme`].
+    pub color_scheme: ColorScheme,
+    /// Terminal palette and UI chrome used while the light scheme is active.
+    pub light_theme: String,
+    /// Terminal palette and UI chrome used while the dark scheme is active.
+    pub dark_theme: String,
 }
 
 impl Default for AppearanceConfig {
@@ -196,6 +210,32 @@ impl Default for AppearanceConfig {
             tabs_orientation: TabsOrientation::Vertical,
             close_to_quit: true,
             app_icon: default_app_icon(),
+            color_scheme: ColorScheme::System,
+            light_theme: default_light_theme(),
+            dark_theme: default_dark_theme(),
+        }
+    }
+}
+
+/// How Con picks between the light and dark terminal palettes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ColorScheme {
+    /// Track the operating system's light/dark preference.
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl ColorScheme {
+    /// Resolve against the OS preference reported by the windowing layer.
+    /// `system_is_dark` is only consulted for [`Self::System`].
+    pub fn resolve(self, system_is_dark: bool) -> bool {
+        match self {
+            Self::Light => false,
+            Self::Dark => true,
+            Self::System => system_is_dark,
         }
     }
 }
@@ -232,6 +272,35 @@ impl AppearanceConfig {
         )
         .max(self.tab_accent_inactive_alpha);
         self.app_icon = sanitize_app_icon(&self.app_icon);
+        self.light_theme = sanitize_scheme_theme(&self.light_theme, true);
+        self.dark_theme = sanitize_scheme_theme(&self.dark_theme, false);
+    }
+
+    /// The configured palette for `is_dark`, replacing values that are unknown
+    /// or that sit on the wrong side of the light/dark split.
+    pub fn theme_for_scheme(&self, is_dark: bool) -> &str {
+        if is_dark {
+            &self.dark_theme
+        } else {
+            &self.light_theme
+        }
+    }
+}
+
+/// Replace unknown or wrongly-lit palettes with the matching Con default so a
+/// stale config can never pin the terminal to the opposite scheme.
+fn sanitize_scheme_theme(value: &str, wants_light: bool) -> String {
+    let trimmed = value.trim();
+    let known = con_terminal::TerminalTheme::by_name(trimmed);
+    match known {
+        Some(theme) if theme.is_dark() != wants_light => trimmed.to_string(),
+        _ => {
+            if wants_light {
+                default_light_theme()
+            } else {
+                default_dark_theme()
+            }
+        }
     }
 }
 
@@ -1006,7 +1075,28 @@ impl Config {
             &self.terminal.font_family,
         );
         self.appearance.normalize();
+        self.inherit_legacy_scheme_themes();
         self.keybindings.normalize();
+    }
+
+    /// Carry a pre-scheme config forward: older files only had the native
+    /// `theme` key, so mirror it into the matching slot. Both slots keep their
+    /// defaults unless the legacy name says otherwise.
+    fn inherit_legacy_scheme_themes(&mut self) {
+        let legacy = self.terminal.theme.trim();
+        if legacy.is_empty() {
+            return;
+        }
+        let Some(theme) = con_terminal::TerminalTheme::by_name(legacy) else {
+            return;
+        };
+        if theme.is_dark() {
+            if self.appearance.dark_theme == default_dark_theme() {
+                self.appearance.dark_theme = theme.name.clone();
+            }
+        } else if self.appearance.light_theme == default_light_theme() {
+            self.appearance.light_theme = theme.name.clone();
+        }
     }
 
     pub fn load() -> Result<Self> {
@@ -1305,9 +1395,9 @@ fn replace_file(tmp_path: &Path, path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        APP_ICONS, Config, DEFAULT_APP_ICON, DEFAULT_APP_ICON_ASSET, DEFAULT_TERMINAL_FONT_FAMILY,
-        NetworkConfig, TabsOrientation, app_icon_asset, sanitize_terminal_font_fallback,
-        sanitize_terminal_font_family,
+        APP_ICONS, ColorScheme, Config, DEFAULT_APP_ICON, DEFAULT_APP_ICON_ASSET,
+        DEFAULT_TERMINAL_FONT_FAMILY, NetworkConfig, TabsOrientation, app_icon_asset,
+        sanitize_terminal_font_fallback, sanitize_terminal_font_family,
     };
 
     #[cfg(unix)]
@@ -1558,6 +1648,52 @@ font_fallback = [" Sarasa Mono SC ", "Segoe UI Emoji", "sarasa mono sc", ".Syste
     #[test]
     fn new_configs_enable_restore_terminal_text_by_default() {
         assert!(Config::default().appearance.restore_terminal_text);
+    }
+
+    #[test]
+    fn color_scheme_defaults_to_system_with_a_light_and_dark_palette() {
+        let appearance = Config::default().appearance;
+        assert_eq!(appearance.color_scheme, ColorScheme::System);
+        assert!(!appearance.theme_for_scheme(false).is_empty());
+        assert!(!appearance.theme_for_scheme(true).is_empty());
+        assert_ne!(
+            appearance.theme_for_scheme(false),
+            appearance.theme_for_scheme(true)
+        );
+    }
+
+    #[test]
+    fn color_scheme_resolution_follows_system_only_in_system_mode() {
+        assert!(ColorScheme::System.resolve(true));
+        assert!(!ColorScheme::System.resolve(false));
+        assert!(!ColorScheme::Light.resolve(true));
+        assert!(ColorScheme::Dark.resolve(false));
+    }
+
+    #[test]
+    fn wrong_side_or_unknown_scheme_themes_fall_back_to_defaults() {
+        let mut config = Config::default();
+        // A light palette in the dark slot would pin the terminal to the
+        // opposite scheme the user asked for.
+        config.appearance.dark_theme = "flexoki-light".into();
+        config.appearance.light_theme = "no-such-theme".into();
+        config.appearance.normalize();
+        assert_eq!(config.appearance.dark_theme, "flexoki-dark");
+        assert_eq!(config.appearance.light_theme, "flexoki-light");
+    }
+
+    #[test]
+    fn legacy_theme_key_seeds_the_matching_scheme_slot() {
+        let mut config: Config = toml::from_str(
+            r#"
+[terminal]
+theme = "catppuccin-mocha"
+"#,
+        )
+        .unwrap();
+        config.normalize();
+        assert_eq!(config.appearance.dark_theme, "catppuccin-mocha");
+        assert_eq!(config.appearance.light_theme, "flexoki-light");
     }
 
     #[test]

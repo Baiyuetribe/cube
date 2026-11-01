@@ -93,11 +93,20 @@ impl ConWorkspace {
         let background_image_position = config.appearance.background_image_position.clone();
         let background_image_fit = config.appearance.background_image_fit.clone();
         let background_image_repeat = config.appearance.background_image_repeat;
-        let terminal_theme = TerminalTheme::by_name(&config.terminal.theme).unwrap_or_else(|| {
-            log::warn!(
-                "Configured terminal theme {:?} was not found; using fallback",
-                config.terminal.theme
-            );
+        // Resolve the palette from the color scheme without touching the
+        // stored config: `terminal.theme` is the user's saved value, and
+        // rewriting it here would leak the resolved name into the next save.
+        crate::theme::apply_window_color_scheme(config.appearance.color_scheme, cx);
+        let scheme_is_dark = config
+            .appearance
+            .color_scheme
+            .resolve(crate::theme::system_is_dark(window, cx));
+        let scheme_theme = config
+            .appearance
+            .theme_for_scheme(scheme_is_dark)
+            .to_string();
+        let terminal_theme = TerminalTheme::by_name(&scheme_theme).unwrap_or_else(|| {
+            log::warn!("Configured scheme theme {scheme_theme:?} was not found; using fallback");
             TerminalTheme::default()
         });
         let colors = theme_to_ghostty_colors(&terminal_theme);
@@ -141,9 +150,10 @@ impl ConWorkspace {
         .unwrap_or_else(|e| panic!("Fatal: failed to initialize Ghostty: {}", e));
         #[cfg(target_os = "macos")]
         let (terminal_theme, font_size, terminal_opacity) = {
-            let native_text = native_config_for_app(&config).unwrap_or_else(|error| {
-                panic!("Fatal: failed to render native Ghostty configuration: {error}")
-            });
+            let native_text =
+                native_config_for_theme(&config, &scheme_theme).unwrap_or_else(|error| {
+                    panic!("Fatal: failed to render native Ghostty configuration: {error}")
+                });
             let base_dir = native_config_base_dir(&config).unwrap_or_else(|error| {
                 panic!("Fatal: failed to prepare native Ghostty configuration: {error}")
             });
@@ -153,7 +163,7 @@ impl ConWorkspace {
                     panic!("Fatal: invalid native Ghostty configuration: {error}")
                 });
             let terminal_theme = native_appearance_theme(
-                config.terminal.theme.clone(),
+                scheme_theme.clone(),
                 effective.foreground,
                 effective.background,
                 &effective.palette,
@@ -738,13 +748,11 @@ impl ConWorkspace {
             workspace_focus: cx.focus_handle(),
         };
 
-        #[cfg(target_os = "macos")]
-        {
-            workspace.sync_native_color_scheme(window, cx);
-            cx.observe_window_appearance(window, Self::sync_native_color_scheme)
-                .detach();
-        }
-
+        workspace.sync_color_scheme_appearance(window, cx);
+        cx.observe_window_appearance(window, |workspace: &mut Self, window, cx| {
+            workspace.sync_color_scheme_appearance(window, cx);
+        })
+        .detach();
         workspace
     }
 
