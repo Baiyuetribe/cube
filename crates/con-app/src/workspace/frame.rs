@@ -6,6 +6,9 @@ use std::rc::Rc;
 pub(crate) const CARD_GAP: f32 = 5.0;
 pub(crate) const PANE_INSET: f32 = (CARD_GAP - 1.0) * 0.5;
 pub(crate) const CANVAS_INSET: f32 = CARD_GAP - PANE_INSET;
+// Split gutters are a hairline on purpose: the canvas keeps its 5pt breathing
+// room at the window edge, but adjacent panes sit one pixel apart.
+pub(crate) const SPLIT_PANE_INSET: f32 = 0.0;
 // Keep the resize target wider than its visible gutter without shifting its center.
 pub(crate) const PANE_RESIZE_HIT_WIDTH: f32 = 7.0;
 pub(crate) const PANE_RADIUS: f32 = 8.0;
@@ -50,8 +53,14 @@ pub(super) fn canvas_top_inset(depth: f32, horizontal_tabs: f32, caption: f32) -
     (CANVAS_INSET - caption_clearance * caption.clamp(0.0, 1.0)) * depth
 }
 
+/// Card inset and corner radius for a pane. Split panes collapse their inset to
+/// a hairline gutter and drop the corner radius entirely, so neighbouring panes
+/// meet on a single 1pt rule instead of two rounded card edges.
 pub(crate) fn pane_card_geometry(split: bool, depth: f32) -> (f32, f32) {
-    let depth = if split { 1.0 } else { depth.clamp(0.0, 1.0) };
+    if split {
+        return (SPLIT_PANE_INSET, 0.0);
+    }
+    let depth = depth.clamp(0.0, 1.0);
     (PANE_INSET * depth, PANE_RADIUS * depth)
 }
 

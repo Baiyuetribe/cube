@@ -3498,7 +3498,7 @@ impl PaneTree {
                 .size_full()
                 .p(px(inset))
                 .child(pane)
-                .when(radius > 0.0, |container| {
+                .when(!tree_has_splits && radius > 0.0, |container| {
                     container
                         .child(active.terminal.pane_surround(
                             _surround_color,
@@ -4157,15 +4157,17 @@ mod tests {
                         .read(cx)
                         .pane_clip_for_test()
                         .unwrap();
-                    assert_eq!(first.left(), px(5.0));
-                    assert_eq!(first.top(), px(5.0));
-                    assert_eq!(px(width) - second.right(), px(5.0));
-                    assert_eq!(px(height) - second.bottom(), px(5.0));
+                    // Split panes drop their card inset so the gutter is a
+                    // hairline; the canvas keeps the outer margin.
+                    assert_eq!(first.left(), px(3.0));
+                    assert_eq!(first.top(), px(3.0));
+                    assert_eq!(px(width) - second.right(), px(3.0));
+                    assert_eq!(px(height) - second.bottom(), px(3.0));
                     let gutter = match direction {
                         SplitDirection::Horizontal => second.left() - first.right(),
                         SplitDirection::Vertical => second.top() - first.bottom(),
                     };
-                    assert_eq!(gutter, px(5.0));
+                    assert_eq!(gutter, px(1.0));
                 });
             }
         }
