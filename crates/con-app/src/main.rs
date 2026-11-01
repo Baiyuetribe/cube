@@ -1652,13 +1652,9 @@ fn configurable_app_binding_specs(kb: &KeybindingConfig) -> Vec<BindingSpec> {
     push_global::<command_palette::ToggleCommandPalette>(&mut specs, &kb.command_palette);
     push_global::<SplitRight>(&mut specs, &kb.split_right);
     push_global::<SplitDown>(&mut specs, &kb.split_down);
-    push_global::<NewSurface>(&mut specs, &kb.new_surface);
-    push_global::<NewSurfaceSplitRight>(&mut specs, &kb.new_surface_split_right);
-    push_global::<NewSurfaceSplitDown>(&mut specs, &kb.new_surface_split_down);
-    push_global::<NextSurface>(&mut specs, &kb.next_surface);
-    push_global::<PreviousSurface>(&mut specs, &kb.previous_surface);
-    push_global::<RenameSurface>(&mut specs, &kb.rename_surface);
-    push_global::<CloseSurface>(&mut specs, &kb.close_surface);
+    // Surface actions are no longer bound: the feature has no UI entry point.
+    // The actions themselves stay registered so existing session files that
+    // reference surface ids still load.
     push_global::<TogglePaneScopePicker>(&mut specs, &kb.toggle_pane_scope);
     push_global::<ToggleLeftPanel>(&mut specs, &kb.toggle_left_panel);
     // Text inputs/editors may consume file/search navigation chords for
@@ -2905,14 +2901,6 @@ fn main() {
                     MenuItem::separator(),
                     MenuItem::action("清空终端", ClearTerminal),
                     MenuItem::action("清空已恢复的终端历史", ClearRestoredTerminalHistory),
-                    MenuItem::separator(),
-                    MenuItem::action("新建 Surface 标签", NewSurface),
-                    MenuItem::action("向右新建 Surface 分屏", NewSurfaceSplitRight),
-                    MenuItem::action("向下新建 Surface 分屏", NewSurfaceSplitDown),
-                    MenuItem::action("下一个 Surface 标签", NextSurface),
-                    MenuItem::action("上一个 Surface 标签", PreviousSurface),
-                    MenuItem::action("重命名当前 Surface", RenameSurface),
-                    MenuItem::action("关闭当前 Surface", CloseSurface),
                 ],
                 disabled: false,
             },

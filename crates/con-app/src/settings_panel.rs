@@ -3080,16 +3080,6 @@ impl SettingsPanel {
             ("关闭分屏", "close_pane"),
         ];
 
-        let surface_keys: &[(&str, &str)] = &[
-            ("新建 Surface 标签", "new_surface"),
-            ("向右新建 Surface 分屏", "new_surface_split_right"),
-            ("向下新建 Surface 分屏", "new_surface_split_down"),
-            ("下一个 Surface 标签", "next_surface"),
-            ("上一个 Surface 标签", "previous_surface"),
-            ("重命名 Surface", "rename_surface"),
-            ("关闭 Surface", "close_surface"),
-        ];
-
         let build_card = |keys: &[(&str, &str)],
                           recording: &Option<String>,
                           this: &mut Self,
@@ -3197,7 +3187,6 @@ impl SettingsPanel {
         let general_card = build_card(general_keys, &recording, self, cx);
         let pane_card_keys = pane_keys;
         let pane_card = build_card(pane_card_keys, &recording, self, cx);
-        let surface_card = build_card(surface_keys, &recording, self, cx);
         let global_summon_enabled = self.config.keybindings.global_summon_enabled;
         let global_summon_value = self.config.keybindings.global_summon.clone();
         let global_summon_recording = recording.as_deref() == Some("global_summon");
@@ -3586,14 +3575,6 @@ impl SettingsPanel {
                 .gap(px(8.0))
                 .child(group_label("分屏", theme))
                 .child(pane_card),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.0))
-                .child(group_label("Surface", theme))
-                .child(surface_card),
         )
         .child(
             div()

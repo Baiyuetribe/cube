@@ -72,33 +72,6 @@ pub(crate) fn terminal_context_menu(
         .item(action_item("切换分屏缩放", Box::new(crate::TogglePaneZoom)))
         .item(action_item("关闭分屏", Box::new(crate::ClosePane)))
         .separator()
-        .submenu("Surface", window, cx, |menu, _window, _cx| {
-            menu.min_w(px(250.0))
-                .item(action_item(
-                    "新建 Surface 标签",
-                    Box::new(crate::NewSurface),
-                ))
-                .item(action_item(
-                    "向右新建 Surface 分屏",
-                    Box::new(crate::NewSurfaceSplitRight),
-                ))
-                .item(action_item(
-                    "向下新建 Surface 分屏",
-                    Box::new(crate::NewSurfaceSplitDown),
-                ))
-                .separator()
-                .item(action_item(
-                    "下一个 Surface 标签",
-                    Box::new(crate::NextSurface),
-                ))
-                .item(action_item(
-                    "上一个 Surface 标签",
-                    Box::new(crate::PreviousSurface),
-                ))
-                .item(action_item("重命名当前", Box::new(crate::RenameSurface)))
-                .item(action_item("关闭当前", Box::new(crate::CloseSurface)))
-        })
-        .separator()
         .item(action_item(
             "设置",
             Box::new(crate::settings_panel::ToggleSettings),
