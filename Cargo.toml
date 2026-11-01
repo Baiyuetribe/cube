@@ -42,31 +42,19 @@ reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.7" }
 gpui-component = "=0.7.0"
 gpui-kit-assets = "=0.7.0"
 
-# AI Agent
-rig = { package = "rig-core", version = "0.40.0", default-features = false, features = [
-    "rustls",
-] }
-
 # Async
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
-smol = "2"
-
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_repr = "0.1"
 toml = "0.8"
-schemars = "1"
 
 # Text & Language
 ropey = { version = "=2.0.0-beta.1", features = [
     "metric_lines_lf",
     "metric_utf16",
 ] }
-sum-tree = { version = "0.2.0", package = "zed-sum-tree" }
-rust-i18n = "3"
-lsp-types = { version = "0.97.0", features = ["proposed"] }
 unicode-width = "0.2"
 html5ever = "0.39.0"
 markup5ever_rcdom = "=0.39.0"
@@ -82,21 +70,17 @@ parking_lot = "0.12"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
-gethostname = "1"
 notify = "7.0.0"
 smallvec = "1"
 reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls",
     "json",
 ] }
-http = "1"
 url = "2"
 rust-embed = { version = "8.7.2", features = [
     "interpolate-folder-path",
     "include-exclude",
 ] }
-mermaid-rs-renderer = { version = "0.3.1", default-features = false }
-mathjax-svg-rs = "0.4.0"
 
 [workspace.lints.clippy]
 # Inherited by gpui-component crates

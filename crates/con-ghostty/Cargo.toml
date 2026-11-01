@@ -20,7 +20,6 @@ cc = "1"
 serde_json.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-core-foundation = "0.10"
 objc = "0.2"
 dispatch = "0.2"
 

@@ -44,10 +44,8 @@ anyhow.workspace = true
 log.workspace = true
 ttf-parser = "0.25"
 env_logger.workspace = true
-tracing = { version = "0.1", features = ["log"] }
 crossbeam-channel.workspace = true
 parking_lot.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 futures.workspace = true
 notify.workspace = true
@@ -63,8 +61,6 @@ markdown = { version = "1.0.0", features = ["serde"] }
 html5ever.workspace = true
 markup5ever_rcdom.workspace = true
 ropey.workspace = true
-mermaid-rs-renderer.workspace = true
-mathjax-svg-rs.workspace = true
 regex = "1"
 imagesize = "0.13"
 image = { version = "0.25", default-features = false, features = ["png"] }

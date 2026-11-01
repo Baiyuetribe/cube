@@ -13,10 +13,8 @@ con-core.workspace = true
 con-terminal.workspace = true
 con-paths.workspace = true
 con-process.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
-tokio.workspace = true
 clap = { version = "4.5", features = ["derive"] }
 
 [target.'cfg(unix)'.dependencies]
