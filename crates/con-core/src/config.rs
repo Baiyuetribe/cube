@@ -207,7 +207,7 @@ impl Default for AppearanceConfig {
             tab_accent_inactive_hover_alpha: default_tab_accent_inactive_hover_alpha(),
             restore_terminal_text: default_restore_terminal_text(),
             hide_pane_title_bar: false,
-            tabs_orientation: TabsOrientation::Vertical,
+            tabs_orientation: TabsOrientation::Horizontal,
             close_to_quit: true,
             app_icon: default_app_icon(),
             color_scheme: ColorScheme::System,
@@ -243,8 +243,11 @@ impl ColorScheme {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TabsOrientation {
-    Horizontal,
+    /// Top strip above the terminal. This is the default: the left sidebar
+    /// keeps only the file tree, so tabs read like a browser-style tab bar.
     #[default]
+    Horizontal,
+    /// Tabs live in the left sidebar next to the file tree.
     Vertical,
 }
 
@@ -1857,7 +1860,7 @@ search_files = "alt-f"
     }
 
     #[test]
-    fn omitted_tabs_orientation_defaults_to_vertical() {
+    fn omitted_tabs_orientation_defaults_to_horizontal() {
         let content = r#"
 [appearance]
 terminal_opacity = 0.8
@@ -1866,11 +1869,11 @@ terminal_opacity = 0.8
 
         assert_eq!(
             config.appearance.tabs_orientation,
-            TabsOrientation::Vertical
+            TabsOrientation::Horizontal
         );
         assert_eq!(
             Config::default().appearance.tabs_orientation,
-            TabsOrientation::Vertical
+            TabsOrientation::Horizontal
         );
     }
 
