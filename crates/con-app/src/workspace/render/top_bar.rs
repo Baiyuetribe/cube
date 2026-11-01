@@ -2847,12 +2847,9 @@ impl ConWorkspace {
                 })),
             );
         }
-        // Settings button — only on platforms without a native menu
-        // bar. macOS exposes Settings through `App → Settings…` (and
-        // ⌘,) so a gear in the chrome would be redundant there. On
-        // Windows and Linux it's the primary discovery surface for
-        // Settings alongside the command palette.
-        #[cfg(not(target_os = "macos"))]
+        // Settings stays in the chrome on every platform. macOS also has
+        // `App → Settings…` (⌘,), but the icon is the discoverable entry point
+        // this fork's users reach for first.
         {
             tab_controls = tab_controls.child(
                 chrome_button(
