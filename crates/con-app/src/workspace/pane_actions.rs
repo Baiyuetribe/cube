@@ -359,6 +359,62 @@ impl ConWorkspace {
         cx.notify();
     }
 
+    /// Split a specific pane (not necessarily the focused one) from the pane
+    /// header controls. Mirrors [`Self::split_pane`] but targets `pane_id`, so
+    /// clicking a split button on a background pane splits that pane.
+    pub(super) fn split_pane_for_pane(
+        &mut self,
+        pane_id: usize,
+        direction: SplitDirection,
+        placement: SplitPlacement,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.has_active_tab() {
+            return;
+        }
+        // Inherit the working directory of the pane being split, not the
+        // focused one: they differ whenever the button is clicked on a
+        // background pane.
+        let cwd = self.tabs[self.active_tab]
+            .pane_tree
+            .pane_terminals()
+            .into_iter()
+            .find(|(id, _)| *id == pane_id)
+            .and_then(|(_, terminal)| terminal.current_dir(cx));
+        let terminal = self.create_terminal(cwd.as_deref(), window, cx);
+        let was_zoomed = self.tabs[self.active_tab]
+            .pane_tree
+            .zoomed_pane_id()
+            .is_some();
+        self.tabs[self.active_tab]
+            .pane_tree
+            .split_pane_with_placement(pane_id, direction, placement, terminal.clone());
+        #[cfg(target_os = "macos")]
+        self.mark_active_tab_terminal_native_layout_pending(cx);
+        self.record_runtime_event_for_terminal(
+            self.active_tab,
+            &terminal,
+            con_terminal::PaneRuntimeEvent::PaneCreated {
+                startup_command: None,
+            },
+        );
+        self.notify_active_tab_terminal_views(cx);
+        terminal.focus(window, cx);
+        self.sync_active_terminal_focus_states(cx);
+        self.sync_active_tab_native_view_visibility_now_or_after_layout(was_zoomed, window, cx);
+        self.sync_sidebar(cx);
+        Self::schedule_terminal_bootstrap_reassert(
+            &terminal,
+            true,
+            self.window_handle,
+            self.workspace_handle.clone(),
+            cx,
+        );
+        self.save_session(cx);
+        cx.notify();
+    }
+
     pub(super) fn split_right(
         &mut self,
         _: &SplitRight,

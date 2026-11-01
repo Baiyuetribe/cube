@@ -521,6 +521,34 @@ impl Render for ConWorkspace {
                 }
             };
             let workspace = cx.weak_entity();
+            let split_right_cb = move |pane_id: usize, window: &mut Window, cx: &mut App| {
+                if let Some(workspace) = workspace.upgrade() {
+                    workspace.update(cx, |workspace, cx| {
+                        workspace.split_pane_for_pane(
+                            pane_id,
+                            SplitDirection::Horizontal,
+                            SplitPlacement::After,
+                            window,
+                            cx,
+                        );
+                    });
+                }
+            };
+            let workspace = cx.weak_entity();
+            let split_down_cb = move |pane_id: usize, window: &mut Window, cx: &mut App| {
+                if let Some(workspace) = workspace.upgrade() {
+                    workspace.update(cx, |workspace, cx| {
+                        workspace.split_pane_for_pane(
+                            pane_id,
+                            SplitDirection::Vertical,
+                            SplitPlacement::After,
+                            window,
+                            cx,
+                        );
+                    });
+                }
+            };
+            let workspace = cx.weak_entity();
             let close_pane_cb = move |pane_id: usize, window: &mut Window, cx: &mut App| {
                 if let Some(workspace) = workspace.upgrade() {
                     workspace.update(cx, |workspace, cx| {
@@ -546,6 +574,8 @@ impl Render for ConWorkspace {
                 focus_pane_cb,
                 rename_surface_cb,
                 close_surface_cb,
+                split_right_cb,
+                split_down_cb,
                 close_pane_cb,
                 toggle_zoom_cb,
                 self.surface_rename.clone(),

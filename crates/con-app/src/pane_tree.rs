@@ -1175,6 +1175,8 @@ impl PaneTree {
         focus_pane_cb: impl Fn(PaneId, &mut Window, &mut App) + 'static,
         rename_surface_cb: impl Fn(SurfaceId, &mut Window, &mut App) + 'static,
         close_surface_cb: impl Fn(SurfaceId, &mut Window, &mut App) + 'static,
+        split_right_cb: impl Fn(PaneId, &mut Window, &mut App) + 'static,
+        split_down_cb: impl Fn(PaneId, &mut Window, &mut App) + 'static,
         close_pane_cb: impl Fn(PaneId, &mut Window, &mut App) + 'static,
         toggle_zoom_cb: impl Fn(PaneId, &mut Window, &mut App) + 'static,
         rename_editor: Option<SurfaceRenameEditor>,
@@ -1190,6 +1192,8 @@ impl PaneTree {
         let focus_pane_cb = std::sync::Arc::new(focus_pane_cb);
         let rename_surface_cb = std::sync::Arc::new(rename_surface_cb);
         let close_surface_cb = std::sync::Arc::new(close_surface_cb);
+        let split_right_cb = std::sync::Arc::new(split_right_cb);
+        let split_down_cb = std::sync::Arc::new(split_down_cb);
         let close_pane_cb = std::sync::Arc::new(close_pane_cb);
         let toggle_zoom_cb = std::sync::Arc::new(toggle_zoom_cb);
         let has_splits = self.pane_count() > 1;
@@ -1206,6 +1210,8 @@ impl PaneTree {
                 focus_pane_cb.clone(),
                 rename_surface_cb.clone(),
                 close_surface_cb.clone(),
+                split_right_cb.clone(),
+                split_down_cb.clone(),
                 close_pane_cb.clone(),
                 toggle_zoom_cb.clone(),
                 rename_editor.clone(),
@@ -1231,6 +1237,8 @@ impl PaneTree {
             focus_pane_cb,
             rename_surface_cb,
             close_surface_cb,
+            split_right_cb,
+            split_down_cb,
             close_pane_cb,
             toggle_zoom_cb,
             rename_editor,
@@ -2000,6 +2008,8 @@ impl PaneTree {
         focus_pane_cb: PaneCallback,
         rename_surface_cb: SurfaceCallback,
         close_surface_cb: SurfaceCallback,
+        split_right_cb: PaneCallback,
+        split_down_cb: PaneCallback,
         close_pane_cb: PaneCallback,
         toggle_zoom_cb: PaneCallback,
         rename_editor: Option<SurfaceRenameEditor>,
@@ -2026,6 +2036,8 @@ impl PaneTree {
                 focus_pane_cb,
                 rename_surface_cb,
                 close_surface_cb,
+                split_right_cb,
+                split_down_cb,
                 close_pane_cb,
                 toggle_zoom_cb,
                 rename_editor,
@@ -2061,6 +2073,10 @@ impl PaneTree {
                 let rename_cb_second = rename_surface_cb.clone();
                 let close_cb_first = close_surface_cb.clone();
                 let close_cb_second = close_surface_cb.clone();
+                let split_right_cb_first = split_right_cb.clone();
+                let split_right_cb_second = split_right_cb.clone();
+                let split_down_cb_first = split_down_cb.clone();
+                let split_down_cb_second = split_down_cb.clone();
                 let close_pane_cb_first = close_pane_cb.clone();
                 let close_pane_cb_second = close_pane_cb.clone();
                 let toggle_zoom_cb_first = toggle_zoom_cb.clone();
@@ -2076,6 +2092,8 @@ impl PaneTree {
                     focus_pane_cb_first,
                     rename_cb_first,
                     close_cb_first,
+                    split_right_cb_first,
+                    split_down_cb_first,
                     close_pane_cb_first,
                     toggle_zoom_cb_first,
                     rename_editor_first,
@@ -2099,6 +2117,8 @@ impl PaneTree {
                     focus_pane_cb_second,
                     rename_cb_second,
                     close_cb_second,
+                    split_right_cb_second,
+                    split_down_cb_second,
                     close_pane_cb_second,
                     toggle_zoom_cb_second,
                     rename_editor_second,
@@ -2236,6 +2256,8 @@ impl PaneTree {
         focus_pane_cb: PaneCallback,
         rename_surface_cb: SurfaceCallback,
         close_surface_cb: SurfaceCallback,
+        split_right_cb: PaneCallback,
+        split_down_cb: PaneCallback,
         close_pane_cb: PaneCallback,
         toggle_zoom_cb: PaneCallback,
         rename_editor: Option<SurfaceRenameEditor>,
@@ -2260,6 +2282,8 @@ impl PaneTree {
                 focus_pane_cb,
                 rename_surface_cb,
                 close_surface_cb,
+                split_right_cb,
+                split_down_cb,
                 close_pane_cb,
                 toggle_zoom_cb,
                 rename_editor,
@@ -2282,6 +2306,8 @@ impl PaneTree {
                 focus_pane_cb.clone(),
                 rename_surface_cb.clone(),
                 close_surface_cb.clone(),
+                split_right_cb.clone(),
+                split_down_cb.clone(),
                 close_pane_cb.clone(),
                 toggle_zoom_cb.clone(),
                 rename_editor.clone(),
@@ -2304,6 +2330,8 @@ impl PaneTree {
                     focus_pane_cb,
                     rename_surface_cb,
                     close_surface_cb,
+                    split_right_cb,
+                    split_down_cb,
                     close_pane_cb,
                     toggle_zoom_cb,
                     rename_editor,
@@ -2358,6 +2386,8 @@ impl PaneTree {
         is_zoomed: bool,
         _tab_accent_color: Option<con_core::session::TabAccentColor>,
         _tab_accent_inactive_alpha: f32,
+        split_right_cb: PaneCallback,
+        split_down_cb: PaneCallback,
         close_pane_cb: PaneCallback,
         toggle_zoom_cb: PaneCallback,
         focus_pane_cb: PaneCallback,
@@ -2374,7 +2404,9 @@ impl PaneTree {
         let btn_color = theme.muted_foreground;
         let bar_height = pane_bar_height(theme);
         let action_size = ui_space_px(theme, 20.0);
-        let action_count = if has_splits { 2.0 } else { 1.0 };
+        // Split and zoom are always available; close only exists once a sibling
+        // pane does, so the title's right inset has to follow that.
+        let action_count = if has_splits { 4.0 } else { 3.0 };
         let title_inset = action_size * action_count + px(6.0);
 
         let zoom_icon = if is_zoomed {
@@ -2421,6 +2453,40 @@ impl PaneTree {
         .child(
             svg()
                 .path(zoom_icon)
+                .size(crate::ui_scale::ui_icon_px(theme, 12.0).min(px(14.0)))
+                .text_color(btn_color),
+        );
+
+        let split_right_cb_btn = split_right_cb.clone();
+        let split_right_btn = action(
+            ElementId::Name(format!("pane-split-right-{pane_id}").into()),
+            "Split right".into(),
+        )
+        .debug_selector(move || format!("pane-split-right-action-{pane_id}"))
+        .on_click(move |_event, window, cx| {
+            split_right_cb_btn(pane_id, window, cx);
+            cx.stop_propagation();
+        })
+        .child(
+            svg()
+                .path("phosphor/split-right.svg")
+                .size(crate::ui_scale::ui_icon_px(theme, 12.0).min(px(14.0)))
+                .text_color(btn_color),
+        );
+
+        let split_down_cb_btn = split_down_cb.clone();
+        let split_down_btn = action(
+            ElementId::Name(format!("pane-split-down-{pane_id}").into()),
+            "Split down".into(),
+        )
+        .debug_selector(move || format!("pane-split-down-action-{pane_id}"))
+        .on_click(move |_event, window, cx| {
+            split_down_cb_btn(pane_id, window, cx);
+            cx.stop_propagation();
+        })
+        .child(
+            svg()
+                .path("phosphor/split-down.svg")
                 .size(crate::ui_scale::ui_icon_px(theme, 12.0).min(px(14.0)))
                 .text_color(btn_color),
         );
@@ -2560,6 +2626,8 @@ impl PaneTree {
             .h(action_size)
             .invisible()
             .group_hover(header_group, |style| style.visible())
+            .child(split_right_btn)
+            .child(split_down_btn)
             .child(zoom_btn);
         if let Some(close) = close_btn {
             actions = actions.child(close);
@@ -2941,6 +3009,8 @@ impl PaneTree {
         focus_pane_cb: PaneCallback,
         rename_surface_cb: SurfaceCallback,
         close_surface_cb: SurfaceCallback,
+        split_right_cb: PaneCallback,
+        split_down_cb: PaneCallback,
         close_pane_cb: PaneCallback,
         toggle_zoom_cb: PaneCallback,
         rename_editor: Option<SurfaceRenameEditor>,
@@ -3366,6 +3436,8 @@ impl PaneTree {
                 zoomed_pane_id == Some(pane_id),
                 tab_accent_color,
                 tab_accent_inactive_alpha,
+                split_right_cb.clone(),
+                split_down_cb.clone(),
                 close_pane_cb,
                 toggle_zoom_cb,
                 focus_pane_cb.clone(),
@@ -3877,6 +3949,8 @@ mod tests {
                 |_, _, _| {},
                 |_, _, _| {},
                 |_, _, _| {},
+                |_, _, _| {},
+                |_, _, _| {},
                 self.rename_editor.clone(),
                 cx.theme().title_bar,
                 cx.theme().background,
@@ -4142,6 +4216,8 @@ mod tests {
                 |_, _, _| {},
                 |_, _, _| {},
                 |_, _, _| {},
+                |_, _, _| {},
+                |_, _, _| {},
                 None,
                 cx.theme().title_bar,
                 cx.theme().background,
@@ -4271,6 +4347,8 @@ mod tests {
         focused_clicks: usize,
         close_clicks: usize,
         zoom_clicks: usize,
+        split_right_clicks: usize,
+        split_down_clicks: usize,
     }
 
     impl Render for PaneHeaderTestView {
@@ -4278,6 +4356,8 @@ mod tests {
             let handle = cx.entity();
             let close = handle.clone();
             let zoom = handle.clone();
+            let split_right = handle.clone();
+            let split_down = handle.clone();
             div()
                 .w(px(self.width))
                 .child(PaneTree::render_pane_title_bar(
@@ -4290,6 +4370,12 @@ mod tests {
                     self.zoomed,
                     None,
                     0.08,
+                    std::sync::Arc::new(move |_, _, cx| {
+                        split_right.update(cx, |view, _| view.split_right_clicks += 1);
+                    }),
+                    std::sync::Arc::new(move |_, _, cx| {
+                        split_down.update(cx, |view, _| view.split_down_clicks += 1);
+                    }),
                     std::sync::Arc::new(move |_, _, cx| {
                         close.update(cx, |view, _| view.close_clicks += 1);
                     }),
@@ -4317,6 +4403,8 @@ mod tests {
             focused_clicks: 0,
             close_clicks: 0,
             zoom_clicks: 0,
+            split_right_clicks: 0,
+            split_down_clicks: 0,
         });
         use gpui_component::ThemeMode;
         for (mode, width, focused, zoomed) in [
@@ -4351,6 +4439,8 @@ mod tests {
             cx.simulate_mouse_move(bar.center(), MouseButton::Left, Modifiers::default());
             cx.run_until_parked();
             let label = cx.debug_bounds("pane-title-label-0").unwrap();
+            let split_right = cx.debug_bounds("pane-split-right-action-0").unwrap();
+            let split_down = cx.debug_bounds("pane-split-down-action-0").unwrap();
             let zoom = cx.debug_bounds("pane-zoom-action-0").unwrap();
             let close = cx.debug_bounds("pane-close-action-0").unwrap();
             assert_eq!(bar.size.height, px(24.0));
@@ -4361,17 +4451,27 @@ mod tests {
             assert_eq!(close.size, size(px(20.0), px(20.0)));
             assert_eq!(bar.right() - close.right(), px(4.0));
             assert_eq!(zoom.right(), close.left());
+            assert_eq!(split_down.right(), zoom.left());
+            assert_eq!(split_right.right(), split_down.left());
+            cx.simulate_click(split_right.center(), Modifiers::default());
+            cx.simulate_click(split_down.center(), Modifiers::default());
             cx.simulate_click(close.center(), Modifiers::default());
             cx.simulate_click(zoom.center(), Modifiers::default());
         }
         cx.update(|_, cx| {
             let view = view.read(cx);
+            assert_eq!(view.split_right_clicks, 4);
+            assert_eq!(view.split_down_clicks, 4);
             assert_eq!(view.close_clicks, 4);
             assert_eq!(view.zoom_clicks, 4);
             assert_eq!(view.focused_clicks, 0);
         });
         let label = cx.debug_bounds("pane-title-label-0").unwrap();
-        cx.simulate_click(label.center(), Modifiers::default());
+        // The label box spans the whole bar, but its padded text stops short of
+        // the header controls; clicking the geometric centre can land under a
+        // button on narrow panes, so click near the visible text instead.
+        let text_click = point(label.left() + px(24.0), label.center().y);
+        cx.simulate_click(text_click, Modifiers::default());
         cx.update(|_, cx| assert_eq!(view.read(cx).focused_clicks, 1));
     }
 
@@ -4397,6 +4497,8 @@ mod tests {
                     false,
                     None,
                     0.08,
+                    std::sync::Arc::new(|_, _, _| {}),
+                    std::sync::Arc::new(|_, _, _| {}),
                     std::sync::Arc::new(move |id, _, cx| {
                         close.update(cx, |view, _| view.closed.push(id));
                     }),
@@ -4447,6 +4549,8 @@ mod tests {
                 div().size_full().child(self.tree.render(
                     1,
                     |_, _, _, _| {},
+                    |_, _, _| {},
+                    |_, _, _| {},
                     |_, _, _| {},
                     |_, _, _| {},
                     |_, _, _| {},
@@ -4524,6 +4628,8 @@ mod tests {
                     |_, _, _| {},
                     |_, _, _| {},
                     move |id, _, cx| closed.update(cx, |view, _| view.closed.push(id)),
+                    |_, _, _| {},
+                    |_, _, _| {},
                     |_, _, _| {},
                     |_, _, _| {},
                     None,
