@@ -51,6 +51,7 @@ const GHOSTTY_REPO: &str = "https://github.com/wey-gu/ghostty.git";
 // ingress and close/shutdown/incarnation fixes, not just the initial bridge.
 const GHOSTTY_REV: &str = "8b0ac6c4bc2b0977ef81f80d0c189b2e540f4077";
 const GHOSTTY_ENV: &str = "CON_GHOSTTY_SOURCE_DIR";
+const GHOSTTY_MIRROR_ENV: &str = "CON_GHOSTTY_MIRROR";
 const GHOSTTY_INITIAL_OUTPUT_REQUIRE_ENV: &str = "CON_REQUIRE_GHOSTTY_INITIAL_OUTPUT";
 const GHOSTTY_PREFETCH_DEPS_ENV: &str = "CON_GHOSTTY_PREFETCH_DEPS";
 const GHOSTTY_VT_TARGET_ENV: &str = "CON_GHOSTTY_VT_TARGET";
@@ -65,6 +66,7 @@ fn main() {
     // until something unrelated invalidated the cache.
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS");
     println!("cargo:rerun-if-env-changed={GHOSTTY_ENV}");
+    println!("cargo:rerun-if-env-changed={GHOSTTY_MIRROR_ENV}");
     println!("cargo:rerun-if-env-changed={GHOSTTY_INITIAL_OUTPUT_REQUIRE_ENV}");
     println!("cargo:rerun-if-env-changed={GHOSTTY_PREFETCH_DEPS_ENV}");
     println!("cargo:rerun-if-env-changed=CON_STUB_GHOSTTY_VT");
@@ -621,23 +623,92 @@ fn resolve_ghostty_source() -> PathBuf {
         fs::remove_dir_all(&vendor_root).expect("failed to clear stale vendored ghostty source");
     }
 
-    run(
-        Command::new("git").args([
-            "clone",
-            "--no-checkout",
-            GHOSTTY_REPO,
-            vendor_root.to_str().expect("non-utf8 ghostty vendor path"),
-        ]),
-        "failed to clone Ghostty source",
-    );
-    run(
-        Command::new("git")
-            .args(["checkout", GHOSTTY_REV])
-            .current_dir(&vendor_root),
-        "failed to checkout pinned Ghostty revision",
-    );
+    // A cached bare mirror under the user cache dir lets an offline or
+    // slow-network machine populate `ghostty-src` without reaching GitHub.
+    // The mirror is created on the first successful online clone, so the
+    // next fresh-target rebuild doesn't stall on git.
+    let mirror = ghostty_mirror_path();
+    if let Some(mirror) = mirror.as_deref().filter(|path| path.exists()) {
+        if clone_ghostty_tree(&mirror.to_string_lossy(), &vendor_root) {
+            return vendor_root;
+        }
+        println!(
+            "cargo:warning=con-ghostty: local mirror {} has no {GHOSTTY_REV}; cloning from {GHOSTTY_REPO}",
+            mirror.display()
+        );
+        let _ = fs::remove_dir_all(&vendor_root);
+    }
+
+    if !clone_ghostty_tree(GHOSTTY_REPO, &vendor_root) {
+        panic!(
+            "failed to clone Ghostty source from {GHOSTTY_REPO}\n\
+             Set CON_GHOSTTY_SOURCE_DIR to an existing Ghostty checkout of {GHOSTTY_REV} \
+             to build without network access.{}",
+            mirror
+                .as_deref()
+                .map(|mirror| format!("\nLocal mirror considered: {}", mirror.display()))
+                .unwrap_or_default()
+        );
+    }
+
+    if let Some(mirror) = mirror {
+        refresh_ghostty_mirror(&vendor_root, &mirror);
+    }
 
     vendor_root
+}
+
+/// Bare mirror cache, alongside the build caches rather than inside `target`
+/// so `cargo clean` never evicts it.
+fn ghostty_mirror_path() -> Option<PathBuf> {
+    if let Some(explicit) = env::var_os(GHOSTTY_MIRROR_ENV) {
+        let path = PathBuf::from(explicit);
+        return (!path.as_os_str().is_empty()).then_some(path);
+    }
+    let cache_dir = env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        .or_else(|| env::var_os("LOCALAPPDATA").map(PathBuf::from))?;
+    Some(cache_dir.join("con-ghostty-mirror.git"))
+}
+
+/// Clone `source` (URL or local mirror path) and check out the pinned revision.
+fn clone_ghostty_tree(source: &str, vendor_root: &Path) -> bool {
+    let vendor = vendor_root.to_str().expect("non-utf8 ghostty vendor path");
+    let cloned = Command::new("git")
+        .args(["clone", "--no-checkout", "--quiet", source, vendor])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    cloned
+        && Command::new("git")
+            .args(["checkout", "--quiet", GHOSTTY_REV])
+            .current_dir(vendor_root)
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+}
+
+/// After a successful online clone, (re)create the local mirror so the next
+/// full rebuild has an offline source of truth.
+fn refresh_ghostty_mirror(vendor_root: &Path, mirror: &Path) {
+    if let Some(parent) = mirror.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::remove_dir_all(mirror);
+    let status = Command::new("git")
+        .args(["clone", "--bare", "--quiet"])
+        .arg(vendor_root)
+        .arg(mirror)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !status {
+        println!(
+            "cargo:warning=con-ghostty: could not refresh local mirror at {}",
+            mirror.display()
+        );
+    }
 }
 
 fn patchable_ghostty_source(source: PathBuf) -> PathBuf {
@@ -944,15 +1015,6 @@ fn current_git_rev(repo_dir: &PathBuf) -> Option<String> {
     String::from_utf8(output.stdout)
         .ok()
         .map(|s| s.trim().to_string())
-}
-
-fn run(command: &mut Command, context: &str) {
-    let status = command
-        .status()
-        .unwrap_or_else(|err| panic!("{context}: {err}"));
-    if !status.success() {
-        panic!("{context}");
-    }
 }
 
 fn zig_global_cache_dir(target_os: &str) -> Option<PathBuf> {

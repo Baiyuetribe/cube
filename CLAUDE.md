@@ -51,6 +51,8 @@ cargo wtest
 
 首次构建需要访问 GitHub（克隆 `wey-gu/ghostty` 的固定 revision），然后调用 Zig 编译完整 libghostty，耗时数分钟。
 
+克隆成功后 `build.rs` 会自动在 `~/.cache/con-ghostty-mirror.git` 建一个裸镜像；之后新建 target 视图（`cargo check` 的独立 target、mbx 视图切换、`cargo clean`）会优先从镜像克隆，不走网络。可用 `CON_GHOSTTY_MIRROR=/abs/path` 指定其他镜像位置，`CON_GHOSTTY_SOURCE_DIR` 则完全跳过克隆。
+
 ## 架构
 
 ### Crate 依赖（单向，无环）
