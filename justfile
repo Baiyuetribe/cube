@@ -9,18 +9,19 @@
 # `arch` 参数默认为 "" —— 每个 Unix 配方会在 shell 体内通过
 # `uname -m` 自动探测。Windows 配方从不引用 arch，因此那里不会调用 `uname`。
 # 需要时显式覆盖：just arch=x86_64 macos-bundle
-
 # Windows 上使用 cmd.exe，使配方能在普通 Developer Command Prompt 中运行，
 # 无需 PATH 上有 Git Bash、Cygwin 或 sh。
+
 set windows-shell := ["cmd.exe", "/c"]
 
 # ── 默认值 ────────────────────────────────────────────────────────────────────
-
 # macOS/Linux 应用包的发布通道（stable | beta | dev）
+
 channel := "stable"
 
 # 目标架构。为空 = 在每个配方内部自动探测（仅 Unix）。
 # Windows 配方从不使用此变量，因此那里永远不会调用 uname。
+
 arch := ""
 
 # ── 列表 ──────────────────────────────────────────────────────────────────────
@@ -29,12 +30,24 @@ arch := ""
 default:
     @just --list
 
+# ============== 开发阶段 ==============
+
+exe_name := "con"
+
+# Rust 后端类型检查
+dev:
+    cargo watch -q -w crates -x 'check -p {{ exe_name }} --color=always --bin {{ exe_name }}'
+
+# Rust 后端热重载
+pre:
+    cargo watch -q -w crates -x 'run -p {{ exe_name }} --color=always --bin {{ exe_name }}'
+
 # ── 通用开发命令 ──────────────────────────────────────────────────────────────
 # 这些命令分发到对应平台的配方。Windows 必须使用 `w*` cargo 别名，
 # 因为 `CON` 是 DOS 保留设备名，且 Windows 二进制通过特性门控命名为 `con-app.exe`。
-
 # Debug 构建 —— 当前平台。
 # con-cli 必须与 Con 二进制位于同一目录：handoff 启动辅助程序及其
+
 # 分发前协议门禁会在 `current_exe()` 旁边查找 `con-cli`。
 build:
     {{ if os() == "windows" { "cargo wbuild -p con && cargo build -p con-cli" } else { "cargo build -p con -p con-cli" } }}
@@ -76,8 +89,8 @@ unsupported-platform:
     @exit 1
 
 # ── macOS ─────────────────────────────────────────────────────────────────────
-
 # [macOS] 构建本地 .app 包 —— 不签名、不公证
+
 # 输出：dist/macos/{channel}/{arch}/con.app
 macos-bundle channel=channel arch=arch:
     #!/usr/bin/env bash
@@ -141,6 +154,7 @@ macos-install-adhoc channel=channel arch=arch: (macos-bundle-adhoc channel arch)
     echo "完成。可从 /Applications 或 Spotlight 启动 ${app_name}。"
 
 # [macOS] 完整发布：构建 + 签名 + 公证 + DMG
+
 # 需要：APPLE_SIGNING_IDENTITY + APPLE_NOTARY_* 或 APPLE_ID 环境变量
 macos-release channel=channel arch=arch:
     #!/usr/bin/env bash
@@ -168,8 +182,8 @@ macos-open channel=channel arch=arch:
     open "dist/macos/{{ channel }}/${resolved_arch}/${app_name}.app"
 
 # ── Linux ─────────────────────────────────────────────────────────────────────
-
 # [Linux] 构建 release 二进制并打包
+
 # 输出：dist/con-{version}-linux-{arch}.tar.gz
 linux-release channel=channel arch=arch:
     #!/usr/bin/env bash
@@ -206,6 +220,7 @@ linux-install channel=channel arch=arch: (linux-release channel arch)
     fi
 
 # [Linux] 使用 AetherPak Zero-Manifest 模式构建 Flatpak 包
+
 # 输出：dist/co.nowledge.con.flatpak
 flatpak-build channel=channel arch=arch:
     #!/usr/bin/env bash

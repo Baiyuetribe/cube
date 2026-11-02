@@ -331,9 +331,13 @@ impl ConWorkspace {
             Self::restore_global_input_history(&session, &persisted_history, &global_shell_history);
         let settings_panel = cx.new(|cx| SettingsPanel::new(&config, window, cx));
         let command_palette = cx.new(|cx| CommandPalette::new(window, cx));
+        let server_picker = cx.new(|cx| ServerPicker::new(window, cx));
         sidebar.update(cx, |s, cx| s.set_ui_opacity(effective_ui_opacity, cx));
         command_palette.update(cx, |palette, _cx| {
             palette.set_ui_opacity(effective_ui_opacity)
+        });
+        server_picker.update(cx, |picker, _cx| {
+            picker.set_ui_opacity(effective_ui_opacity)
         });
         cx.subscribe_in(&settings_panel, window, Self::on_settings_saved)
             .detach();
@@ -347,6 +351,9 @@ impl ConWorkspace {
             .detach();
         cx.subscribe_in(&command_palette, window, Self::on_palette_dismissed)
             .detach();
+        cx.subscribe_in(&server_picker, window, Self::on_server_selected)
+            .detach();
+        cx.observe(&server_picker, |_, _, cx| cx.notify()).detach();
         cx.subscribe_in(&sidebar, window, Self::on_sidebar_select)
             .detach();
         cx.subscribe_in(&sidebar, window, Self::on_sidebar_new_session)
@@ -667,6 +674,7 @@ impl ConWorkspace {
             settings_window: None,
             settings_window_panel: None,
             command_palette,
+            server_picker,
             global_shell_history,
             global_input_history,
             pane_scope_picker_open: false,

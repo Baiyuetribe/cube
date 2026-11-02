@@ -468,6 +468,11 @@ fn default_command_palette() -> String {
     // Ctrl+Shift+P on Windows / Linux, Cmd+Shift+P on macOS.
     "secondary-shift-p".into()
 }
+
+fn default_server_picker() -> String {
+    // Ctrl+Shift+S on Windows / Linux, Cmd+Shift+S on macOS.
+    "secondary-shift-s".into()
+}
 #[cfg(target_os = "macos")]
 fn default_focus_files() -> String {
     // Cmd+Shift+E collides with the embedded terminal/AppKit search-selection
@@ -702,6 +707,7 @@ fn default_quick_terminal() -> String {
 #[serde(default)]
 pub struct KeybindingConfig {
     pub command_palette: String,
+    pub server_picker: String,
     pub new_window: String,
     pub new_tab: String,
     pub close_tab: String,
@@ -846,6 +852,7 @@ impl Default for KeybindingConfig {
     fn default() -> Self {
         Self {
             command_palette: default_command_palette(),
+            server_picker: default_server_picker(),
             new_window: default_new_window(),
             new_tab: default_new_tab(),
             close_tab: default_close_tab(),

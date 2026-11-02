@@ -114,6 +114,32 @@ impl ConWorkspace {
         cx.notify();
     }
 
+    /// 服务器浮层与设置、命令面板互斥，避免两个遮罩叠在一起。
+    pub(super) fn toggle_server_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings_panel.read(cx).is_overlay_visible() {
+            self.settings_panel.update(cx, |panel, cx| {
+                panel.toggle(window, cx);
+            });
+        }
+        if self.command_palette.read(cx).is_visible() {
+            self.command_palette.update(cx, |palette, cx| {
+                palette.toggle(window, cx);
+            });
+        }
+        self.server_picker
+            .update(cx, |picker, cx| picker.toggle(window, cx));
+        cx.notify();
+    }
+
+    pub(super) fn toggle_server_picker_action(
+        &mut self,
+        _: &crate::server_picker::ToggleServerPicker,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_server_picker(window, cx);
+    }
+
     pub(super) fn open_settings_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(handle) = self.settings_window {
             if handle
@@ -236,6 +262,7 @@ impl ConWorkspace {
     pub(super) fn is_modal_open(&self, cx: &App) -> bool {
         self.settings_panel.read(cx).is_overlay_visible()
             || self.command_palette.read(cx).is_visible()
+            || self.server_picker.read(cx).is_visible()
     }
 
     pub(super) fn new_window(
@@ -261,6 +288,19 @@ impl ConWorkspace {
     }
 
     pub(super) fn new_tab(&mut self, _: &NewTab, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_tab_with_label(None, window, cx);
+    }
+
+    /// 在当前目录开一个新标签并激活，返回它的终端。
+    ///
+    /// `user_label` 非空时作为标签显示名（远程连接用它显示服务器名）。
+    /// 普通新标签和 ssh 标签的建标签流程在这里共用一份。
+    pub(super) fn open_tab_with_label(
+        &mut self,
+        user_label: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> TerminalPane {
         self.reveal_vertical_tab_rail_for_new_tab_if_needed(cx);
         let cwd = self
             .has_active_tab()
@@ -272,9 +312,9 @@ impl ConWorkspace {
         self.next_tab_summary_id += 1;
 
         self.tabs.push(Tab {
-            pane_tree: PaneTree::new(terminal),
-            title: format!("Terminal {}", tab_number),
-            user_label: None,
+            pane_tree: PaneTree::new(terminal.clone()),
+            title: format!("Terminal {tab_number}"),
+            user_label,
             agent_cli: None,
             color: None,
             summary_id,
@@ -294,6 +334,7 @@ impl ConWorkspace {
 
         let new_index = self.tabs.len() - 1;
         self.activate_tab(new_index, window, cx);
+        terminal
     }
 
     #[cfg(target_os = "macos")]

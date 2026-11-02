@@ -1,4 +1,5 @@
 pub mod config;
+pub mod connections;
 pub mod control;
 pub mod program_status;
 pub mod release_channel;

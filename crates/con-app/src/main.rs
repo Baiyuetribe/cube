@@ -73,6 +73,7 @@ mod motion;
 mod mouse_sequence;
 mod pane_tree;
 mod reduced_motion;
+mod server_picker;
 mod settings_panel;
 mod sidebar;
 mod sidebar_search_view;
@@ -1650,6 +1651,7 @@ fn configurable_app_binding_specs(kb: &KeybindingConfig) -> Vec<BindingSpec> {
     push_global::<TogglePaneZoom>(&mut specs, &kb.toggle_pane_zoom);
     push_global::<settings_panel::ToggleSettings>(&mut specs, &kb.settings);
     push_global::<command_palette::ToggleCommandPalette>(&mut specs, &kb.command_palette);
+    push_global::<server_picker::ToggleServerPicker>(&mut specs, &kb.server_picker);
     push_global::<SplitRight>(&mut specs, &kb.split_right);
     push_global::<SplitDown>(&mut specs, &kb.split_down);
     // Surface actions are no longer bound: the feature has no UI entry point.
@@ -2938,6 +2940,7 @@ fn main() {
                     #[cfg(target_os = "macos")]
                     MenuItem::action("快速终端", ToggleQuickTerminal),
                     MenuItem::action("命令面板", command_palette::ToggleCommandPalette),
+                    MenuItem::action("远程服务器", server_picker::ToggleServerPicker),
                     MenuItem::separator(),
                     MenuItem::action("聚焦文件", FocusFiles),
                     MenuItem::action("搜索文件", SearchFiles),

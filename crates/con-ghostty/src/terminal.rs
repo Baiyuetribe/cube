@@ -29,9 +29,14 @@ use crate::{
 };
 
 const DEFAULT_GHOSTTY_FONT_FAMILY: &str = "Ioskeley Mono";
-// Con does not ship Ghostty's `+ssh-cache` CLI helper. Do not advertise
-// `ssh-terminfo` until Con has an equivalent cache implementation.
-const CON_SHELL_INTEGRATION_FEATURES: &str = "no-cursor,ssh-env";
+// Con does not ship Ghostty's `+ssh-cache` CLI helper, so `ssh-terminfo` stays off.
+// `ssh-env` must stay off too: Ghostty's zsh/bash integration installs its ssh
+// wrapper whenever the feature string contains `ssh-`, and that wrapper runs
+// `$GHOSTTY_BIN_DIR/ghostty +ssh` — a binary Con never ships. Leaving it on makes
+// every `ssh` in a Con shell die with "no such file or directory … /ghostty".
+// Con's own `con-cli +ssh` helper is invoked explicitly by the SSH connections
+// feature instead of by hijacking the user's `ssh`.
+const CON_SHELL_INTEGRATION_FEATURES: &str = "no-cursor";
 
 fn sanitize_font_family_for_ghostty(font_family: &str) -> &str {
     let trimmed = font_family.trim();
@@ -231,9 +236,7 @@ impl GhosttyConfigPatch {
             // Disable ghostty shell-integration cursor override so con's
             // cursor-style setting is respected. Ghostty's integration
             // unconditionally forces a bar cursor at prompts otherwise.
-            // Keep ssh-env compatibility. ssh-terminfo is intentionally omitted:
-            // Ghostty's shell integration would invoke a missing
-            // `ghostty +ssh-cache` helper from Con's app bundle.
+            // Both ssh features are off — see CON_SHELL_INTEGRATION_FEATURES.
             s.push_str("shell-integration-features = ");
             s.push_str(CON_SHELL_INTEGRATION_FEATURES);
             s.push('\n');
@@ -2871,12 +2874,15 @@ mod tests {
     }
 
     #[test]
-    fn ghostty_config_always_includes_con_shell_integration_features() {
+    fn ghostty_config_never_advertises_ghostty_ssh_helpers() {
         let config = GhosttyConfigPatch::default()
             .to_config_string(true)
             .unwrap();
 
-        assert!(config.contains("shell-integration-features = no-cursor,ssh-env\n"));
+        assert!(config.contains("shell-integration-features = no-cursor\n"));
+        // `ssh-env` would make Ghostty's shell integration shadow `ssh` with a
+        // wrapper that execs `$GHOSTTY_BIN_DIR/ghostty`, which Con never ships.
+        assert!(!config.contains("ssh-env"));
         assert!(!config.contains("ssh-terminfo"));
     }
 

@@ -1157,6 +1157,7 @@ impl Render for ConWorkspace {
             .on_action(cx.listener(Self::collapse_sidebar))
             .on_action(cx.listener(Self::toggle_settings))
             .on_action(cx.listener(Self::toggle_command_palette))
+            .on_action(cx.listener(Self::toggle_server_picker_action))
             .on_action(cx.listener(Self::new_window))
             .on_action(cx.listener(Self::new_tab))
             .on_action(cx.listener(Self::next_tab))
@@ -1246,6 +1247,7 @@ impl Render for ConWorkspace {
                 // Don't handle workspace shortcuts when a modal overlay is open
                 if this.settings_panel.read(cx).is_overlay_visible()
                     || this.command_palette.read(cx).is_visible()
+                    || this.server_picker.read(cx).is_visible()
                 {
                     return;
                 }
@@ -1551,6 +1553,10 @@ impl Render for ConWorkspace {
         let palette_visible = self.command_palette.read(cx).is_visible();
         if palette_visible {
             root = root.child(self.command_palette.clone());
+        }
+
+        if self.server_picker.read(cx).is_visible() {
+            root = root.child(self.server_picker.clone());
         }
 
         #[cfg(target_os = "linux")]

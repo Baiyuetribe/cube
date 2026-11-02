@@ -61,6 +61,7 @@ use crate::motion::{MotionValue, SidebarMotion};
 use crate::pane_tree::{
     PaneTree, SplitDirection, SplitPlacement, SurfaceCreateOptions, SurfaceRenameEditor,
 };
+use crate::server_picker::{ServerPicker, ServerSelected};
 use crate::settings_panel::{self, AppearancePreview, SaveSettings, SettingsPanel, ThemePreview};
 use crate::sidebar::{
     DraggedTab, DraggedTabOrigin, NewSession, PANEL_MAX_WIDTH, PANEL_MIN_WIDTH, SessionEntry,
@@ -91,7 +92,7 @@ use crate::{
     OpenWorkspaceLayoutWindow, Paste, PreviousSurface, PreviousTab, Quit, RenameSurface,
     SearchFiles, SelectAll, SelectTab1, SelectTab2, SelectTab3, SelectTab4, SelectTab5, SelectTab6,
     SelectTab7, SelectTab8, SelectTab9, SplitDown, SplitLeft, SplitRight, SplitUp, ToggleLeftPanel,
-    TogglePaneScopePicker, TogglePaneZoom, Undo,
+    TogglePaneZoom, Undo,
 };
 use con_core::config::{
     AppearanceConfig, Config, TabsOrientation, TerminalConfig, sanitize_app_icon,
@@ -101,9 +102,7 @@ use con_core::control::{
     ControlCommand, ControlError, ControlRequestEnvelope, ControlResult, SystemIdentifyResult,
     TabInfo,
 };
-use con_core::session::{
-    GlobalHistoryState, PaneLayoutState, PaneSplitDirection, Session, TabState,
-};
+use con_core::session::{GlobalHistoryState, PaneLayoutState, Session, TabState};
 use con_core::workspace_layout::WorkspaceLayout;
 use con_terminal::{TerminalExecRequest, TerminalExecResponse};
 
@@ -179,6 +178,7 @@ pub struct ConWorkspace {
     settings_window: Option<AnyWindowHandle>,
     settings_window_panel: Option<Entity<SettingsPanel>>,
     command_palette: Entity<CommandPalette>,
+    server_picker: Entity<ServerPicker>,
     global_shell_history: VecDeque<CommandSuggestionEntry>,
     global_input_history: VecDeque<String>,
     pane_scope_picker_open: bool,

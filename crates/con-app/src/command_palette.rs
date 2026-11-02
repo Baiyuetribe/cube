@@ -195,6 +195,12 @@ const PALETTE_ACTIONS: &[PaletteAction] = &[
         category: "Workspace",
     },
     PaletteAction {
+        id: "remote-servers",
+        label: "Remote Servers",
+        shortcut: "secondary-shift-s",
+        category: "Terminal",
+    },
+    PaletteAction {
         id: "settings",
         label: "Open Settings",
         shortcut: "secondary-,",

@@ -658,6 +658,9 @@ impl ConWorkspace {
             "settings" => {
                 self.toggle_settings(&settings_panel::ToggleSettings, window, cx);
             }
+            "remote-servers" => {
+                self.toggle_server_picker(window, cx);
+            }
             "new-tab" => {
                 self.new_tab(&NewTab, window, cx);
             }
@@ -784,6 +787,23 @@ impl ConWorkspace {
         cx: &mut Context<Self>,
     ) {
         self.restore_terminal_focus_after_modal(window, cx);
+    }
+
+    /// 打开一个执行 `ssh` 的新标签。
+    ///
+    /// 命令写进 shell 而不是替换当前标签的进程：远端断开后用户回到本地
+    /// shell，还能重连或排查，标签不会直接消失。
+    pub(super) fn on_server_selected(
+        &mut self,
+        _picker: &Entity<ServerPicker>,
+        event: &ServerSelected,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let terminal = self.open_tab_with_label(normalize_tab_user_label(&event.name), window, cx);
+        // surface 建好之前写入会进 pending_write，初始化时再冲刷到 PTY。
+        terminal.write(format!("{}\n", event.command).as_bytes(), cx);
+        cx.notify();
     }
 
     pub(super) fn on_settings_saved(

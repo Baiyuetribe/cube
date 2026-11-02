@@ -2811,6 +2811,22 @@ impl ConWorkspace {
             }
         }
 
+        {
+            tab_controls = tab_controls.child(
+                chrome_button(
+                    "server-picker",
+                    "phosphor/plugs-connected.svg",
+                    None,
+                    "远程服务器",
+                    Some(Box::new(crate::server_picker::ToggleServerPicker)),
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.toggle_server_picker(window, cx);
+                })),
+            );
+        }
+
         if !caption_docked {
             tab_controls = tab_controls.child(
                 chrome_button(
