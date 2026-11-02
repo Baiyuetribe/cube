@@ -324,7 +324,8 @@ impl ConWorkspace {
             return;
         }
         let cwd = self.try_active_terminal().and_then(|t| t.current_dir(cx));
-        let terminal = self.create_terminal(cwd.as_deref(), window, cx);
+        // 服务器标签分屏时，新 pane 用同一个连接再开一个独立会话。
+        let (terminal, is_remote) = self.create_terminal_for_split(cwd.as_deref(), window, cx);
         let was_zoomed = self.tabs[self.active_tab]
             .pane_tree
             .zoomed_pane_id()
@@ -340,7 +341,9 @@ impl ConWorkspace {
             self.active_tab,
             &terminal,
             con_terminal::PaneRuntimeEvent::PaneCreated {
-                startup_command: None,
+                // 远程分屏的新 pane 确实以 ssh 启动，记下来能反映真实的
+                // 前台意图；本地分屏没有启动命令。
+                startup_command: is_remote.then(|| "ssh".to_string()),
             },
         );
         self.notify_active_tab_terminal_views(cx);
@@ -382,7 +385,8 @@ impl ConWorkspace {
             .into_iter()
             .find(|(id, _)| *id == pane_id)
             .and_then(|(_, terminal)| terminal.current_dir(cx));
-        let terminal = self.create_terminal(cwd.as_deref(), window, cx);
+        // 服务器标签分屏时，新 pane 用同一个连接再开一个独立会话。
+        let (terminal, is_remote) = self.create_terminal_for_split(cwd.as_deref(), window, cx);
         let was_zoomed = self.tabs[self.active_tab]
             .pane_tree
             .zoomed_pane_id()
@@ -396,7 +400,7 @@ impl ConWorkspace {
             self.active_tab,
             &terminal,
             con_terminal::PaneRuntimeEvent::PaneCreated {
-                startup_command: None,
+                startup_command: is_remote.then(|| "ssh".to_string()),
             },
         );
         self.notify_active_tab_terminal_views(cx);
@@ -789,6 +793,7 @@ impl ConWorkspace {
             new_index,
             Tab {
                 pane_tree: new_pane_tree,
+                server: None,
                 title: format!("Terminal {}", tab_number),
                 user_label: None,
                 agent_cli: None,

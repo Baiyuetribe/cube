@@ -190,6 +190,9 @@ pub(super) struct TabRenameStateSnapshot {
 pub(super) struct Tab {
     pub(super) pane_tree: PaneTree,
     pub(super) title: String,
+    /// 这个标签是通过远程连接打开的服务器。分屏时新 pane 会用同一个
+    /// 连接再开一个独立会话，而不是落到本地 shell。
+    pub(super) server: Option<con_core::connections::SshConnection>,
     /// User-supplied label that overrides every auto-derived name in
     /// the panel/strip. Set via inline rename (double-click in
     /// vertical panel) or context menu. `None` means "use smart

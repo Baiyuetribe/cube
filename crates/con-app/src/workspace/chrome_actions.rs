@@ -241,6 +241,7 @@ impl ConWorkspace {
 
         Tab {
             pane_tree,
+            server: None,
             title: if tab_state.title.trim().is_empty() {
                 format!("Terminal {}", summary_id + 1)
             } else {

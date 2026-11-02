@@ -258,6 +258,20 @@ pub fn write_askpass_script(connection: &SshConnection) -> std::io::Result<PathB
     Ok(script)
 }
 
+/// 把一条连接转成可直接写进终端的一行命令。
+///
+/// 有密码时顺带准备好 askpass 脚本。失败（临时目录不可用等）返回 `None`，
+/// 由调用方决定怎么提示：直接连接要弹通知，分屏则退回本地 shell。
+pub fn connect_command(connection: &SshConnection) -> Option<String> {
+    if !connection.has_password() {
+        return Some(connection.shell_command());
+    }
+    let script = write_askpass_script(connection)
+        .inspect_err(|error| log::error!("connections: failed to write askpass script: {error}"))
+        .ok()?;
+    Some(connection.shell_command_with_askpass(&script))
+}
+
 /// 整份连接列表。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -513,6 +527,30 @@ mod tests {
         assert!(command.contains("'root@10.0.0.5'"));
         // 脚本连同它的一次性目录在 ssh 退出后一起删除。
         assert!(command.ends_with("rm -rf '/tmp/con-askpass-1'"));
+    }
+
+    /// `connect_command` 是 UI 唯一入口：有无密码都要能直接写进终端。
+    #[test]
+    fn connect_command_covers_password_and_key_auth() {
+        let mut key_only = connection("箱", "10.0.0.5");
+        key_only.user = Some("root".into());
+        let plain = connect_command(&key_only).expect("无密码时不需要临时文件");
+        assert_eq!(plain, key_only.shell_command());
+        assert!(!plain.contains("SSH_ASKPASS"));
+
+        let mut with_password = connection("箱", "10.0.0.5");
+        with_password.password = Some("secret".into());
+        let command = connect_command(&with_password).expect("应当写出 askpass 脚本");
+        assert!(command.contains("SSH_ASKPASS_REQUIRE=force"));
+        assert!(!command.contains("secret"), "密码不能出现在命令行");
+
+        // 清理这次生成的临时目录。
+        let dir = command
+            .rsplit("rm -rf '")
+            .next()
+            .and_then(|rest| rest.strip_suffix('\''))
+            .expect("命令末尾应当清理临时目录");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

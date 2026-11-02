@@ -22,6 +22,8 @@ pub struct ServerSelected {
     /// 可直接写入 shell 的单行命令。
     pub command: String,
     pub name: String,
+    /// 完整连接信息。标签分屏时用它再开一个独立会话。
+    pub connection: SshConnection,
 }
 
 /// 当前编辑的是新条目还是列表里的第几条。
@@ -136,29 +138,21 @@ impl ServerPicker {
         let Some(connection) = self.book.connections.get(index) else {
             return;
         };
-        let command = if connection.has_password() {
-            match con_core::connections::write_askpass_script(connection) {
-                Ok(script) => connection.shell_command_with_askpass(&script),
-                Err(error) => {
-                    // 写不出密码脚本就没有可用的登录方式，静默不连会让人以为
-                    // 按钮没反应。
-                    log::error!("connections: failed to write askpass script: {error}");
-                    use gpui_component::{WindowExt as _, notification::Notification};
-                    window.push_notification(
-                        Notification::new()
-                            .title("无法准备密码登录")
-                            .message(format!("{error}\n请检查临时目录权限。")),
-                        cx,
-                    );
-                    return;
-                }
-            }
-        } else {
-            connection.shell_command()
+        // 写不出密码脚本就没有可用的登录方式，静默不连会让人以为按钮没反应。
+        let Some(command) = con_core::connections::connect_command(connection) else {
+            use gpui_component::{WindowExt as _, notification::Notification};
+            window.push_notification(
+                Notification::new()
+                    .title("无法准备密码登录")
+                    .message("请检查临时目录权限后重试。"),
+                cx,
+            );
+            return;
         };
         cx.emit(ServerSelected {
             command,
             name: connection.name.clone(),
+            connection: connection.clone(),
         });
         self.visible = false;
         self.editor = None;

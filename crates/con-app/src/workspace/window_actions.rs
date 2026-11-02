@@ -288,16 +288,18 @@ impl ConWorkspace {
     }
 
     pub(super) fn new_tab(&mut self, _: &NewTab, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_tab_with_label(None, window, cx);
+        self.open_tab_with_label(None, None, window, cx);
     }
 
     /// 在当前目录开一个新标签并激活，返回它的终端。
     ///
     /// `user_label` 非空时作为标签显示名（远程连接用它显示服务器名）。
+    /// `server` 非空表示这是服务器标签：分屏时会用同一个连接再开会话。
     /// 普通新标签和 ssh 标签的建标签流程在这里共用一份。
     pub(super) fn open_tab_with_label(
         &mut self,
         user_label: Option<String>,
+        server: Option<con_core::connections::SshConnection>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> TerminalPane {
@@ -314,6 +316,7 @@ impl ConWorkspace {
         self.tabs.push(Tab {
             pane_tree: PaneTree::new(terminal.clone()),
             title: format!("Terminal {tab_number}"),
+            server,
             user_label,
             agent_cli: None,
             color: None,

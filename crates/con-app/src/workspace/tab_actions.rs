@@ -762,6 +762,7 @@ impl ConWorkspace {
         self.next_tab_summary_id += 1;
         let new_tab = Tab {
             pane_tree,
+            server: None,
             title: format!("Terminal {}", summary_id + 1),
             user_label: self.tabs[index].user_label.clone(),
             agent_cli: None,
@@ -808,6 +809,7 @@ impl ConWorkspace {
         self.next_tab_summary_id += 1;
         let new_tab = Tab {
             pane_tree,
+            server: None,
             title: editor_tab_title(None),
             user_label: None,
             agent_cli: None,

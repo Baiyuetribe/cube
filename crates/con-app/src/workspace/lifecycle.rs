@@ -246,6 +246,7 @@ impl ConWorkspace {
                 };
                 Tab {
                     pane_tree,
+                    server: None,
                     title: if tab_state.title.is_empty() {
                         format!("Terminal {}", i + 1)
                     } else {
@@ -266,6 +267,7 @@ impl ConWorkspace {
             let terminal = make_terminal(None, None, false, window, cx);
             tabs.push(Tab {
                 pane_tree: PaneTree::new(terminal),
+                server: None,
                 title: "Terminal".to_string(),
                 user_label: None,
                 agent_cli: None,
@@ -780,6 +782,47 @@ impl ConWorkspace {
             window,
             cx,
         )
+    }
+
+    /// 分屏用的终端。
+    ///
+    /// 如果当前标签是远程连接打开的，新 pane 会用同一个连接再开一个**独立**
+    /// ssh 会话，与本地分屏的行为保持一致：分屏是在当前状态基础上新建分支，
+    /// 而不是退回本地 shell。
+    ///
+    /// 返回的 `bool` 表示新 pane 是否以 ssh 启动，供调用方上报运行时意图。
+    pub(super) fn create_terminal_for_split(
+        &mut self,
+        cwd: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (TerminalPane, bool) {
+        let server = self
+            .tabs
+            .get(self.active_tab)
+            .and_then(|tab| tab.server.clone());
+        let terminal = self.create_terminal(cwd, window, cx);
+        let Some(server) = server else {
+            return (terminal, false);
+        };
+        // 密码脚本写不出来时退回本地 shell，但要说一声：否则用户会以为
+        // 分屏连上了服务器，实际拿到的是一个本地终端。
+        let Some(command) = con_core::connections::connect_command(&server) else {
+            use gpui_component::{WindowExt as _, notification::Notification};
+            window.push_notification(
+                Notification::new()
+                    .title("新分屏未能连接服务器")
+                    .message(format!(
+                        "无法准备 {} 的密码登录，已退回本地终端。\n请检查临时目录权限。",
+                        server.name
+                    )),
+                cx,
+            );
+            return (terminal, false);
+        };
+        // surface 还没建好，这条会进 pending_write，初始化时冲刷到 PTY。
+        terminal.write(format!("{command}\n").as_bytes(), cx);
+        (terminal, true)
     }
 
     #[cfg(target_os = "macos")]

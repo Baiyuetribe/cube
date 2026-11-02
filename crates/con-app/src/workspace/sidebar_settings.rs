@@ -800,7 +800,12 @@ impl ConWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let terminal = self.open_tab_with_label(normalize_tab_user_label(&event.name), window, cx);
+        let terminal = self.open_tab_with_label(
+            normalize_tab_user_label(&event.name),
+            Some(event.connection.clone()),
+            window,
+            cx,
+        );
         // surface 建好之前写入会进 pending_write，初始化时再冲刷到 PTY。
         terminal.write(format!("{}\n", event.command).as_bytes(), cx);
         cx.notify();
