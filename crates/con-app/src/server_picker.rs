@@ -41,6 +41,8 @@ struct EditorForm {
     identity_file: Entity<InputState>,
     password: Entity<InputState>,
     group: Entity<InputState>,
+    /// 分组候选列表是否展开。
+    group_menu_open: bool,
 }
 
 pub struct ServerPicker {
@@ -54,6 +56,9 @@ pub struct ServerPicker {
     ui_opacity: f32,
     overlay_motion: MotionValue,
     editor: Option<EditorForm>,
+    /// 分组输入框的订阅句柄。每次打开编辑器都重新订阅，旧的要先释放，
+    /// 否则回调会越积越多。
+    group_observer: Option<Subscription>,
 }
 
 impl ServerPicker {
@@ -76,6 +81,7 @@ impl ServerPicker {
             ui_opacity: 1.0,
             overlay_motion: MotionValue::new(0.0),
             editor: None,
+            group_observer: None,
         }
     }
 
@@ -97,6 +103,7 @@ impl ServerPicker {
         self.query_text.clear();
         self.selected_index = 0;
         self.editor = None;
+        self.group_observer = None;
         self.query.update(cx, |input, cx| {
             input.set_value("", window, cx);
         });
@@ -114,6 +121,7 @@ impl ServerPicker {
         }
         self.visible = false;
         self.editor = None;
+        self.group_observer = None;
         self.overlay_motion
             .set_target(0.0, std::time::Duration::from_millis(140));
         cx.notify();
@@ -154,6 +162,7 @@ impl ServerPicker {
         });
         self.visible = false;
         self.editor = None;
+        self.group_observer = None;
         self.overlay_motion
             .set_target(0.0, std::time::Duration::from_millis(140));
         cx.notify();
@@ -242,15 +251,19 @@ impl ServerPicker {
                 "分组，例如 生产（可选）",
                 value(|c| c.group.clone().unwrap_or_default()),
             ),
+            group_menu_open: false,
         });
         if let Some(form) = &self.editor {
             form.name.update(cx, |input, cx| input.focus(window, cx));
+            // 分组输入框变化后要重绘，候选里的「当前选中」勾才会跟着动。
+            self.group_observer = Some(cx.observe(&form.group, |_, _, cx| cx.notify()));
         }
         cx.notify();
     }
 
     fn close_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.editor = None;
+        self.group_observer = None;
         self.focus_search(window, cx);
         cx.notify();
     }
@@ -265,7 +278,19 @@ impl ServerPicker {
         };
         let text = |input: &Entity<InputState>| input.read(cx).value().trim().to_string();
 
+        // 编辑已有条目时沿用它的 id：改名字不该让这一行在 UI 里变成新元素。
+        let existing_id = match form.target {
+            EditorTarget::Existing(index) => self
+                .book
+                .connections
+                .get(index)
+                .map(|connection| connection.id.clone())
+                .unwrap_or_default(),
+            EditorTarget::New => String::new(),
+        };
+
         let mut connection = SshConnection {
+            id: existing_id,
             name: text(&form.name),
             host: text(&form.host),
             port: text(&form.port).parse().ok(),
@@ -277,6 +302,7 @@ impl ServerPicker {
             group: Some(text(&form.group)).filter(|value| !value.is_empty()),
         };
         connection.normalize();
+        connection.ensure_id(self.book.connections.len() as u64);
 
         // 名称和主机是必填项；缺少时保留编辑器，用户可以继续补齐。
         if !connection.is_valid() {
@@ -310,6 +336,7 @@ impl ServerPicker {
 
         self.book = ConnectionBook::load();
         self.editor = None;
+        self.group_observer = None;
         // selected_index 是「可见列表中的位置」，不是底层数组下标：有分组时
         // 列表按分组重排，用数组长度会指到别的条目上。
         self.selected_index =
@@ -334,6 +361,7 @@ impl ServerPicker {
             );
         }
         self.editor = None;
+        self.group_observer = None;
         // 与 save 同理：selected_index 是可见位置，用可见条目数收敛。
         let remaining = self.visible_indices().len();
         self.selected_index = self.selected_index.min(remaining.saturating_sub(1));
@@ -441,16 +469,23 @@ impl ServerPicker {
             let target = connection.display_target();
             let edit_tip = SharedString::from(format!("编辑 {}", connection.name));
             let delete_tip = SharedString::from(format!("删除 {}", connection.name));
+            // 元素身份必须跟随条目本身，而不是它在数组里的位置：删掉一行后
+            // 下标会整体前移，用下标做 ElementId 会把上一帧的行状态错配到
+            // 新的一行上，表现为选中高亮与悬停区错位。
+            let row_id = connection.id.clone();
+            // 每行一个独立组名。共用一个组名时，命中区栈会把不同行的悬停
+            // 状态串起来，删除一行后更容易错位。
+            let row_group = SharedString::from(format!("server-row-{row_id}"));
             list = list.child(
                 div()
-                    .id(SharedString::from(format!("server-row-{index}")))
+                    .id(SharedString::from(format!("server-row-{row_id}")))
                     .role(Role::ListBoxOption)
                     .aria_selected(is_selected)
                     .aria_label(SharedString::from(format!(
                         "{} {}",
                         connection.name, target
                     )))
-                    .group("server-row")
+                    .group(row_group.clone())
                     .flex()
                     .items_center()
                     .gap(px(10.0))
@@ -497,9 +532,9 @@ impl ServerPicker {
                             .items_center()
                             .gap(px(2.0))
                             .invisible()
-                            .group_hover("server-row", |style| style.visible())
+                            .group_hover(row_group.clone(), |style| style.visible())
                             .child(
-                                Button::new(SharedString::from(format!("server-edit-{index}")))
+                                Button::new(SharedString::from(format!("server-edit-{row_id}")))
                                     .icon(Icon::default().path("phosphor/pencil-simple.svg"))
                                     .ghost()
                                     .small()
@@ -510,7 +545,7 @@ impl ServerPicker {
                                     })),
                             )
                             .child(
-                                Button::new(SharedString::from(format!("server-delete-{index}")))
+                                Button::new(SharedString::from(format!("server-delete-{row_id}")))
                                     .icon(Icon::default().path("phosphor/trash.svg"))
                                     .ghost()
                                     .small()
@@ -584,7 +619,7 @@ impl ServerPicker {
                     )
                     .child(Self::field("私钥路径", &form.identity_file, muted))
                     .child(Self::field("密码", &form.password, muted))
-                    .child(Self::field("分组", &form.group, muted)),
+                    .child(self.render_group_field(&form, theme, cx)),
             )
             .child(
                 div()
@@ -622,6 +657,117 @@ impl ServerPicker {
                     ),
             )
             .into_any_element()
+    }
+
+    /// 分组字段：输入框 + 已有分组的下拉候选。
+    ///
+    /// 分组在数据层只是每条连接上的一个字符串，没有独立的分组表。所以这里
+    /// 不引入 Select 那套 delegate：直接从现有连接里汇总出候选，点一下填进
+    /// 输入框；输入框本身仍然自由输入，写个新名字保存后就等于新建了分组。
+    fn render_group_field(
+        &self,
+        form: &EditorForm,
+        theme: &gpui_component::Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let muted = theme.muted_foreground.opacity(0.78);
+        let candidates = self.book.group_names();
+        let current = form.group.read(cx).value().to_string();
+
+        let mut container = div().flex().flex_col().gap(px(4.0)).child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(muted)
+                .child("分组"),
+        );
+
+        let mut row = div().flex().items_center().gap(px(6.0)).child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(Input::new(&form.group).small()),
+        );
+
+        // 没有候选就没什么可下拉的，只留自由输入。
+        if !candidates.is_empty() {
+            row = row.child(
+                Button::new("server-group-menu")
+                    .icon(Icon::default().path("phosphor/caret-down.svg"))
+                    .ghost()
+                    .small()
+                    .tooltip("选择已有分组")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        let mut opened = false;
+                        if let Some(form) = this.editor.as_mut() {
+                            form.group_menu_open = !form.group_menu_open;
+                            opened = form.group_menu_open;
+                        }
+                        // 候选展开时移走输入框焦点：否则方向键、回车会被
+                        // 输入框吃掉，卡片的 on_key_down 收不到。
+                        if opened {
+                            window.blur(cx);
+                        }
+                        cx.notify();
+                    })),
+            );
+        }
+        container = container.child(row);
+
+        if form.group_menu_open && !candidates.is_empty() {
+            let mut menu = div()
+                .id("server-group-candidates")
+                .role(Role::ListBox)
+                .flex()
+                .flex_col()
+                .p(px(4.0))
+                .rounded(px(10.0))
+                .bg(theme.popover);
+
+            for candidate in candidates {
+                let is_current = candidate == current;
+                let label = candidate.clone();
+                menu = menu.child(
+                    div()
+                        .id(SharedString::from(format!("server-group-{candidate}")))
+                        .role(Role::ListBoxOption)
+                        .aria_selected(is_current)
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .h(px(30.0))
+                        .px(px(8.0))
+                        .rounded(px(6.0))
+                        .cursor_pointer()
+                        .text_size(px(12.0))
+                        .hover(|style| style.bg(theme.foreground.opacity(0.06)))
+                        .child(div().flex_1().truncate().child(label))
+                        .children(is_current.then(|| {
+                            svg()
+                                .path("phosphor/check.svg")
+                                .size(px(12.0))
+                                .flex_shrink_0()
+                                .text_color(theme.primary)
+                        }))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            let value = candidate.clone();
+                            if let Some(form) = this.editor.as_mut() {
+                                form.group.update(cx, |input, cx| {
+                                    input.set_value(value.clone(), window, cx);
+                                    input.focus(window, cx);
+                                });
+                                form.group_menu_open = false;
+                            }
+                            cx.notify();
+                        })),
+                );
+            }
+
+            container = container.child(menu);
+        }
+
+        container.into_any_element()
     }
 
     fn render_search(&self, theme: &gpui_component::Theme, cx: &mut Context<Self>) -> AnyElement {
@@ -745,7 +891,27 @@ impl Render for ServerPicker {
             .pt(vertical_reveal_offset(progress, 16.0))
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if this.editor.is_some() {
+                if let Some(form) = this.editor.as_ref() {
+                    // 分组候选展开时，Esc 先收起候选而不是关掉整个编辑器。
+                    if form.group_menu_open {
+                        match event.keystroke.key.as_str() {
+                            "escape" => {
+                                if let Some(form) = this.editor.as_mut() {
+                                    form.group_menu_open = false;
+                                    form.group.update(cx, |input, cx| {
+                                        input.focus(window, cx);
+                                    });
+                                }
+                                cx.notify();
+                                return;
+                            }
+                            "enter" => {
+                                // 展开候选时回车不该顺手提交整张表单。
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
                     match event.keystroke.key.as_str() {
                         "escape" => this.close_editor(window, cx),
                         "enter" => this.save_editor(window, cx),

@@ -14,6 +14,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SshConnection {
+    /// 稳定标识，用于 UI 的元素身份。
+    ///
+    /// 列表按分组重排、删除后下标前移，所以不能拿下标当元素 id：那样 GPUI
+    /// 会把上一帧的行状态套到新的一行上，表现为删除后行内容与悬停位置错位。
+    /// 旧文件没有这个字段，`normalize` 会补一个。
+    pub id: String,
     /// 显示名，也是列表里的唯一标识。允许重复，但界面只会点中第一个。
     pub name: String,
     pub host: String,
@@ -35,6 +41,7 @@ pub struct SshConnection {
 impl Default for SshConnection {
     fn default() -> Self {
         Self {
+            id: String::new(),
             name: String::new(),
             host: String::new(),
             port: None,
@@ -151,6 +158,7 @@ impl SshConnection {
         self.group = trimmed(self.group.take());
         // 密码首尾的空格可能是密码的一部分，只丢弃完全为空的。
         self.password = self.password.take().filter(|password| !password.is_empty());
+        self.id = self.id.trim().to_string();
         if self.name.is_empty() {
             self.name = self.host.clone();
         }
@@ -162,6 +170,25 @@ impl SshConnection {
     pub fn is_valid(&self) -> bool {
         !self.name.is_empty() && !self.host.is_empty()
     }
+
+    /// 给还没有 id 的条目（老文件、新建表单）补一个。
+    pub fn ensure_id(&mut self, sequence: u64) {
+        if self.id.is_empty() {
+            self.id = new_connection_id(sequence);
+        }
+    }
+}
+
+/// 单调递增的标识：时间戳 + 进程内序号。
+///
+/// 不用随机数也不必引依赖——同一个列表里的条目必然先后创建，只要保证
+/// 同一次运行内不重复、重启后也不易撞上即可。
+fn new_connection_id(sequence: u64) -> String {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{stamp:x}-{sequence}")
 }
 
 /// 保存后要把选中项定位回**可见列表中的位置**。
@@ -277,9 +304,25 @@ impl ConnectionBook {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let encoded = serde_json::to_string_pretty(self)?;
+        // 落盘前补齐 id，这样下一次 load 读到的就是稳定标识，不必再补发。
+        // 只补 id，不跑完整的 normalize：那会连带丢弃缺名称/主机的条目，
+        // 保存一次就悄悄删掉用户的数据。
+        let mut book = self.clone();
+        book.assign_missing_ids();
+        let encoded = serde_json::to_string_pretty(&book)?;
         std::fs::write(path, encoded)?;
         Ok(())
+    }
+
+    /// 给缺 id 或 id 重复的条目补发新 id，其余字段一概不动。
+    fn assign_missing_ids(&mut self) {
+        let mut used: Vec<String> = Vec::with_capacity(self.connections.len());
+        for (index, connection) in self.connections.iter_mut().enumerate() {
+            if connection.id.is_empty() || used.contains(&connection.id) {
+                connection.id = new_connection_id(index as u64);
+            }
+            used.push(connection.id.clone());
+        }
     }
 
     fn normalize(&mut self) {
@@ -297,6 +340,23 @@ impl ConnectionBook {
         for connection in &mut self.connections {
             connection.normalize();
         }
+
+        // 老文件没有 id。补发时必须保证唯一，否则 ElementId 冲突会把两行的
+        // 状态又串到一起——这正是要修的那个错位。
+        self.assign_missing_ids();
+    }
+
+    /// 已有的分组名，按首次出现顺序，用于编辑器的下拉候选。
+    pub fn group_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for connection in &self.connections {
+            if let Some(group) = connection.group.as_deref()
+                && !names.iter().any(|name| name == group)
+            {
+                names.push(group.to_string());
+            }
+        }
+        names
     }
 
     /// 列表要渲染的下标：按分组排序，组内保持存储顺序，未分组的收尾。
@@ -345,6 +405,76 @@ mod tests {
             host: host.into(),
             ..Default::default()
         }
+    }
+
+    /// 老文件没有 id 字段；读取时要补上且必须互不相同。
+    #[test]
+    fn legacy_entries_get_unique_ids_on_load() {
+        let dir = std::env::temp_dir().join(format!(
+            "con-connections-ids-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(FILE_NAME);
+        std::fs::write(
+            &path,
+            r#"{"connections":[{"name":"a","host":"1.1.1.1"},{"name":"b","host":"2.2.2.2"}]}"#,
+        )
+        .unwrap();
+
+        let book = ConnectionBook::load_from(&path);
+        assert_eq!(book.connections.len(), 2);
+        let first = book.connections[0].id.clone();
+        let second = book.connections[1].id.clone();
+        assert!(!first.is_empty() && !second.is_empty());
+        assert_ne!(first, second, "两行的 ElementId 不能相同");
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// 旧数据里若已有重复 id，也要被拆开。
+    #[test]
+    fn duplicate_ids_are_reissued_on_load() {
+        let dir = std::env::temp_dir().join(format!(
+            "con-connections-dup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(FILE_NAME);
+        std::fs::write(
+            &path,
+            r#"{"connections":[{"id":"same","name":"a","host":"1.1.1.1"},{"id":"same","name":"b","host":"2.2.2.2"}]}"#,
+        )
+        .unwrap();
+
+        let book = ConnectionBook::load_from(&path);
+        assert_ne!(book.connections[0].id, book.connections[1].id);
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn group_names_are_unique_and_keep_first_seen_order() {
+        let mut a = connection("a", "1.1.1.1");
+        a.group = Some("测试".into());
+        let mut b = connection("b", "2.2.2.2");
+        b.group = Some("生产".into());
+        let mut c = connection("c", "3.3.3.3");
+        c.group = Some("测试".into());
+        let d = connection("d", "4.4.4.4");
+        let book = ConnectionBook {
+            connections: vec![a, b, c, d],
+        };
+
+        assert_eq!(book.group_names(), vec!["测试", "生产"]);
     }
 
     #[test]
@@ -461,8 +591,53 @@ mod tests {
         };
         book.save_to(&path).unwrap();
         let loaded = ConnectionBook::load_from(&path);
-        assert_eq!(loaded, book);
+        // save_to 会补 id，所以内存对象与读回的内容在 id 上不同；其余字段
+        // 与顺序都必须原样保留。
+        assert_eq!(loaded.connections.len(), book.connections.len());
+        for (loaded, original) in loaded.connections.iter().zip(&book.connections) {
+            assert_eq!(loaded.name, original.name);
+            assert_eq!(loaded.host, original.host);
+            assert!(!loaded.id.is_empty());
+        }
         assert_eq!(loaded.connections[0].name, "b");
+
+        // 再存一次必须稳定：id 不该每次写盘都变。
+        let reloaded_ids: Vec<_> = loaded.connections.iter().map(|c| c.id.clone()).collect();
+        loaded.save_to(&path).unwrap();
+        let again: Vec<_> = ConnectionBook::load_from(&path)
+            .connections
+            .iter()
+            .map(|c| c.id.clone())
+            .collect();
+        assert_eq!(reloaded_ids, again);
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// 保存只补 id，不顺手清理条目。缺名称/主机的项在加载时才丢弃；
+    /// 若保存时也跑 normalize，一次误写就会把用户的数据从磁盘上抹掉。
+    #[test]
+    fn save_assigns_ids_without_dropping_incomplete_entries() {
+        let dir = std::env::temp_dir().join(format!(
+            "con-connections-keep-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(FILE_NAME);
+
+        let book = ConnectionBook {
+            connections: vec![connection("正常的", "1.1.1.1"), connection("", "2.2.2.2")],
+        };
+        book.save_to(&path).unwrap();
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let parsed: ConnectionBook = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed.connections.len(), 2, "保存不该丢弃条目");
+        assert!(parsed.connections.iter().all(|c| !c.id.is_empty()));
 
         std::fs::remove_dir_all(dir).unwrap();
     }
