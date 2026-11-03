@@ -433,6 +433,7 @@ impl ConWorkspace {
         // Sidebar content views.
         let file_tree_entity = cx.new(|_cx| FileTreeView::new());
         let search_view_entity = cx.new(|cx| SidebarSearchView::new(window, cx));
+        let git_view_entity = cx.new(|cx| crate::git_view::GitView::new(window, cx));
 
         // File tree: open file in the tab's shared editor pane when user clicks a file row.
         cx.subscribe_in(
@@ -454,6 +455,19 @@ impl ConWorkspace {
             window,
             |this, _search, event: &OpenFile, window, cx| {
                 this.open_path_in_active_editor(event.path.clone(), window, cx);
+            },
+        )
+        .detach();
+        cx.subscribe_in(
+            &git_view_entity,
+            window,
+            |this, _git, event: &crate::git_view::OpenDiff, window, cx| {
+                this.open_snapshot_in_active_editor(
+                    event.title.clone(),
+                    event.text.clone(),
+                    window,
+                    cx,
+                );
             },
         )
         .detach();
@@ -753,6 +767,7 @@ impl ConWorkspace {
                 && session.left_panel_open.unwrap_or(true),
             file_tree_view: file_tree_entity,
             search_view: search_view_entity,
+            git_view: git_view_entity,
             workspace_focus: cx.focus_handle(),
         };
 
@@ -939,6 +954,58 @@ impl ConWorkspace {
         cx.notify();
     }
 
+    /// 在活动编辑区里打开一段只读内容（git diff 等）。
+    ///
+    /// 与 [`Self::open_path_in_active_editor`] 的区别是不读磁盘：内容是调用方
+    /// 给的内存字符串，标签只读。
+    pub(super) fn open_snapshot_in_active_editor(
+        &mut self,
+        title: String,
+        content: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.has_active_tab() {
+            return;
+        }
+        let active_tab = self.active_tab;
+        let (pane_id, editor_view) =
+            if let Some(pane_id) = self.tabs[active_tab].pane_tree.find_editor_pane() {
+                let Some(editor_view) = self.tabs[active_tab]
+                    .pane_tree
+                    .editor_view_for_pane(pane_id)
+                else {
+                    return;
+                };
+                (pane_id, editor_view)
+            } else {
+                let editor_view = self.create_editor_view_subscribed(window, cx);
+                let Some(pane_id) = self.tabs[active_tab]
+                    .pane_tree
+                    .split_with_editor(editor_view.clone())
+                else {
+                    return;
+                };
+                (pane_id, editor_view)
+            };
+
+        self.tabs[active_tab].pane_tree.focus_pane(pane_id);
+        let editor_focus = editor_view.read(cx).focus_handle(cx).clone();
+        // 快照不对应磁盘文件，但标签需要一个不冲突的 key：同一个提交的
+        // 不同文件、以及重复打开同一 diff 都可能撞名，加时间戳保证唯一。
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let key = std::path::PathBuf::from(format!("{title}#{stamp}"));
+        editor_view.update(cx, |editor: &mut EditorView, cx| {
+            editor.open_read_only_snapshot(key, title, content, cx);
+        });
+        editor_focus.focus(window, cx);
+        self.sync_sidebar(cx);
+        cx.notify();
+    }
+
     /// Create a new EditorView with font_size and subscribe to ActiveFileChanged and EditorEmptied events.
     pub(super) fn create_editor_view_subscribed(
         &mut self,
@@ -956,8 +1023,12 @@ impl ConWorkspace {
                     .iter()
                     .position(|tab| tab.pane_tree.pane_id_for_editor_view(editor).is_some())
                 {
-                    let active_file = editor.read(cx).active_path().map(Path::to_path_buf);
-                    this.tabs[tab_index].title = editor_tab_title(active_file.as_deref());
+                    // 快照的 path 是合成 key，直接拿它当标签标题会显示成
+                    // 「某提交 某文件#时间戳」，保留原来的标题。
+                    if !editor.read(cx).active_tab_is_snapshot() {
+                        let active_file = editor.read(cx).active_path().map(Path::to_path_buf);
+                        this.tabs[tab_index].title = editor_tab_title(active_file.as_deref());
+                    }
                     this.sync_sidebar(cx);
                     this.save_session(cx);
                 }

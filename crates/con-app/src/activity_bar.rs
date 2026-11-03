@@ -30,6 +30,8 @@ pub enum ActivitySlot {
     Files,
     /// Workspace text search — backed by `SidebarSearchView`.
     Search,
+    /// Git 变更与历史 — backed by `GitView`.
+    Git,
 }
 
 impl ActivitySlot {
@@ -37,12 +39,14 @@ impl ActivitySlot {
         match self {
             ActivitySlot::Files => "files",
             ActivitySlot::Search => "search",
+            ActivitySlot::Git => "git",
         }
     }
 
     pub fn from_str(s: &str) -> Self {
         match s {
             "search" => ActivitySlot::Search,
+            "git" => ActivitySlot::Git,
             _ => ActivitySlot::Files,
         }
     }
@@ -131,6 +135,16 @@ impl Render for ActivityBar {
                         theme,
                         cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
                             this.set_slot(ActivitySlot::Search, cx);
+                        }),
+                    ))
+                    .child(activity_slot_button(
+                        "activity-git",
+                        "phosphor/git-branch.svg",
+                        "Git",
+                        active_slot == ActivitySlot::Git,
+                        theme,
+                        cx.listener(|this, _: &gpui::ClickEvent, _window, cx| {
+                            this.set_slot(ActivitySlot::Git, cx);
                         }),
                     )),
             )

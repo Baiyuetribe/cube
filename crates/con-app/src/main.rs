@@ -20,7 +20,8 @@ mod config_recovery;
 mod file_icons;
 #[cfg(target_os = "macos")]
 mod first_run;
-#[cfg(target_os = "macos")]
+mod git_graph_element;
+mod git_view;
 mod global_hotkey;
 #[cfg(target_os = "macos")]
 mod macos_windowing;

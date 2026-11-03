@@ -56,6 +56,8 @@ build:
 build-release:
     {{ if os() == "windows" { "cargo wbuild -p con --release && cargo build -p con-cli --release" } else { "cargo build --release -p con -p con-cli" } }}
 
+# 构建完成后，替换，然后 chmod +x "/Applications/con Beta.app/Contents/MacOS/con-cli"
+
 # 从源码运行 —— 当前平台（先构建 con-cli，确保 handoff 能找到它）
 run:
     {{ if os() == "windows" { "cargo build -p con-cli && cargo wrun -p con" } else { "cargo build -p con-cli && cargo run -p con" } }}

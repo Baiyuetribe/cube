@@ -901,6 +901,7 @@ impl Render for ConWorkspace {
                 let sidebar_content: AnyElement = match self.activity_slot {
                     ActivitySlot::Files => self.file_tree_view.clone().into_any_element(),
                     ActivitySlot::Search => self.search_view.clone().into_any_element(),
+                    ActivitySlot::Git => self.git_view.clone().into_any_element(),
                 };
                 let mut sidebar_panel = div()
                     .w(px(sidebar_content_width))

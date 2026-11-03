@@ -343,6 +343,11 @@ pub struct EditorTab {
     temporary: bool,
     preview: bool,
     preview_cache: Option<(u64, Arc<ParsedChatMarkdown>)>,
+    /// 内容来自内存（diff 等），不对应磁盘上的文件。用于把这类标签排除在
+    /// 「活动文件路径」之外：否则文件树会把假路径当成目录根。
+    snapshot: bool,
+    /// 快照标签在标签栏上显示的名字。普通文件标签用文件名。
+    snapshot_title: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -399,6 +404,18 @@ impl EditorTab {
             save_enabled: true,
             preview: false,
             preview_cache: None,
+            snapshot: false,
+            snapshot_title: None,
+        }
+    }
+
+    /// 只读快照标签：内容来自内存（diff 之类），保存无意义，也不对应磁盘文件。
+    fn read_only(path: PathBuf, title: String, text: String) -> Self {
+        Self {
+            save_enabled: false,
+            snapshot: true,
+            snapshot_title: Some(title),
+            ..Self::new(path, EditorBuffer::from_text(text))
         }
     }
 
@@ -421,6 +438,8 @@ impl EditorTab {
             save_enabled: false,
             preview: false,
             preview_cache: None,
+            snapshot_title: None,
+            snapshot: false,
         }
     }
 
@@ -437,6 +456,8 @@ impl EditorTab {
             save_enabled: false,
             preview: false,
             preview_cache: None,
+            snapshot_title: None,
+            snapshot: false,
         }
     }
 
@@ -617,6 +638,40 @@ impl EditorView {
             return;
         }
         self.metrics = metrics;
+        cx.notify();
+    }
+
+    /// 打开一段只读内容（git diff 等）。
+    ///
+    /// 内容不来自磁盘，保存无意义，因此标签是只读的。`path` 只用于标签标题
+    /// 和语法高亮判断，不会去读文件。
+    pub fn open_read_only_snapshot(
+        &mut self,
+        path: PathBuf,
+        title: String,
+        content: String,
+        cx: &mut Context<Self>,
+    ) {
+        // 同名快照每次都新建标签：diff 带提交哈希，重复打开同一提交时
+        // 直接切到已有标签反而更自然，但内容可能已变，所以按路径去重即可。
+        let title_for_tab = title.clone();
+        let apply = Self::apply_loaded_file_tab(
+            &mut self.tabs,
+            &mut self.active_tab,
+            path.clone(),
+            true,
+            false,
+            FileOpenMode::Kept,
+            |path| EditorTab::read_only(path, title_for_tab, content),
+        );
+        if apply.activated {
+            self.file_tab_reveal_pending = true;
+            self.dirty_close_blocked_tab = None;
+            self.scroll_handle = UniformListScrollHandle::new();
+        }
+        if apply.active_file_changed {
+            cx.emit(ActiveFileChanged);
+        }
         cx.notify();
     }
 
@@ -960,11 +1015,16 @@ impl EditorView {
         self.tabs
             .iter()
             .map(|tab| {
-                let name = tab
-                    .path
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| tab.path.display().to_string());
+                // 快照标签的 path 是合成 key（带时间戳），显示它没有意义，
+                // 用调用方给的标题。
+                let name = match &tab.snapshot_title {
+                    Some(title) => title.clone(),
+                    None => tab
+                        .path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| tab.path.display().to_string()),
+                };
                 (name, tab.buffer.is_dirty())
             })
             .collect()
@@ -983,6 +1043,14 @@ impl EditorView {
 
     pub fn active_path(&self) -> Option<&Path> {
         self.active_tab_ref().map(|tab| tab.path.as_path())
+    }
+
+    /// 当前标签是不是内存快照（git diff 等）。
+    ///
+    /// 快照的 `path` 只是标签标题，磁盘上并没有这个文件；任何拿它推导目录
+    /// 的地方都必须先排除掉。
+    pub fn active_tab_is_snapshot(&self) -> bool {
+        self.active_tab_ref().is_some_and(|tab| tab.snapshot)
     }
 
     pub fn file_tab_scroll_handle(&self) -> &ScrollHandle {

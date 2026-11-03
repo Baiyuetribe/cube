@@ -305,4 +305,6 @@ pub struct ConWorkspace {
     file_tree_view: Entity<FileTreeView>,
     /// Search view — global singleton, root follows the same sidebar root.
     search_view: Entity<SidebarSearchView>,
+    /// Git 面板 — 变更、历史、commit。根目录跟随同一个 sidebar root。
+    git_view: Entity<crate::git_view::GitView>,
 }

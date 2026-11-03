@@ -311,6 +311,18 @@ impl ConWorkspace {
         let focused_pane_id = pane_tree.focused_pane_id();
 
         let current_root = self.file_tree_view.read(cx).root().map(Path::to_path_buf);
+        // 快照标签（git diff）的 path 只是标签标题，磁盘上没有这个文件。
+        // 拿它推导根会把文件树带到不存在的目录，Git 面板随后也失效。
+        // 这种情况保持现有根不变，只是不再高亮某个文件。
+        if pane_tree
+            .editor_view_for_pane(focused_pane_id)
+            .is_some_and(|view| view.read(cx).active_tab_is_snapshot())
+        {
+            self.file_tree_view
+                .update(cx, |tree, cx| tree.set_active_path(None, cx));
+            return;
+        }
+
         let root = if let Some(path) = pane_tree.editor_active_path_for_pane(focused_pane_id, cx) {
             file_tree_root_for_focus(
                 FileTreeFocusSource::Editor {
@@ -336,12 +348,16 @@ impl ConWorkspace {
 
         if let Some((root, active_path)) = root {
             let search_root = root.clone();
+            let git_root = root.clone();
             self.file_tree_view.update(cx, |tree, cx| {
                 tree.set_root(root, cx);
                 tree.set_active_path(active_path, cx);
             });
             self.search_view.update(cx, |search, cx| {
                 search.set_root(search_root, cx);
+            });
+            self.git_view.update(cx, |git, cx| {
+                git.set_root(git_root, cx);
             });
         }
     }
