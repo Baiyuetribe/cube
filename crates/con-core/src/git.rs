@@ -353,6 +353,25 @@ pub fn commit(repo: &Path, message: &str) -> Result<String, String> {
     run_git(repo, &["commit", "-m", message]).map(|text| text.trim().to_string())
 }
 
+/// 放弃某个文件的改动，**丢弃内容不可恢复**。
+///
+/// `untracked` 决定用哪条命令：
+/// - 已跟踪文件用 `git restore`，还原到 HEAD 的内容；
+/// - 未跟踪文件 `git restore` 会报 "did not match any file(s)"，只能用
+///   `git clean -f` 删除。
+///
+/// 注意这里不加 `--staged`：同时还原工作区和暂存区，符合「放弃这处改动」
+/// 的直觉。只想撤销暂存的话应该用 `git restore --staged`，那是另一个动作。
+pub fn discard_change(repo: &Path, path: &Path, untracked: bool) -> Result<(), String> {
+    let path_text = path.to_string_lossy().into_owned();
+    if untracked {
+        run_git(repo, &["clean", "-f", "--", &path_text])?;
+    } else {
+        run_git(repo, &["restore", "--", &path_text])?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,6 +466,53 @@ mod tests {
         // 重命名取新路径。
         assert_eq!(changes[1].path, PathBuf::from("new.rs"));
         assert_eq!(changes[1].staged, Some(GitStatus::Renamed));
+    }
+
+    /// 已跟踪文件：restore 回 HEAD；未跟踪文件：直接删掉。
+    ///
+    /// 用真实临时仓库跑，因为这两条命令的差异（restore 对未跟踪文件会报错）
+    /// 没法用 mock 表达。
+    #[test]
+    fn discard_handles_tracked_and_untracked_differently() {
+        let dir = std::env::temp_dir().join(format!(
+            "con-git-discard-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let init = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .expect("git 应当可用")
+        };
+        init(&["init", "-q"]);
+        init(&["config", "user.email", "t@t"]);
+        init(&["config", "user.name", "T"]);
+
+        std::fs::write(dir.join("tracked.txt"), "base\n").unwrap();
+        init(&["add", "."]);
+        init(&["commit", "-qm", "init"]);
+
+        // 制造一处修改和一个未跟踪文件。
+        std::fs::write(dir.join("tracked.txt"), "base\nmodified\n").unwrap();
+        std::fs::write(dir.join("untracked.txt"), "new\n").unwrap();
+
+        discard_change(&dir, Path::new("tracked.txt"), false).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("tracked.txt")).unwrap(),
+            "base\n",
+            "已跟踪文件应还原到 HEAD 内容"
+        );
+
+        discard_change(&dir, Path::new("untracked.txt"), true).unwrap();
+        assert!(!dir.join("untracked.txt").exists(), "未跟踪文件应被删除");
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

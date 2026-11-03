@@ -7,14 +7,16 @@ use std::path::PathBuf;
 
 use con_core::git::{self, GitChange, GitCommit, GitStatus};
 use gpui::{
-    AnyElement, Context, Entity, EventEmitter, FontWeight, Hsla, IntoElement, ParentElement,
-    Render, SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::*, px,
+    AnyElement, ClipboardItem, Context, Entity, EventEmitter, FontWeight, Hsla, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, div,
+    prelude::*, px,
 };
 use gpui_component::input::InputState;
 use gpui_component::{
     ActiveTheme, Icon, Sizable as _,
     button::{Button, ButtonVariants as _},
     input::Input,
+    menu::{ContextMenuExt as _, PopupMenuItem},
 };
 
 use crate::git_graph_element::GitGraphElement;
@@ -33,6 +35,15 @@ pub struct OpenDiff {
     pub text: String,
 }
 
+/// 用户在变更列表里请求放弃某处改动。
+///
+/// 用事件而不是直接执行：放弃不可撤销，需要先弹确认。面板自己持有待确认
+/// 状态，确认后才真正调用 git。
+pub struct DiscardChangeRequested {
+    pub path: PathBuf,
+    pub untracked: bool,
+}
+
 pub struct GitView {
     root: Option<PathBuf>,
     tab: GitTab,
@@ -49,6 +60,8 @@ pub struct GitView {
     generation: u64,
     /// 提交历史的泳道布局，随 commits 一起刷新。
     graph: con_core::git_graph::GitGraphLayout,
+    /// 等待用户确认的放弃改动请求。
+    pending_discard: Option<DiscardChangeRequested>,
 }
 
 const ROW_HEIGHT: f32 = 24.0;
@@ -59,6 +72,7 @@ const HISTORY_LANE_WIDTH: f32 = 14.0;
 const HISTORY_LIMIT: usize = 200;
 
 impl EventEmitter<OpenDiff> for GitView {}
+impl EventEmitter<DiscardChangeRequested> for GitView {}
 
 impl GitView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -79,6 +93,7 @@ impl GitView {
             error: None,
             generation: 0,
             graph: Default::default(),
+            pending_discard: None,
         }
     }
 
@@ -385,18 +400,103 @@ impl GitView {
             }
         }
 
-        div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.0))
-            .child(list)
-            .child(self.render_commit_box(theme, cx))
+        let mut body = div().flex().flex_col().flex_1().min_h(px(0.0)).child(list);
+        // 放弃改动不可撤销，先在这里确认，而不是菜单里点一下就执行。
+        if let Some(confirm) = self.render_discard_confirm(theme, cx) {
+            body = body.child(confirm);
+        }
+        body.child(self.render_commit_box(theme, cx))
             .into_any_element()
     }
 
-    fn change_row(
+    /// 放弃改动的确认条。
+    fn render_discard_confirm(
         &self,
+        theme: &gpui_component::Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let pending = self.pending_discard.as_ref()?;
+        let verb = if pending.untracked {
+            "删除这个未跟踪文件"
+        } else {
+            "放弃这个文件的改动"
+        };
+        let name = pending
+            .path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| pending.path.display().to_string());
+
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.0))
+                .p(px(8.0))
+                .flex_shrink_0()
+                .bg(theme.danger.opacity(0.08))
+                .child(
+                    div()
+                        .text_size(ui_px(theme, 10.5))
+                        .font_family(theme.font_family.clone())
+                        .text_color(theme.foreground)
+                        .child(format!("{verb}？{name} 的改动将不可恢复。")),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(6.0))
+                        .child(
+                            Button::new("discard-cancel")
+                                .label("取消")
+                                .small()
+                                .ghost()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.pending_discard = None;
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            Button::new("discard-confirm")
+                                .label("确认放弃")
+                                .small()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.discard_pending(cx);
+                                })),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// 执行待确认的放弃请求。
+    fn discard_pending(&mut self, cx: &mut Context<Self>) {
+        let Some(pending) = self.pending_discard.take() else {
+            return;
+        };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let path = pending.path.clone();
+        let untracked = pending.untracked;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { git::discard_change(&root, &path, untracked) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(error) = result {
+                    this.error = Some(format!("放弃改动失败：{error}"));
+                }
+                this.refresh(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn change_row(
+        &mut self,
         change: GitChange,
         staged: bool,
         theme: &gpui_component::Theme,
@@ -469,6 +569,32 @@ impl GitView {
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open_working_diff(&change_for_click, cx);
             }))
+            .context_menu({
+                // 未跟踪文件的放弃方式是「删除」，已跟踪的是「还原」。
+                let untracked = matches!(status, Some(GitStatus::Untracked));
+                let path = change.path.clone();
+                let label = if untracked {
+                    "删除未跟踪文件"
+                } else {
+                    "放弃更改"
+                };
+                // WeakEntity 先取出再进闭包：闭包要求 'static，不能借用 cx。
+                let entity = cx.entity().downgrade();
+                move |menu, _window, _cx| {
+                    let path = path.clone();
+                    let entity = entity.clone();
+                    menu.item(PopupMenuItem::new(label).on_click(move |_, _, app| {
+                        let path = path.clone();
+                        let _ = entity.update(app, |this, cx| {
+                            this.pending_discard = Some(DiscardChangeRequested {
+                                path: path.clone(),
+                                untracked,
+                            });
+                            cx.notify();
+                        });
+                    }))
+                }
+            })
             .into_any_element()
     }
 
@@ -590,14 +716,41 @@ impl GitView {
                     .child(
                         div()
                             .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .gap(px(4.0))
                             .text_size(ui_px(theme, 10.0))
                             .font_family(theme.font_family.clone())
                             .text_color(theme.muted_foreground.opacity(0.65))
-                            .child(commit.short_hash.clone()),
+                            .child(commit.short_hash.clone())
+                            .child(div().child("·"))
+                            .child(div().child(commit.author.clone()))
+                            .child(div().child("·"))
+                            .child(div().child(relative_time(commit.timestamp))),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.open_commit(commit_for_click.clone(), cx);
-                    })),
+                    }))
+                    // 右键菜单：复制哈希。菜单闭包会被多次调用，所以哈希要
+                    // 各自 clone 一份。
+                    .context_menu({
+                        let full_hash = commit.hash.clone();
+                        let short_hash = commit.short_hash.clone();
+                        move |menu, _window, _cx| {
+                            let full = full_hash.clone();
+                            let short = short_hash.clone();
+                            menu.item(PopupMenuItem::new("复制提交哈希").on_click(
+                                move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(full.clone()));
+                                },
+                            ))
+                            .item(
+                                PopupMenuItem::new("复制短哈希").on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(short.clone()));
+                                }),
+                            )
+                        }
+                    }),
             );
         }
 
