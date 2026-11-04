@@ -106,6 +106,217 @@ pub struct GitDiff {
     pub text: String,
 }
 
+/// unified diff 里一行的类型。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffLineKind {
+    /// 文件头（`diff --git`、`index`、`---`、`+++`）。
+    FileHeader,
+    /// hunk 头 `@@ -a,b +c,d @@`。
+    HunkHeader,
+    /// 未改动的上下文行。
+    Context,
+    /// 新增行。
+    Added,
+    /// 删除行。
+    Removed,
+    /// `\ No newline at end of file` 之类的标记。
+    Marker,
+}
+
+/// diff 里的一行，带新旧行号。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffLine {
+    pub kind: DiffLineKind,
+    /// 旧文件里的行号（删除行和上下文行有）。
+    pub old_line: Option<u32>,
+    /// 新文件里的行号（新增行和上下文行有）。
+    pub new_line: Option<u32>,
+    /// 去掉前缀符号后的正文。
+    pub text: String,
+}
+
+/// 一次 diff 解析后的完整结构。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParsedDiff {
+    /// 按文件分段。每段以 `diff --git` 开头（单文件 diff 也可能没有）。
+    pub files: Vec<DiffFile>,
+    /// 总新增行数。
+    pub added: usize,
+    /// 总删除行数。
+    pub removed: usize,
+}
+
+/// 一个文件的 diff 段。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffFile {
+    /// 显示用的路径（优先取 `+++ b/...` 去掉前缀的部分）。
+    pub path: String,
+    pub lines: Vec<DiffLine>,
+    pub added: usize,
+    pub removed: usize,
+}
+
+/// 把 `git diff` / `git show` 的 unified 输出解析成结构化行。
+///
+/// 只依赖行首字符，不解析 hunk 内容本身，所以对任意语言都成立。
+pub fn parse_diff(text: &str) -> ParsedDiff {
+    let mut files: Vec<DiffFile> = Vec::new();
+    let mut current = DiffFile {
+        path: String::new(),
+        lines: Vec::new(),
+        added: 0,
+        removed: 0,
+    };
+    // hunk 头里的行号，随着读行递增。
+    let mut old_no: u32 = 0;
+    let mut new_no: u32 = 0;
+
+    for raw in text.lines() {
+        // 新的文件段。
+        if raw.starts_with("diff --git ") {
+            if !current.lines.is_empty() || !current.path.is_empty() {
+                files.push(current);
+            }
+            // 兜底路径：diff --git a/x b/x 里的后一半。
+            let fallback = raw
+                .rsplit_once(" b/")
+                .map(|(_, path)| path.to_string())
+                .unwrap_or_default();
+            current = DiffFile {
+                path: fallback,
+                lines: Vec::new(),
+                added: 0,
+                removed: 0,
+            };
+            old_no = 0;
+            new_no = 0;
+            current.lines.push(DiffLine {
+                kind: DiffLineKind::FileHeader,
+                old_line: None,
+                new_line: None,
+                text: raw.to_string(),
+            });
+            continue;
+        }
+
+        if let Some(rest) = raw.strip_prefix("@@ ") {
+            if let Some((old_start, new_start)) = parse_hunk_header(rest) {
+                old_no = old_start;
+                new_no = new_start;
+            }
+            current.lines.push(DiffLine {
+                kind: DiffLineKind::HunkHeader,
+                old_line: None,
+                new_line: None,
+                text: raw.to_string(),
+            });
+            continue;
+        }
+
+        // `+++ b/path` / `--- a/path` 出现在 hunk 之前，属于文件头。
+        if raw.starts_with("+++ ") {
+            current.path = strip_diff_prefix(raw.trim_start_matches("+++ "));
+            current.lines.push(DiffLine {
+                kind: DiffLineKind::FileHeader,
+                old_line: None,
+                new_line: None,
+                text: raw.to_string(),
+            });
+            continue;
+        }
+        if raw.starts_with("--- ")
+            || raw.starts_with("index ")
+            || raw.starts_with("new file")
+            || raw.starts_with("deleted file")
+            || raw.starts_with("similarity index")
+            || raw.starts_with("rename ")
+        {
+            current.lines.push(DiffLine {
+                kind: DiffLineKind::FileHeader,
+                old_line: None,
+                new_line: None,
+                text: raw.to_string(),
+            });
+            continue;
+        }
+
+        if raw.starts_with('\\') {
+            current.lines.push(DiffLine {
+                kind: DiffLineKind::Marker,
+                old_line: None,
+                new_line: None,
+                text: raw.to_string(),
+            });
+            continue;
+        }
+
+        let line = if let Some(body) = raw.strip_prefix('+') {
+            new_no += 1;
+            current.added += 1;
+            DiffLine {
+                kind: DiffLineKind::Added,
+                old_line: None,
+                new_line: Some(new_no - 1),
+                text: body.to_string(),
+            }
+        } else if let Some(body) = raw.strip_prefix('-') {
+            old_no += 1;
+            current.removed += 1;
+            DiffLine {
+                kind: DiffLineKind::Removed,
+                old_line: Some(old_no - 1),
+                new_line: None,
+                text: body.to_string(),
+            }
+        } else {
+            // 上下文行：可能是 " 文本"，也可能是不带前缀的空行。
+            let body = raw.strip_prefix(' ').unwrap_or(raw);
+            let line = DiffLine {
+                kind: DiffLineKind::Context,
+                old_line: Some(old_no),
+                new_line: Some(new_no),
+                text: body.to_string(),
+            };
+            old_no += 1;
+            new_no += 1;
+            line
+        };
+
+        current.lines.push(line);
+    }
+
+    if !current.lines.is_empty() || !current.path.is_empty() {
+        files.push(current);
+    }
+
+    let added = files.iter().map(|file| file.added).sum();
+    let removed = files.iter().map(|file| file.removed).sum();
+    ParsedDiff {
+        files,
+        added,
+        removed,
+    }
+}
+
+/// 从 hunk 头 `-a,b +c,d @@ ...` 里取新旧起始行号。
+fn parse_hunk_header(rest: &str) -> Option<(u32, u32)> {
+    let mut parts = rest.split_whitespace();
+    let old = parts.next()?.strip_prefix('-')?;
+    let new = parts.next()?.strip_prefix('+')?;
+    let old_start = old.split(',').next()?.parse().ok()?;
+    let new_start = new.split(',').next()?.parse().ok()?;
+    Some((old_start, new_start))
+}
+
+/// 去掉 `a/` `b/` 前缀。
+fn strip_diff_prefix(path: &str) -> String {
+    let path = path.trim();
+    path.strip_prefix("a/")
+        .or_else(|| path.strip_prefix("b/"))
+        .unwrap_or(path)
+        .to_string()
+}
+
 fn run_git(repo: &Path, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .args(args)
@@ -571,6 +782,144 @@ mod tests {
         // 指向不存在的目录也能通过：空信息在调用 git 之前就被拦下了。
         let error = commit(Path::new("/nonexistent/con-git-test"), "   ", false).unwrap_err();
         assert!(error.contains("不能为空"));
+    }
+
+    #[test]
+    fn parses_diff_line_kinds_and_line_numbers() {
+        let text = "\
+diff --git a/src/a.rs b/src/a.rs
+index 111..222 100644
+--- a/src/a.rs
++++ b/src/a.rs
+@@ -10,3 +10,4 @@ fn main() {
+ let a = 1;
+-let b = 2;
++let b = 3;
++let c = 4;
+ let d = 5;
+";
+        let diff = parse_diff(text);
+
+        assert_eq!(diff.files.len(), 1);
+        let file = &diff.files[0];
+        assert_eq!(file.path, "src/a.rs");
+        assert_eq!(file.added, 2);
+        assert_eq!(file.removed, 1);
+        assert_eq!(diff.added, 2);
+        assert_eq!(diff.removed, 1);
+
+        // hunk 头从 10/10 开始，上下文行占旧新两个行号。
+        let context: Vec<_> = file
+            .lines
+            .iter()
+            .filter(|line| line.kind == DiffLineKind::Context)
+            .collect();
+        assert_eq!(context[0].old_line, Some(10));
+        assert_eq!(context[0].new_line, Some(10));
+        assert_eq!(context[0].text, "let a = 1;");
+
+        let removed: Vec<_> = file
+            .lines
+            .iter()
+            .filter(|line| line.kind == DiffLineKind::Removed)
+            .collect();
+        assert_eq!(removed[0].old_line, Some(11));
+        assert_eq!(removed[0].new_line, None, "删除行没有新行号");
+
+        let added: Vec<_> = file
+            .lines
+            .iter()
+            .filter(|line| line.kind == DiffLineKind::Added)
+            .collect();
+        assert_eq!(added[0].new_line, Some(11));
+        assert_eq!(added[0].old_line, None, "新增行没有旧行号");
+        assert_eq!(added[1].new_line, Some(12));
+    }
+
+    #[test]
+    fn parses_multiple_files_in_one_diff() {
+        let text = "\
+diff --git a/one.txt b/one.txt
+--- a/one.txt
++++ b/one.txt
+@@ -1 +1 @@
+-old
++new
+diff --git a/two.txt b/two.txt
+--- a/two.txt
++++ b/two.txt
+@@ -5 +5,2 @@
+ keep
++extra
+";
+        let diff = parse_diff(text);
+
+        assert_eq!(diff.files.len(), 2);
+        assert_eq!(diff.files[0].path, "one.txt");
+        assert_eq!(diff.files[1].path, "two.txt");
+        assert_eq!(diff.added, 2);
+        assert_eq!(diff.removed, 1);
+    }
+
+    /// hunk 头里的行号必须重置每一段，否则第二段的编号会接着第一段往下跑。
+    #[test]
+    fn line_numbers_reset_per_hunk() {
+        let text = "\
+diff --git a/x b/x
+--- a/x
++++ b/x
+@@ -1,2 +1,2 @@
+ a
+-b
++c
+@@ -100,1 +100,1 @@
+-d
++e
+";
+        let diff = parse_diff(text);
+        let added: Vec<_> = diff.files[0]
+            .lines
+            .iter()
+            .filter(|line| line.kind == DiffLineKind::Added)
+            .collect();
+
+        assert_eq!(added[0].new_line, Some(2), "第一个 hunk 的新行号");
+        assert_eq!(
+            added[1].new_line,
+            Some(100),
+            "第二个 hunk 从 @@ +100 重新开始"
+        );
+    }
+
+    #[test]
+    fn empty_diff_yields_no_files() {
+        let diff = parse_diff("");
+        assert!(diff.files.is_empty());
+        assert_eq!(diff.added, 0);
+        assert_eq!(diff.removed, 0);
+    }
+
+    /// `\\ No newline at end of file` 不该被算成增删行。
+    #[test]
+    fn marker_lines_are_not_counted_as_changes() {
+        let text = "\
+diff --git a/x b/x
+--- a/x
++++ b/x
+@@ -1 +1 @@
+-a
+\\ No newline at end of file
++b
+";
+        let diff = parse_diff(text);
+        assert_eq!(diff.added, 1);
+        assert_eq!(diff.removed, 1);
+        assert!(
+            diff.files[0]
+                .lines
+                .iter()
+                .any(|line| line.kind == DiffLineKind::Marker)
+        );
     }
 
     #[test]

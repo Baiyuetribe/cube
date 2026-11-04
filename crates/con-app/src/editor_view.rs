@@ -10,6 +10,7 @@ use crate::{
     editor_preview, editor_syntax,
 };
 use crossbeam_channel::{Receiver, Sender};
+use gpui::AppContext as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Bounds, Context, CursorStyle, EventEmitter, ExternalPaths, FocusHandle, Focusable,
@@ -325,6 +326,13 @@ enum EditorTabKind {
     Image,
 }
 
+/// 编辑器标签里展示的 git diff。
+#[derive(Clone)]
+pub(crate) struct DiffDocument {
+    pub(crate) title: String,
+    pub(crate) diff: con_core::git::ParsedDiff,
+}
+
 #[derive(Clone)]
 pub struct EditorTab {
     pub path: PathBuf,
@@ -348,6 +356,11 @@ pub struct EditorTab {
     snapshot: bool,
     /// 快照标签在标签栏上显示的名字。普通文件标签用文件名。
     snapshot_title: Option<String>,
+    /// 这个标签展示的 git diff。有值时正文交给 `DiffView` 渲染，
+    /// 不走编辑器自己的行渲染。
+    diff: Option<DiffDocument>,
+    /// diff 视图的 entity，首次渲染时创建并缓存。
+    diff_view: Option<gpui::Entity<crate::diff_view::DiffView>>,
 }
 
 #[derive(Clone, Default)]
@@ -406,6 +419,8 @@ impl EditorTab {
             preview_cache: None,
             snapshot: false,
             snapshot_title: None,
+            diff: None,
+            diff_view: None,
         }
     }
 
@@ -416,6 +431,19 @@ impl EditorTab {
             snapshot: true,
             snapshot_title: Some(title),
             ..Self::new(path, EditorBuffer::from_text(text))
+        }
+    }
+
+    /// git diff 标签：正文由 `DiffView` 渲染，不走编辑器的行渲染。
+    fn diff(path: PathBuf, document: DiffDocument, raw_diff: String) -> Self {
+        let title = document.title.clone();
+        Self {
+            save_enabled: false,
+            snapshot: true,
+            snapshot_title: Some(title),
+            diff: Some(document),
+            diff_view: None,
+            ..Self::new(path, EditorBuffer::from_text(raw_diff))
         }
     }
 
@@ -440,6 +468,8 @@ impl EditorTab {
             preview_cache: None,
             snapshot_title: None,
             snapshot: false,
+            diff: None,
+            diff_view: None,
         }
     }
 
@@ -458,6 +488,8 @@ impl EditorTab {
             preview_cache: None,
             snapshot_title: None,
             snapshot: false,
+            diff: None,
+            diff_view: None,
         }
     }
 
@@ -645,6 +677,45 @@ impl EditorView {
     ///
     /// 内容不来自磁盘，保存无意义，因此标签是只读的。`path` 只用于标签标题
     /// 和语法高亮判断，不会去读文件。
+    /// 打开一个 git diff 标签。正文交给 `DiffView` 渲染。
+    ///
+    /// 与 `open_read_only_snapshot` 的区别只在于渲染方式：这里按 diff 语义
+    /// 着色并分行号，而不是当成普通文本。
+    pub fn open_diff(
+        &mut self,
+        path: PathBuf,
+        title: String,
+        raw_diff: String,
+        cx: &mut Context<Self>,
+    ) {
+        let document = DiffDocument {
+            title: title.clone(),
+            diff: con_core::git::parse_diff(&raw_diff),
+        };
+        let apply = Self::apply_loaded_file_tab(
+            &mut self.tabs,
+            &mut self.active_tab,
+            path.clone(),
+            true,
+            false,
+            FileOpenMode::Kept,
+            |path| {
+                let mut tab = EditorTab::diff(path, document.clone(), raw_diff.clone());
+                tab.snapshot_title = Some(title.clone());
+                tab
+            },
+        );
+        if apply.activated {
+            self.file_tab_reveal_pending = true;
+            self.dirty_close_blocked_tab = None;
+            self.scroll_handle = UniformListScrollHandle::new();
+        }
+        if apply.active_file_changed {
+            cx.emit(ActiveFileChanged);
+        }
+        cx.notify();
+    }
+
     pub fn open_read_only_snapshot(
         &mut self,
         path: PathBuf,
@@ -2299,7 +2370,19 @@ impl Render for EditorView {
             .child(list)
             .child(Scrollbar::new(&self.scroll_handle).mode(ScrollbarMode::Always));
 
-        let body = if image_tab {
+        let body = if let Some(document) = self.tabs[active_index].diff.clone() {
+            // diff 标签交给专用视图渲染：增删行有背景色、行号分新旧两栏。
+            // DiffView 是独立 entity，缓存起来避免每帧重建。
+            let view = match &self.tabs[active_index].diff_view {
+                Some(view) => view.clone(),
+                None => {
+                    let view = cx.new(|_| crate::diff_view::DiffView::new(document));
+                    self.tabs[active_index].diff_view = Some(view.clone());
+                    view
+                }
+            };
+            view.into_any_element()
+        } else if image_tab {
             let path = active.path.clone();
             let bg = theme.background;
             let placeholder_fg = theme.muted_foreground.opacity(0.6);

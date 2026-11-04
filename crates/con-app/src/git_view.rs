@@ -280,25 +280,8 @@ impl GitView {
 }
 
 impl Render for GitView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-
-        if self.root.is_none() {
-            return empty_state("不是 git 仓库", &theme);
-        }
-
-        if let Some(error) = &self.error {
-            return empty_state_owned(error.clone(), &theme);
-        }
-
-        // 上下分栏：变更在上、历史在下，中间一条可拖动的分割线。
-        // 用 flex_basis 按比例分配，分割线本身不占高度。
-        let ratio = self.split_ratio.clamp(0.15, 0.85);
-        let top = self.render_changes(&theme, cx);
-        let bottom = match self.selected_commit.clone() {
-            Some(commit) => self.render_commit_detail(&commit, &theme, cx),
-            None => self.render_history(&theme, cx),
-        };
 
         if self.root.is_none() {
             return empty_state("不是 git 仓库", &theme);

@@ -999,7 +999,9 @@ impl ConWorkspace {
             .unwrap_or_default();
         let key = std::path::PathBuf::from(format!("{title}#{stamp}"));
         editor_view.update(cx, |editor: &mut EditorView, cx| {
-            editor.open_read_only_snapshot(key, title, content, cx);
+            // 走 diff 专用标签：增删行着色、新旧行号分栏，
+            // 而不是把 unified diff 当普通文本显示。
+            editor.open_diff(key, title, content, cx);
         });
         editor_focus.focus(window, cx);
         self.sync_sidebar(cx);

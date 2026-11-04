@@ -17,6 +17,7 @@ mod assets;
 mod cli_shim;
 mod command_palette;
 mod config_recovery;
+mod diff_view;
 mod file_icons;
 #[cfg(target_os = "macos")]
 mod first_run;
