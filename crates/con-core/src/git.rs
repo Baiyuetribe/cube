@@ -135,6 +135,120 @@ pub struct DiffLine {
     pub text: String,
 }
 
+/// 行内差异的一段：`start..end` 字节范围被改动。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InlineSpan {
+    pub start: usize,
+    pub end: usize,
+}
+
+/// 算两行之间的字符级差异，返回两侧各自需要高亮的字节区间。
+///
+/// 用最长公共子序列定位相同的片段，剩下的就是改动部分。diff 的一对被
+/// 删/增行通常很短，O(n·m) 的动态规划完全够用。
+///
+/// 返回 `(removed_spans, added_spans)`。
+pub fn inline_diff(old: &str, new: &str) -> (Vec<InlineSpan>, Vec<InlineSpan>) {
+    let old_chars: Vec<(usize, char)> = old.char_indices().collect();
+    let new_chars: Vec<(usize, char)> = new.char_indices().collect();
+    let n = old_chars.len();
+    let m = new_chars.len();
+
+    // 空行或超长行不做字符级比较，整行高亮反而更清楚。
+    const MAX_INLINE_CHARS: usize = 400;
+    if n == 0 || m == 0 || n > MAX_INLINE_CHARS || m > MAX_INLINE_CHARS {
+        let old_spans = if n == 0 {
+            Vec::new()
+        } else {
+            vec![InlineSpan {
+                start: 0,
+                end: old.len(),
+            }]
+        };
+        let new_spans = if m == 0 {
+            Vec::new()
+        } else {
+            vec![InlineSpan {
+                start: 0,
+                end: new.len(),
+            }]
+        };
+        return (old_spans, new_spans);
+    }
+
+    // lcs[i][j] = old_chars[i..] 与 new_chars[j..] 的 LCS 长度。
+    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if old_chars[i].1 == new_chars[j].1 {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+
+    // 沿 LCS 走一遍，命中的字符属于「相同」，其余归为改动段。
+    let mut old_spans = Vec::new();
+    let mut new_spans = Vec::new();
+    let mut old_run: Option<(usize, usize)> = None;
+    let mut new_run: Option<(usize, usize)> = None;
+    let mut i = 0;
+    let mut j = 0;
+    while i < n && j < m {
+        if old_chars[i].1 == new_chars[j].1 {
+            // 相同字符：结束当前改动段。
+            push_span(&mut old_spans, old_run.take());
+            push_span(&mut new_spans, new_run.take());
+            i += 1;
+            j += 1;
+        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
+            let start = old_chars[i].0;
+            let end = start + old_chars[i].1.len_utf8();
+            old_run = Some(match old_run {
+                Some((s, _)) => (s, end),
+                None => (start, end),
+            });
+            i += 1;
+        } else {
+            let start = new_chars[j].0;
+            let end = start + new_chars[j].1.len_utf8();
+            new_run = Some(match new_run {
+                Some((s, _)) => (s, end),
+                None => (start, end),
+            });
+            j += 1;
+        }
+    }
+    // 尾部剩下的字符。
+    if i < n {
+        let start = old_chars[i].0;
+        old_run = Some(match old_run {
+            Some((s, _)) => (s, old.len()),
+            None => (start, old.len()),
+        });
+    }
+    if j < m {
+        let start = new_chars[j].0;
+        new_run = Some(match new_run {
+            Some((s, _)) => (s, new.len()),
+            None => (start, new.len()),
+        });
+    }
+    push_span(&mut old_spans, old_run);
+    push_span(&mut new_spans, new_run);
+
+    (old_spans, new_spans)
+}
+
+fn push_span(spans: &mut Vec<InlineSpan>, run: Option<(usize, usize)>) {
+    if let Some((start, end)) = run
+        && end > start
+    {
+        spans.push(InlineSpan { start, end });
+    }
+}
+
 /// 一次 diff 解析后的完整结构。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParsedDiff {
@@ -296,6 +410,57 @@ pub fn parse_diff(text: &str) -> ParsedDiff {
         added,
         removed,
     }
+}
+
+/// 从 diff 里还原某个文件的新版内容，供语法高亮使用。
+///
+/// 直接用 hunk 行拼装：上下文行和新增行就是新文件里连续的内容。行号不连续
+/// 时（跳过的未改动区块）用空行补齐，保证数组下标 == 行号 - 1，高亮时能按
+/// 行号直接取到对应的源码。
+pub fn reconstructed_new_lines(file: &DiffFile) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for line in &file.lines {
+        match line.kind {
+            DiffLineKind::Added | DiffLineKind::Context => {
+                if let Some(new_line) = line.new_line {
+                    let index = (new_line as usize).saturating_sub(1);
+                    if lines.len() < index {
+                        lines.resize(index, String::new());
+                    }
+                    if lines.len() == index {
+                        lines.push(line.text.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    lines
+}
+
+/// 从 diff 里还原某个文件的旧版内容，供删除行的语法高亮使用。
+///
+/// 和 [`reconstructed_new_lines`] 对称：上下文行和删除行拼出旧文件。删行在
+/// 单栏和并排视图里都占一席之地，给它配上语法高亮，观感才和新增行一致。
+pub fn reconstructed_old_lines(file: &DiffFile) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for line in &file.lines {
+        match line.kind {
+            DiffLineKind::Removed | DiffLineKind::Context => {
+                if let Some(old_line) = line.old_line {
+                    let index = (old_line as usize).saturating_sub(1);
+                    if lines.len() < index {
+                        lines.resize(index, String::new());
+                    }
+                    if lines.len() == index {
+                        lines.push(line.text.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    lines
 }
 
 /// 从 hunk 头 `-a,b +c,d @@ ...` 里取新旧起始行号。
@@ -920,6 +1085,109 @@ diff --git a/x b/x
                 .iter()
                 .any(|line| line.kind == DiffLineKind::Marker)
         );
+    }
+
+    /// 重建的新文件内容必须与行号对齐，且包含新增行。
+    #[test]
+    fn reconstructs_new_file_content_aligned_to_line_numbers() {
+        let text = "\
+diff --git a/x.rs b/x.rs
+--- a/x.rs
++++ b/x.rs
+@@ -1,3 +1,4 @@
+ fn a() {}
+-old
++new
++extra
+ tail
+";
+        let diff = parse_diff(text);
+        let lines = reconstructed_new_lines(&diff.files[0]);
+
+        assert_eq!(lines[0], "fn a() {}");
+        assert_eq!(lines[1], "new");
+        assert_eq!(lines[2], "extra");
+        assert_eq!(lines[3], "tail");
+    }
+
+    /// 跳过未改动区块时用空行补齐，保证下标与行号一致。
+    #[test]
+    fn reconstruction_pads_skipped_ranges() {
+        let text = "\
+diff --git a/x.rs b/x.rs
+--- a/x.rs
++++ b/x.rs
+@@ -10,1 +10,1 @@
+-ten
++new_ten
+";
+        let diff = parse_diff(text);
+        let lines = reconstructed_new_lines(&diff.files[0]);
+
+        // 第 10 行是 new_ten，也就是下标 9。
+        assert_eq!(lines.len(), 10);
+        assert_eq!(lines[9], "new_ten");
+    }
+
+    /// 旧版内容还原：删除行按旧行号落位，新增行不参与。
+    #[test]
+    fn reconstructs_old_file_content_for_removed_lines() {
+        let text = "\
+diff --git a/x.rs b/x.rs
+--- a/x.rs
++++ b/x.rs
+@@ -1,3 +1,3 @@
+ fn a() {}
+-old
++new
+ tail
+";
+        let diff = parse_diff(text);
+        let lines = reconstructed_old_lines(&diff.files[0]);
+
+        assert_eq!(lines, vec!["fn a() {}", "old", "tail"]);
+    }
+
+    #[test]
+    fn inline_diff_finds_the_changed_fragment() {
+        let (old_spans, new_spans) = inline_diff("let a = 1;", "let a = 2;");
+
+        // 只有最后那个字符不同。
+        assert_eq!(old_spans, vec![InlineSpan { start: 8, end: 9 }]);
+        assert_eq!(new_spans, vec![InlineSpan { start: 8, end: 9 }]);
+    }
+
+    #[test]
+    fn inline_diff_marks_insertions_as_empty_on_the_old_side() {
+        let (old_spans, new_spans) = inline_diff("abc", "abcdef");
+        assert!(old_spans.is_empty(), "旧行没有改动");
+        assert_eq!(new_spans, vec![InlineSpan { start: 3, end: 6 }]);
+    }
+
+    #[test]
+    fn inline_diff_handles_multibyte_characters() {
+        let (old_spans, new_spans) = inline_diff("名字", "名号");
+        // 第一个汉字 3 字节，改动从偏移 3 开始。
+        assert_eq!(old_spans, vec![InlineSpan { start: 3, end: 6 }]);
+        assert_eq!(new_spans, vec![InlineSpan { start: 3, end: 6 }]);
+    }
+
+    #[test]
+    fn inline_diff_of_identical_lines_has_no_spans() {
+        let (old_spans, new_spans) = inline_diff("same", "same");
+        assert!(old_spans.is_empty());
+        assert!(new_spans.is_empty());
+    }
+
+    /// 超长行不做字符级比较，整行算改动。
+    #[test]
+    fn inline_diff_falls_back_to_whole_line_when_too_long() {
+        let long_old = "a".repeat(500);
+        let long_new = "b".repeat(500);
+        let (old_spans, new_spans) = inline_diff(&long_old, &long_new);
+        assert_eq!(old_spans.len(), 1);
+        assert_eq!(old_spans[0].end, long_old.len());
+        assert_eq!(new_spans.len(), 1);
     }
 
     #[test]
