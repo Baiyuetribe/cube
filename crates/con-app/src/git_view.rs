@@ -9,7 +9,7 @@ use con_core::git::{self, GitChange, GitCommit, GitStatus};
 use gpui::{
     AnyElement, ClipboardItem, Context, Entity, EventEmitter, FontWeight, Hsla, IntoElement,
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, div,
-    prelude::*, px,
+    prelude::*, px, svg,
 };
 use gpui_component::input::InputState;
 use gpui_component::{
@@ -19,6 +19,8 @@ use gpui_component::{
     menu::{ContextMenuExt as _, PopupMenuItem},
 };
 
+use crate::file_icons::icon_for_path;
+use crate::file_tree_view::render_file_icon;
 use crate::git_graph_element::GitGraphElement;
 use crate::ui_scale::ui_px;
 
@@ -62,6 +64,9 @@ pub struct GitView {
     graph: con_core::git_graph::GitGraphLayout,
     /// 等待用户确认的放弃改动请求。
     pending_discard: Option<DiscardChangeRequested>,
+    /// 两个分组各自的展开状态。
+    staged_open: bool,
+    unstaged_open: bool,
 }
 
 const ROW_HEIGHT: f32 = 24.0;
@@ -94,6 +99,8 @@ impl GitView {
             generation: 0,
             graph: Default::default(),
             pending_discard: None,
+            staged_open: true,
+            unstaged_open: true,
         }
     }
 
@@ -235,7 +242,9 @@ impl GitView {
         .detach();
     }
 
-    /// 提交暂存区内容。空信息不提交。
+    /// 提交。暂存区为空时自动提交全部已跟踪文件的改动。
+    ///
+    /// 对应 VSCode 的 smart commit：没有暂存内容时不必先手动 add。
     fn commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else {
             return;
@@ -246,6 +255,8 @@ impl GitView {
             cx.notify();
             return;
         }
+        // 暂存区为空就走 `git commit -a`，否则只提交已暂存的部分。
+        let stage_all = !self.changes.iter().any(GitChange::is_staged);
 
         self.commit_error = None;
         // 提交成功后清空输入框需要 Window，而 Window 不能跨 await 持有，
@@ -254,7 +265,7 @@ impl GitView {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { git::commit(&root, &message) })
+                .spawn(async move { git::commit(&root, &message, stage_all) })
                 .await;
             let succeeded = result.is_ok();
             let _ = this.update(cx, |this, cx| {
@@ -374,6 +385,7 @@ impl GitView {
             .filter(|change| change.is_unstaged())
             .cloned()
             .collect();
+        let total = staged.len() + unstaged.len();
 
         let mut list = div()
             .id("git-changes")
@@ -381,31 +393,110 @@ impl GitView {
             .flex_col()
             .flex_1()
             .min_h(px(0.0))
+            .py(px(4.0))
             .overflow_y_scroll();
 
-        if staged.is_empty() && unstaged.is_empty() {
+        if total == 0 {
             list = list.child(empty_state("工作区干净", theme));
         }
 
+        // 已暂存 / 未暂存各自成组，标题可折叠，并显示条目数。
         if !staged.is_empty() {
-            list = list.child(section_label("已暂存", theme));
-            for change in staged {
-                list = list.child(self.change_row(change, true, theme, cx));
+            list = list.child(self.section_header("已暂存", staged.len(), true, theme, cx));
+            if self.staged_open {
+                for change in staged {
+                    list = list.child(self.change_row(change, true, theme, cx));
+                }
             }
         }
         if !unstaged.is_empty() {
-            list = list.child(section_label("未暂存", theme));
-            for change in unstaged {
-                list = list.child(self.change_row(change, false, theme, cx));
+            list = list.child(self.section_header("未暂存", unstaged.len(), false, theme, cx));
+            if self.unstaged_open {
+                for change in unstaged {
+                    list = list.child(self.change_row(change, false, theme, cx));
+                }
             }
         }
 
-        let mut body = div().flex().flex_col().flex_1().min_h(px(0.0)).child(list);
-        // 放弃改动不可撤销，先在这里确认，而不是菜单里点一下就执行。
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.0))
+            // 提交框放顶部：写完信息立刻能提交，不必把列表滚到底。
+            .child(self.render_commit_box(theme, cx));
         if let Some(confirm) = self.render_discard_confirm(theme, cx) {
             body = body.child(confirm);
         }
-        body.child(self.render_commit_box(theme, cx))
+        body.child(list).into_any_element()
+    }
+
+    /// 分组标题：折叠箭头 + 名称 + 条目数徽章。
+    fn section_header(
+        &self,
+        title: &'static str,
+        count: usize,
+        staged: bool,
+        theme: &gpui_component::Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let open = if staged {
+            self.staged_open
+        } else {
+            self.unstaged_open
+        };
+        div()
+            .id(if staged {
+                "git-section-staged"
+            } else {
+                "git-section-unstaged"
+            })
+            .flex()
+            .items_center()
+            .gap(px(4.0))
+            .h(px(24.0))
+            .px(px(8.0))
+            .cursor_pointer()
+            .hover(|style| style.bg(theme.foreground.opacity(0.04)))
+            .child(
+                svg()
+                    .path(if open {
+                        "phosphor/caret-down.svg"
+                    } else {
+                        "phosphor/caret-right.svg"
+                    })
+                    .size(px(9.0))
+                    .flex_shrink_0()
+                    .text_color(theme.muted_foreground),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .text_size(ui_px(theme, 10.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_family(theme.font_family.clone())
+                    .text_color(theme.muted_foreground.opacity(0.85))
+                    .child(title),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .min_w(px(16.0))
+                    .px(px(4.0))
+                    .rounded(px(7.0))
+                    .bg(theme.foreground.opacity(0.08))
+                    .text_size(ui_px(theme, 9.5))
+                    .text_color(theme.muted_foreground)
+                    .child(count.to_string()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if staged {
+                    this.staged_open = !this.staged_open;
+                } else {
+                    this.unstaged_open = !this.unstaged_open;
+                }
+                cx.notify();
+            }))
             .into_any_element()
     }
 
@@ -533,19 +624,16 @@ impl GitView {
             .flex()
             .items_center()
             .gap(px(6.0))
-            .pl(px(12.0))
+            .pl(px(8.0))
             .pr(px(8.0))
             .cursor_pointer()
             .hover(|style| style.bg(theme.foreground.opacity(0.05)))
-            .child(
-                div()
-                    .w(px(10.0))
-                    .flex_shrink_0()
-                    .text_size(ui_px(theme, 10.5))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(color)
-                    .child(letter.to_string()),
-            )
+            // 文件图标在最左，和文件树里的一致。
+            .child(render_file_icon(
+                icon_for_path(&change.path, false, false),
+                ui_px(theme, 12.0),
+                theme.muted_foreground,
+            ))
             .child(
                 div()
                     .flex_shrink_0()
@@ -565,6 +653,16 @@ impl GitView {
                     .font_family(theme.font_family.clone())
                     .text_color(theme.muted_foreground.opacity(0.7))
                     .child(dir),
+            )
+            // 状态字母移到最右，和 VSCode 一样，扫一眼就能看出改动类型。
+            .child(
+                div()
+                    .w(px(10.0))
+                    .flex_shrink_0()
+                    .text_size(ui_px(theme, 10.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(color)
+                    .child(letter.to_string()),
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open_working_diff(&change_for_click, cx);
@@ -603,13 +701,21 @@ impl GitView {
         theme: &gpui_component::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let has_staged = self.changes.iter().any(GitChange::is_staged);
+        // 只要有任何改动就能提交（未暂存内容会走 commit -a）。
+        let can_commit = !self.changes.is_empty();
         let mut box_ = div()
             .flex()
             .flex_col()
             .gap(px(6.0))
             .p(px(8.0))
             .flex_shrink_0()
+            // ⌘Enter 直接提交：输入框有焦点时由它消费回车，这里接住带
+            // 修饰键的组合。
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if event.keystroke.key == "enter" && event.keystroke.modifiers.platform {
+                    this.commit(window, cx);
+                }
+            }))
             .child(Input::new(&self.message).small());
 
         if let Some(error) = &self.commit_error {
@@ -621,18 +727,18 @@ impl GitView {
             );
         }
 
+        // 主按钮占满整行，和 VSCode 一致：只有一个动作，不需要按钮组。
         let mut button = Button::new("git-commit")
-            .label("提交已暂存")
+            .label("提交")
             .small()
-            .primary();
-        if has_staged {
+            .primary()
+            .w_full();
+        if can_commit {
             button = button.on_click(cx.listener(|this, _, window, cx| this.commit(window, cx)));
         } else {
             button = button.opacity(0.5);
         }
-        box_ = box_.child(button);
-
-        box_.into_any_element()
+        box_.child(button).into_any_element()
     }
 
     /// 历史列表：左侧泳道图，右侧提交摘要与分支徽章。

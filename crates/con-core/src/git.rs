@@ -345,12 +345,23 @@ pub fn working_diff(repo: &Path, path: &Path) -> Result<GitDiff, String> {
 }
 
 /// 提交暂存区。`message` 为空时返回错误，不执行任何操作。
-pub fn commit(repo: &Path, message: &str) -> Result<String, String> {
+/// 提交。`stage_all` 为 true 时先把已跟踪文件的改动全部暂存。
+///
+/// 对应 VSCode 的「smart commit」：暂存区为空时，直接提交工作区里所有
+/// 已跟踪文件的改动（等价于 `git commit -a`）。未跟踪的新文件不会被
+/// 带上——那需要显式 `git add`，和 git 本身的行为一致。
+pub fn commit(repo: &Path, message: &str, stage_all: bool) -> Result<String, String> {
     let message = message.trim();
     if message.is_empty() {
         return Err("提交信息不能为空".to_string());
     }
-    run_git(repo, &["commit", "-m", message]).map(|text| text.trim().to_string())
+    let mut args = vec!["commit"];
+    if stage_all {
+        args.push("-a");
+    }
+    args.push("-m");
+    args.push(message);
+    run_git(repo, &args).map(|text| text.trim().to_string())
 }
 
 /// 放弃某个文件的改动，**丢弃内容不可恢复**。
@@ -468,6 +479,46 @@ mod tests {
         assert_eq!(changes[1].staged, Some(GitStatus::Renamed));
     }
 
+    /// 暂存区为空时 smart commit：提交已跟踪文件的改动，未跟踪文件不动。
+    #[test]
+    fn smart_commit_stages_tracked_files_only() {
+        let dir = std::env::temp_dir().join(format!(
+            "con-git-smart-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .expect("git 应当可用")
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@t"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(dir.join("tracked.txt"), "base\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "init"]);
+
+        std::fs::write(dir.join("tracked.txt"), "base\nmore\n").unwrap();
+        std::fs::write(dir.join("untracked.txt"), "new\n").unwrap();
+
+        commit(&dir, "smart", true).unwrap();
+
+        // 已跟踪的改动被提交，未跟踪文件仍然留在工作区。
+        assert!(dir.join("untracked.txt").exists(), "未跟踪文件不该被提交");
+        let status = status(&dir).unwrap();
+        assert_eq!(status.len(), 1, "只剩未跟踪文件");
+        assert_eq!(status[0].unstaged, Some(GitStatus::Untracked));
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// 已跟踪文件：restore 回 HEAD；未跟踪文件：直接删掉。
     ///
     /// 用真实临时仓库跑，因为这两条命令的差异（restore 对未跟踪文件会报错）
@@ -518,7 +569,7 @@ mod tests {
     #[test]
     fn empty_commit_message_is_rejected_without_running_git() {
         // 指向不存在的目录也能通过：空信息在调用 git 之前就被拦下了。
-        let error = commit(Path::new("/nonexistent/con-git-test"), "   ").unwrap_err();
+        let error = commit(Path::new("/nonexistent/con-git-test"), "   ", false).unwrap_err();
         assert!(error.contains("不能为空"));
     }
 

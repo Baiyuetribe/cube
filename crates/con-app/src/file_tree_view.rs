@@ -454,7 +454,11 @@ fn row_has_open_button(entry: &FileEntry) -> bool {
     !entry.is_dir
 }
 
-fn render_file_icon(icon: FileIcon, size: gpui::Pixels, color: gpui::Hsla) -> gpui::AnyElement {
+pub(crate) fn render_file_icon(
+    icon: FileIcon,
+    size: gpui::Pixels,
+    color: gpui::Hsla,
+) -> gpui::AnyElement {
     match icon {
         FileIcon::Svg(svg_path) => svg()
             .path(svg_path)
