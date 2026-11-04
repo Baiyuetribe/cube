@@ -2,9 +2,9 @@
 //!
 //! GPUI 没有现成的「画曲线」元素，这里实现一个最小的 `Element`：拿自己的
 //! bounds，按行高把每个提交的圆点和车道连线画出来。布局由
-//! [`con_core::git_graph`] 算好，这里只负责照坐标落笔。
+//! [`cube_core::git_graph`] 算好，这里只负责照坐标落笔。
 
-use con_core::git_graph::{GitGraphLayout, GitRowLayout};
+use cube_core::git_graph::{GitGraphLayout, GitRowLayout};
 use gpui::{
     App, Bounds, Element, ElementId, GlobalElementId, Hsla, IntoElement, LayoutId, PathBuilder,
     Pixels, Point, Style, Window, point, px,

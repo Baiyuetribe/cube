@@ -29,9 +29,9 @@ impl ReleaseChannel {
     /// Human-readable display name for UI.
     pub fn display_name(self) -> &'static str {
         match self {
-            Self::Dev => "con Dev",
-            Self::Beta => "con Beta",
-            Self::Stable => "con",
+            Self::Dev => "Cube Dev",
+            Self::Beta => "Cube Beta",
+            Self::Stable => "Cube",
         }
     }
 
@@ -61,7 +61,7 @@ impl ReleaseChannel {
     /// This is stable across releases. The CI pipeline publishes
     /// updated appcasts to the corresponding GitHub Pages path.
     ///
-    /// `CON_APPCAST_BASE` overrides the host + path prefix at
+    /// `CUBE_APPCAST_BASE` overrides the host + path prefix at
     /// runtime — used by release-pipeline integration tests and
     /// the documented manual-verification flow in
     /// `docs/impl/linux-port.md` so we can stand up a local HTTP
@@ -75,14 +75,14 @@ impl ReleaseChannel {
     pub fn feed_url(self, platform: &str, arch: &str) -> String {
         // Trim leading/trailing whitespace AND drop a trailing `/`
         // before validating non-emptiness. A user pasting
-        // `CON_APPCAST_BASE=" http://localhost:8765/appcast/ "`
+        // `CUBE_APPCAST_BASE=" http://localhost:8765/appcast/ "`
         // into a shell's env should resolve to the same URL as if
         // they pasted `http://localhost:8765/appcast`. The
         // `filter` runs after normalization so a value that's
         // *only* whitespace correctly falls through to the
         // production default instead of producing a malformed
         // `/{channel}-{platform}-{arch}.xml` URL.
-        let base = std::env::var("CON_APPCAST_BASE")
+        let base = std::env::var("CUBE_APPCAST_BASE")
             .ok()
             .map(|value| value.trim().trim_end_matches('/').to_string())
             .filter(|value| !value.is_empty())
@@ -96,7 +96,7 @@ impl ReleaseChannel {
         )
     }
 
-    /// Parse from the `ConReleaseChannel` value baked into Info.plist.
+    /// Parse from the `CubeReleaseChannel` value baked into Info.plist.
     pub fn parse(s: &str) -> Self {
         match s.to_ascii_lowercase().as_str() {
             "beta" => Self::Beta,
@@ -116,7 +116,7 @@ impl fmt::Display for ReleaseChannel {
 // Platform-specific detection
 // ---------------------------------------------------------------------------
 
-/// Read `ConReleaseChannel` from the main bundle's Info.plist.
+/// Read `CubeReleaseChannel` from the main bundle's Info.plist.
 #[cfg(target_os = "macos")]
 fn detect_channel() -> ReleaseChannel {
     use objc::{class, msg_send, sel, sel_impl};
@@ -134,7 +134,7 @@ fn detect_channel() -> ReleaseChannel {
         }
 
         let key: *mut objc::runtime::Object =
-            msg_send![class!(NSString), stringWithUTF8String: c"ConReleaseChannel".as_ptr()];
+            msg_send![class!(NSString), stringWithUTF8String: c"CubeReleaseChannel".as_ptr()];
         let value: *mut objc::runtime::Object = msg_send![info, objectForKey: key];
         if value.is_null() {
             return ReleaseChannel::Dev;
@@ -153,13 +153,13 @@ fn detect_channel() -> ReleaseChannel {
 #[cfg(not(target_os = "macos"))]
 fn detect_channel() -> ReleaseChannel {
     // Prefer the channel baked in at build time — the release pipeline
-    // exports `CON_RELEASE_CHANNEL=beta|stable` before `cargo build` so
+    // exports `CUBE_RELEASE_CHANNEL=beta|stable` before `cargo build` so
     // `option_env!` captures it in the binary. Fall back to the runtime
     // env var for local overrides, and finally to Dev.
-    if let Some(baked) = option_env!("CON_RELEASE_CHANNEL") {
+    if let Some(baked) = option_env!("CUBE_RELEASE_CHANNEL") {
         return ReleaseChannel::parse(baked);
     }
-    match std::env::var("CON_RELEASE_CHANNEL").as_deref() {
+    match std::env::var("CUBE_RELEASE_CHANNEL").as_deref() {
         Ok("beta") => ReleaseChannel::Beta,
         Ok("stable") => ReleaseChannel::Stable,
         _ => ReleaseChannel::Dev,

@@ -1,6 +1,6 @@
 use super::*;
 
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) fn activate_tab(
         &mut self,
         index: usize,
@@ -479,7 +479,7 @@ impl ConWorkspace {
         self.record_runtime_event_for_terminal(
             tab_idx,
             &surface.terminal,
-            con_terminal::PaneRuntimeEvent::ProcessExited,
+            cube_terminal::PaneRuntimeEvent::ProcessExited,
         );
 
         let pane_surface_count = self.tabs[tab_idx]
@@ -571,7 +571,7 @@ impl ConWorkspace {
         cx: &mut Context<Self>,
     ) {
         let title = if event.0.title.is_empty() {
-            "Con".to_owned()
+            "Cube".to_owned()
         } else {
             event.0.title.clone()
         };
@@ -673,16 +673,16 @@ impl ConWorkspace {
         };
 
         let (direction, placement) = match event.0 {
-            con_ghostty::GhosttySplitDirection::Right => {
+            cube_ghostty::GhosttySplitDirection::Right => {
                 (SplitDirection::Horizontal, SplitPlacement::After)
             }
-            con_ghostty::GhosttySplitDirection::Down => {
+            cube_ghostty::GhosttySplitDirection::Down => {
                 (SplitDirection::Vertical, SplitPlacement::After)
             }
-            con_ghostty::GhosttySplitDirection::Left => {
+            cube_ghostty::GhosttySplitDirection::Left => {
                 (SplitDirection::Horizontal, SplitPlacement::Before)
             }
-            con_ghostty::GhosttySplitDirection::Up => {
+            cube_ghostty::GhosttySplitDirection::Up => {
                 (SplitDirection::Vertical, SplitPlacement::Before)
             }
         };
@@ -728,7 +728,7 @@ impl ConWorkspace {
         self.record_runtime_event_for_terminal(
             tab_idx,
             &terminal,
-            con_terminal::PaneRuntimeEvent::PaneCreated {
+            cube_terminal::PaneRuntimeEvent::PaneCreated {
                 startup_command: None,
             },
         );
@@ -920,7 +920,7 @@ impl ConWorkspace {
     pub(super) fn set_tab_color(
         &mut self,
         index: usize,
-        color: Option<con_core::session::TabAccentColor>,
+        color: Option<cube_core::session::TabAccentColor>,
         cx: &mut Context<Self>,
     ) {
         if index >= self.tabs.len() {
@@ -935,7 +935,7 @@ impl ConWorkspace {
     pub(super) fn set_tab_color_by_id(
         &mut self,
         tab_id: u64,
-        color: Option<con_core::session::TabAccentColor>,
+        color: Option<cube_core::session::TabAccentColor>,
         cx: &mut Context<Self>,
     ) {
         if let Some(index) = self.tab_index_for_summary_id(tab_id) {

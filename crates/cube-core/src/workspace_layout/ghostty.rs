@@ -23,7 +23,7 @@ struct TabBuild {
 /// and `surface` declarations define their order; node references define the tree.
 pub(super) fn serialize(layout: &WorkspaceLayout) -> anyhow::Result<String> {
     layout.validate()?;
-    let mut out = String::from("# Con workspace layout. Declaration order is display order.\n");
+    let mut out = String::from("# Cube workspace layout. Declaration order is display order.\n");
     line(&mut out, "format", &quote(&layout.format)?);
     line(&mut out, "version", &layout.version.to_string());
     optional(&mut out, "name", layout.name.as_deref())?;

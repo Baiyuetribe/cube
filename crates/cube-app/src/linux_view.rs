@@ -11,13 +11,13 @@ use std::ops::Range;
 use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::{Duration, Instant};
 
-use con_ghostty::cursor::{CursorBlink, CursorStyle};
-use con_ghostty::vt::{
+use cube_ghostty::cursor::{CursorBlink, CursorStyle};
+use cube_ghostty::vt::{
     SelectionAutoscroll, SelectionAutoscrollUpdate, SelectionGeometry, SelectionPoint, VtKeyAction,
     VtKeyEvent, VtKeyModifiers, VtMouseAction, VtMouseButton, VtMouseEvent, VtMouseModifiers,
     VtPasteResult, VtPasteSource,
 };
-use con_ghostty::{
+use cube_ghostty::{
     ATTR_BOLD, ATTR_INVERSE, ATTR_ITALIC, ATTR_STRIKE, ATTR_UNDERLINE, DesktopNotification,
     GhosttyApp, GhosttySplitDirection, GhosttyTerminal, KittyImage, KittyPlacement, ScreenSnapshot,
     SurfaceSize, TerminalProgress, VtCell, VtCursor,
@@ -212,7 +212,7 @@ fn cell_height_px(font_size_px: f32) -> f32 {
     (font_size_px * DEFAULT_CELL_HEIGHT_RATIO).round().max(14.0)
 }
 
-/// Rows to move Con's scrollback for Shift+PgUp or Shift+PgDn, in
+/// Rows to move Cube's scrollback for Shift+PgUp or Shift+PgDn, in
 /// libghostty-vt's sign (negative is up), matching Ghostty's default
 /// `scroll_page_up`/`scroll_page_down` bindings. Returns `None` when the
 /// key belongs to the application: any other key or modifier, or the
@@ -443,7 +443,7 @@ pub struct GhosttyView {
     initial_font_size: f32,
     initialized: bool,
     process_exit_emitted: bool,
-    pub(crate) terminal_title: con_core::terminal_title::TerminalTitle,
+    pub(crate) terminal_title: cube_core::terminal_title::TerminalTitle,
     last_cwd: Option<String>,
     last_progress: Option<TerminalProgress>,
     pending_write: Option<Vec<u8>>,
@@ -485,7 +485,7 @@ pub struct GhosttyView {
     scrollbar_drag: Option<ThumbDrag>,
     /// Scrollbar state read with `snapshot`, so the thumb matches the rows
     /// being painted.
-    scrollbar: Option<con_ghostty::GhosttyScrollbar>,
+    scrollbar: Option<cube_ghostty::GhosttyScrollbar>,
     keys_awaiting_release: HashMap<String, crate::terminal_keys::TrackedVtKey>,
     pending_unsafe_paste: Option<(String, VtPasteSource)>,
 }
@@ -1119,8 +1119,8 @@ impl GhosttyView {
     }
 
     /// Send a wheel event to the application when it tracks the mouse, and
-    /// otherwise scroll Con's own scrollback (or, on the alternate screen,
-    /// send cursor keys). Shift always scrolls Con's view, per xterm.
+    /// otherwise scroll Cube's own scrollback (or, on the alternate screen,
+    /// send cursor keys). Shift always scrolls Cube's view, per xterm.
     /// Returns whether the event was used.
     fn handle_scroll_wheel(&mut self, event: &ScrollWheelEvent) -> bool {
         let Some(terminal) = self.terminal().filter(|t| t.is_attached()).cloned() else {
@@ -1131,7 +1131,7 @@ impl GhosttyView {
 
         // Decide from the application's modes, not from whether a report was
         // written: a press over the padding writes nothing, and must not
-        // scroll Con's view under an application that tracks the mouse.
+        // scroll Cube's view under an application that tracks the mouse.
         if terminal.mouse_tracking_active() && !event.modifiers.shift {
             let delta = match event.delta {
                 ScrollDelta::Lines(delta) => delta,
@@ -1171,7 +1171,7 @@ impl GhosttyView {
         true
     }
 
-    /// Page Con's scrollback for Shift+PgUp/PgDn on the primary screen.
+    /// Page Cube's scrollback for Shift+PgUp/PgDn on the primary screen.
     /// Returns whether the key was used; unused keys go to the application.
     fn try_page_scrollback(&mut self, keystroke: &gpui::Keystroke) -> bool {
         if !matches!(keystroke.key.as_str(), "pageup" | "pagedown") || !keystroke.modifiers.shift {
@@ -1191,7 +1191,7 @@ impl GhosttyView {
 
     /// The scrollbar state and thumb position, or `None` when there is no
     /// scrollback to show.
-    fn scrollbar_thumb(&self) -> Option<(con_ghostty::GhosttyScrollbar, ThumbLayout)> {
+    fn scrollbar_thumb(&self) -> Option<(cube_ghostty::GhosttyScrollbar, ThumbLayout)> {
         let bounds = self.pane_bounds?;
         let scrollbar = self.scrollbar?;
         Some((
@@ -1675,9 +1675,9 @@ impl GhosttyView {
         &mut self,
         tracking_key: &str,
         event: &VtKeyEvent<'_>,
-    ) -> Result<con_ghostty::vt::VtKeyOutcome, String> {
+    ) -> Result<cube_ghostty::vt::VtKeyOutcome, String> {
         let Some(terminal) = self.terminal.as_ref().cloned() else {
-            return Ok(con_ghostty::vt::VtKeyOutcome::default());
+            return Ok(cube_ghostty::vt::VtKeyOutcome::default());
         };
         let outcome = terminal.send_key(event)?;
         if outcome.output_accepted {
@@ -2300,10 +2300,10 @@ impl Render for GhosttyView {
             .map(|size| (size.cell_width_px, size.cell_height_px))
             .unwrap_or_else(|| physical_cell_size(font_size_px, self.scale_factor));
         let mut fallback_families = self.app.backend_config().font_fallback;
-        if !con_core::config::is_bundled_terminal_font_family(&theme.mono_font_family)
+        if !cube_core::config::is_bundled_terminal_font_family(&theme.mono_font_family)
             && !fallback_families
                 .iter()
-                .any(|family| con_core::config::is_bundled_terminal_font_family(family))
+                .any(|family| cube_core::config::is_bundled_terminal_font_family(family))
         {
             fallback_families.push(BUNDLED_LINUX_FONT_FAMILY.to_string());
         }
@@ -2492,7 +2492,7 @@ impl Render for GhosttyView {
             .fg;
             let x = px(cell_width_px) * col as f32;
             let width = px(cell_width_px)
-                * if cell.width == con_ghostty::vt::CellWidth::Wide {
+                * if cell.width == cube_ghostty::vt::CellWidth::Wide {
                     2.0
                 } else {
                     1.0
@@ -3303,7 +3303,7 @@ fn cursor_overlay_cell(snapshot: &ScreenSnapshot, cursor: VtCursor) -> Option<(u
     }
     let row_start = usize::from(cursor.row) * usize::from(snapshot.cols);
     let mut col = usize::from(cursor.col);
-    if snapshot.cells.get(row_start + col)?.width == con_ghostty::vt::CellWidth::SpacerTail {
+    if snapshot.cells.get(row_start + col)?.width == cube_ghostty::vt::CellWidth::SpacerTail {
         col = col.saturating_sub(1);
     }
     Some((col, snapshot.cells.get(row_start + col)?))
@@ -3589,7 +3589,7 @@ fn build_terminal_row(
     selection_cols: Option<(usize, usize)>,
     selection_bg: Hsla,
 ) -> CachedTerminalRow {
-    use con_ghostty::vt::CellWidth;
+    use cube_ghostty::vt::CellWidth;
     let head_col = |col: usize| {
         if cells
             .get(col)
@@ -3637,7 +3637,7 @@ fn build_terminal_row(
         })
         // Retain a final wide cell's tail in the column-to-byte map.
         .map(|idx| {
-            (idx + if cells[idx].width == con_ghostty::vt::CellWidth::Wide {
+            (idx + if cells[idx].width == cube_ghostty::vt::CellWidth::Wide {
                 2
             } else {
                 1
@@ -3912,7 +3912,7 @@ mod tests {
         kitty_placement_geometry, physical_cell_size, rows_needing_refresh, vt_color_to_hsla,
     };
     use super::{PointerGrid, pointer_in_grid};
-    use con_ghostty::{
+    use cube_ghostty::{
         ATTR_BOLD, ATTR_INVERSE, ATTR_UNDERLINE, KittyImage, KittyPlacement, ScreenSnapshot,
         VtCell, VtCursor,
     };
@@ -3938,12 +3938,12 @@ mod tests {
         script: &str,
         ready: &str,
     ) -> gpui::Entity<super::GhosttyView> {
-        use con_ghostty::linux::pty::LinuxPtyOptions;
+        use cube_ghostty::linux::pty::LinuxPtyOptions;
         use gpui::{AppContext, Bounds, point, px, size};
         use std::time::{Duration, Instant};
 
         let app = Arc::new(
-            con_ghostty::GhosttyApp::new(
+            cube_ghostty::GhosttyApp::new(
                 None, None, None, None, None, None, None, None, None, None, None, None, None, false,
             )
             .unwrap(),
@@ -3955,7 +3955,7 @@ mod tests {
             options.command_program = Some("/bin/sh".into());
             options.command_args = Some(vec!["-c".into(), script.into()]);
             let (cell_width_px, cell_height_px) = physical_cell_size(14.0, scale);
-            options.size = con_ghostty::SurfaceSize {
+            options.size = cube_ghostty::SurfaceSize {
                 columns,
                 rows: 24,
                 width_px: u32::from(columns) * cell_width_px,
@@ -4068,7 +4068,7 @@ mod tests {
         use gpui::{AppContext, point, px};
 
         let app = Arc::new(
-            con_ghostty::GhosttyApp::new(
+            cube_ghostty::GhosttyApp::new(
                 None, None, None, None, None, None, None, None, None, None, None, None, None, false,
             )
             .unwrap(),
@@ -4655,7 +4655,7 @@ mod tests {
 
     #[test]
     fn grapheme_rows_preserve_text_style_bytes_and_grid_columns() {
-        use con_ghostty::vt::VtScreen;
+        use cube_ghostty::vt::VtScreen;
         let screen = VtScreen::new(20, 2, None).unwrap();
         screen.feed("\x1b[?2027he\u{301}\x1b[1m👩\u{200d}🚒\x1b[0mZ".as_bytes());
         let snapshot = screen.snapshot();
@@ -4701,7 +4701,7 @@ mod tests {
 
     #[test]
     fn cursor_overlay_uses_wide_head_geometry_and_color() {
-        use con_ghostty::vt::CellWidth;
+        use cube_ghostty::vt::CellWidth;
         let mut snapshot = ScreenSnapshot {
             cols: 8,
             rows: 2,
@@ -4736,7 +4736,7 @@ mod tests {
                 let (head, cell) = cursor_overlay_cell(&snapshot, cursor).unwrap();
                 assert_eq!(head, 1);
                 assert_eq!(cell.codepoint, '中' as u32);
-                assert_eq!(cell.width, con_ghostty::vt::CellWidth::Wide);
+                assert_eq!(cell.width, cube_ghostty::vt::CellWidth::Wide);
                 assert_eq!(cell.fg, snapshot.cells[9].fg);
             }
         }
@@ -4748,14 +4748,14 @@ mod tests {
         let (col, cell) = cursor_overlay_cell(&snapshot, cursor).unwrap();
         assert_eq!(col, 3);
         assert_eq!(cell.codepoint, 'Z' as u32);
-        assert_eq!(cell.width, con_ghostty::vt::CellWidth::Narrow);
+        assert_eq!(cell.width, cube_ghostty::vt::CellWidth::Narrow);
         assert_ne!(cell.fg, snapshot.cells[9].fg);
         assert!(cursor_overlay_cell(&snapshot, VtCursor { col: 8, ..cursor }).is_none());
     }
 
     #[test]
     fn wide_tail_selection_and_cursor_cover_the_native_cluster() {
-        let screen = con_ghostty::vt::VtScreen::new(8, 2, None).unwrap();
+        let screen = cube_ghostty::vt::VtScreen::new(8, 2, None).unwrap();
         screen.feed("中Z".as_bytes());
         let snapshot = screen.snapshot();
         for (cursor, selection) in [(None, Some((1, 1))), (Some(1), None)] {
@@ -4778,7 +4778,7 @@ mod tests {
 
     #[test]
     fn concealed_row_hides_glyphs_and_decorations_with_cursor_and_selection() {
-        use con_ghostty::vt::{ATTR_INVISIBLE, ATTR_STRIKE};
+        use cube_ghostty::vt::{ATTR_INVISIBLE, ATTR_STRIKE};
 
         let attrs = ATTR_INVERSE | ATTR_UNDERLINE | ATTR_STRIKE;
         let cells = [
@@ -5048,7 +5048,7 @@ mod tests {
         use gpui::AppContext;
 
         let app = Arc::new(
-            con_ghostty::GhosttyApp::new(
+            cube_ghostty::GhosttyApp::new(
                 None, None, None, None, None, None, None, None, None, None, None, None, None, false,
             )
             .unwrap(),

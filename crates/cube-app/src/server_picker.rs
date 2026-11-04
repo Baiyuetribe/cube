@@ -1,10 +1,10 @@
 //! 远程服务器连接浮层。
 //!
-//! 连接列表由 Con 自己维护，存在 `connections.json`。选中一项会开一个新标签
+//! 连接列表由 Cube 自己维护，存在 `connections.json`。选中一项会开一个新标签
 //! 执行 `ssh`。认证走密钥或密码；密码按用户选择明文存盘，连接时经
 //! `SSH_ASKPASS` 传给 ssh，不进入命令行。
 
-use con_core::connections::{ConnectionBook, SshConnection};
+use cube_core::connections::{ConnectionBook, SshConnection};
 use gpui::*;
 use gpui_component::input::{Input, InputState};
 use gpui_component::scroll::ScrollableElement;
@@ -139,7 +139,7 @@ impl ServerPicker {
             return;
         };
         // 写不出密码脚本就没有可用的登录方式，静默不连会让人以为按钮没反应。
-        let Some(command) = con_core::connections::connect_command(connection) else {
+        let Some(command) = cube_core::connections::connect_command(connection) else {
             use gpui_component::{WindowExt as _, notification::Notification};
             window.push_notification(
                 Notification::new()
@@ -334,7 +334,7 @@ impl ServerPicker {
         // selected_index 是「可见列表中的位置」，不是底层数组下标：有分组时
         // 列表按分组重排，用数组长度会指到别的条目上。
         self.selected_index =
-            con_core::connections::visible_position_of(&self.book, &saved_name).unwrap_or(0);
+            cube_core::connections::visible_position_of(&self.book, &saved_name).unwrap_or(0);
         self.focus_search(window, cx);
         cx.notify();
     }

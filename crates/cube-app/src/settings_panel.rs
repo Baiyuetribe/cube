@@ -1,4 +1,4 @@
-use con_core::{
+use cube_core::{
     Config,
     config::{
         APP_ICON_GROUPS, APP_ICONS, AppearanceConfig, ColorScheme, DEFAULT_TERMINAL_FONT_FAMILY,
@@ -141,13 +141,13 @@ pub struct SettingsPanel {
 
     // Theme import
     custom_theme_name_input: Entity<InputState>,
-    custom_theme_preview: Option<con_terminal::TerminalTheme>,
+    custom_theme_preview: Option<cube_terminal::TerminalTheme>,
     custom_theme_status: Option<String>,
 
     // Keybindings — which binding is being recorded (field name, e.g. "new_tab")
     recording_key: Option<String>,
     #[cfg(target_os = "macos")]
-    recording_resume_keybindings: Option<con_core::config::KeybindingConfig>,
+    recording_resume_keybindings: Option<cube_core::config::KeybindingConfig>,
 
     // Network / proxy
     http_proxy_input: Entity<InputState>,
@@ -1026,7 +1026,7 @@ impl SettingsPanel {
             name_raw.trim().to_lowercase().replace(' ', "-")
         };
 
-        match con_terminal::TerminalTheme::from_ghostty_format(&name, &text) {
+        match cube_terminal::TerminalTheme::from_ghostty_format(&name, &text) {
             Some(theme) => {
                 self.custom_theme_status = Some(format!(
                     "已从剪贴板载入“{}”，{} 种 ANSI 颜色可供预览。",
@@ -1084,7 +1084,7 @@ impl SettingsPanel {
             None => return,
         };
 
-        let dir = con_terminal::TerminalTheme::user_themes_dir();
+        let dir = cube_terminal::TerminalTheme::user_themes_dir();
 
         // Create directory if needed
         if let Err(e) = std::fs::create_dir_all(&dir) {
@@ -1314,7 +1314,7 @@ impl SettingsPanel {
 
     fn save(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if ConfigurationImportStatus::blocks_settings(cx) {
-            self.save_error = Some("请先完成配置导入或重启 Con，然后再保存设置。".into());
+            self.save_error = Some("请先完成配置导入或重启 Cube，然后再保存设置。".into());
             self.save_error_kind = Some(SettingsSaveErrorKind::Other);
             cx.notify();
             return;
@@ -1339,7 +1339,7 @@ impl SettingsPanel {
         #[cfg(target_os = "macos")]
         {
             let validation =
-                crate::workspace::ConWorkspace::validate_native_config_candidate(&self.config);
+                crate::workspace::CubeWorkspace::validate_native_config_candidate(&self.config);
             if let Err(message) = validation {
                 self.save_error = Some(message);
                 self.save_error_kind = Some(SettingsSaveErrorKind::Other);
@@ -1381,7 +1381,7 @@ impl SettingsPanel {
         #[cfg(target_os = "macos")]
         match (was_recording, will_record) {
             (false, true) => {
-                let keybindings = con_core::Config::load()
+                let keybindings = cube_core::Config::load()
                     .map(|config| config.keybindings)
                     .unwrap_or_else(|err| {
                         log::warn!(
@@ -1459,7 +1459,7 @@ impl SettingsPanel {
         if self.recording_key.is_some() {
             self.set_recording_key(None);
         }
-        self.config.keybindings = con_core::config::KeybindingConfig::default();
+        self.config.keybindings = cube_core::config::KeybindingConfig::default();
         sync_keybinding_conflict_error(
             &mut self.save_error,
             &mut self.save_error_kind,
@@ -1498,10 +1498,10 @@ impl SettingsPanel {
     pub fn config(&self) -> &Config {
         &self.config
     }
-    pub fn terminal_config(&self) -> &con_core::config::TerminalConfig {
+    pub fn terminal_config(&self) -> &cube_core::config::TerminalConfig {
         &self.config.terminal
     }
-    pub fn appearance_config(&self) -> &con_core::config::AppearanceConfig {
+    pub fn appearance_config(&self) -> &cube_core::config::AppearanceConfig {
         &self.config.appearance
     }
     fn persist_config(&mut self, cx: &App) -> anyhow::Result<()> {
@@ -1540,7 +1540,7 @@ impl SettingsPanel {
         let theme = cx.theme();
 
         // Build the Updates card (only shown for channels that poll).
-        let channel = con_core::release_channel::current();
+        let channel = cube_core::release_channel::current();
         // On any target outside macOS / Windows / Linux we have no
         // update backend, so skip the card even if the channel
         // otherwise would poll.
@@ -1800,7 +1800,7 @@ impl SettingsPanel {
                     .child(group_label("终端", theme))
                     .child(card(theme, card_opacity).child(row_input_with_hint(
                         "默认 Shell",
-                        "Con 重启后新建分屏使用的命令。留空则自动检测。",
+                        "Cube 重启后新建分屏使用的命令。留空则自动检测。",
                         &self.shell_input,
                         theme,
                         mobile,
@@ -1816,7 +1816,7 @@ impl SettingsPanel {
                     .child(
                         card(theme, card_opacity).child(toggle_row(
                             "恢复终端文本",
-                            "重新打开 Con 时保留终端输出。",
+                            "重新打开 Cube 时保留终端输出。",
                             Switch::new("restore-terminal-text-toggle")
                                 .checked(self.config.appearance.restore_terminal_text)
                                 .small()
@@ -1967,7 +1967,7 @@ impl SettingsPanel {
                 .pb(px(10.0))
                 .text_size(ui_px(cx.theme(), 12.0))
                 .text_color(muted)
-                .child("Con 内置的 Nerd Font 和系统级联字体会自动追加。"),
+                .child("Cube 内置的 Nerd Font 和系统级联字体会自动追加。"),
         )
     }
 
@@ -2008,7 +2008,7 @@ impl SettingsPanel {
                 cx.emit(AppearancePreview);
                 cx.notify();
             }));
-        let all_themes = con_terminal::TerminalTheme::all_available();
+        let all_themes = cube_terminal::TerminalTheme::all_available();
         let total_count = all_themes.len();
 
         // One picker per side of the light/dark pair, so both slots are
@@ -2626,7 +2626,7 @@ impl SettingsPanel {
 
         let theme = cx.theme();
         let hint = if cfg!(target_os = "macos") {
-            "Con 运行时更改 Dock 和 Cmd-Tab 图标。"
+            "Cube 运行时更改 Dock 和 Cmd-Tab 图标。"
         } else if cfg!(target_os = "windows") {
             "更改运行中窗口的图标。已固定的快捷方式保留安装时的图标。"
         } else {
@@ -2675,7 +2675,7 @@ impl SettingsPanel {
 
     fn render_app_icon_choice(
         &self,
-        choice: &con_core::config::AppIconChoice,
+        choice: &cube_core::config::AppIconChoice,
         is_sel: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
@@ -2834,7 +2834,7 @@ impl SettingsPanel {
     /// the same side, so picking the hidden palette never flashes the UI.
     fn render_scheme_theme_grid(
         &self,
-        themes: &[&con_terminal::TerminalTheme],
+        themes: &[&cube_terminal::TerminalTheme],
         current_theme: &str,
         is_dark: bool,
         active_is_dark: bool,
@@ -2882,7 +2882,7 @@ impl SettingsPanel {
     /// Render a single theme preview card.
     fn render_single_theme_card(
         &self,
-        term_theme: &con_terminal::TerminalTheme,
+        term_theme: &cube_terminal::TerminalTheme,
         is_sel: bool,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
@@ -3273,7 +3273,7 @@ impl SettingsPanel {
                                 .line_height(rems(1.125))
                                 .text_color(theme.muted_foreground)
                                 .child(
-                                    "可在 macOS 任意位置唤起 Con。Con 处于前台时再次按下则以隐藏。",
+                                    "可在 macOS 任意位置唤起 Cube。Cube 处于前台时再次按下则以隐藏。",
                                 ),
                         ),
                 )
@@ -3425,7 +3425,7 @@ impl SettingsPanel {
                                     .text_xs()
                                     .line_height(rems(1.125))
                                     .text_color(theme.muted_foreground)
-                                    .child("显示一个从屏幕顶部滑下的专属浮动 Con 窗口。"),
+                                    .child("显示一个从屏幕顶部滑下的专属浮动 Cube 窗口。"),
                             ),
                     )
                     .child(
@@ -3942,7 +3942,7 @@ impl Render for SettingsPanel {
                                             .rounded(px(7.0 * header_density))
                                             .tooltip(format!(
                                                 "打开 {}",
-                                                con_paths::CONFIG_FILE_NAME
+                                                cube_paths::CONFIG_FILE_NAME
                                             ))
                                             .child(
                                                 svg()
@@ -4357,14 +4357,14 @@ const THEME_GRID_PAGE_SIZE: usize = 12;
 
 /// One page of theme cards plus whether more remain hidden.
 struct ThemePage<'a> {
-    themes: Vec<&'a con_terminal::TerminalTheme>,
+    themes: Vec<&'a cube_terminal::TerminalTheme>,
     is_truncated: bool,
 }
 
 /// Take the first page of `themes`, always keeping the selected palette visible
 /// even when it would otherwise land beyond the cut.
 fn paged_themes<'a>(
-    themes: &[&'a con_terminal::TerminalTheme],
+    themes: &[&'a cube_terminal::TerminalTheme],
     selected: &str,
     show_all: bool,
 ) -> ThemePage<'a> {
@@ -4387,7 +4387,7 @@ fn paged_themes<'a>(
     }
 }
 
-fn theme_collapsed_note(page: &ThemePage<'_>, all: &[&con_terminal::TerminalTheme]) -> String {
+fn theme_collapsed_note(page: &ThemePage<'_>, all: &[&cube_terminal::TerminalTheme]) -> String {
     format!("还有 {} 个未显示", all.len() - page.themes.len())
 }
 
@@ -4869,7 +4869,7 @@ fn toggle_row(
 
 /// Access a keybinding config field by settings-panel field name.
 fn keybinding_field_mut<'a>(
-    kb: &'a mut con_core::config::KeybindingConfig,
+    kb: &'a mut cube_core::config::KeybindingConfig,
     field: &str,
 ) -> Option<&'a mut String> {
     match field {
@@ -4909,7 +4909,7 @@ fn keybinding_field_mut<'a>(
 }
 
 fn keybinding_field<'a>(
-    kb: &'a con_core::config::KeybindingConfig,
+    kb: &'a cube_core::config::KeybindingConfig,
     field: &str,
 ) -> Option<&'a str> {
     match field {
@@ -4950,7 +4950,7 @@ fn keybinding_field<'a>(
 
 /// The shipped default binding for a settings field, if the field exists.
 fn keybinding_default(field: &str) -> Option<String> {
-    let mut defaults = con_core::config::KeybindingConfig::default();
+    let mut defaults = cube_core::config::KeybindingConfig::default();
     keybinding_field_mut(&mut defaults, field).cloned()
 }
 
@@ -4973,7 +4973,7 @@ fn keystroke_to_binding(ks: &gpui::Keystroke) -> String {
     parts.join("-")
 }
 
-fn keybinding_conflict_message(kb: &con_core::config::KeybindingConfig) -> Option<String> {
+fn keybinding_conflict_message(kb: &cube_core::config::KeybindingConfig) -> Option<String> {
     let conflicts = kb.shortcut_conflicts(&reserved_keybinding_shortcuts());
     let conflict = conflicts.first()?;
     Some(format!(
@@ -4986,7 +4986,7 @@ fn keybinding_conflict_message(kb: &con_core::config::KeybindingConfig) -> Optio
 fn sync_keybinding_conflict_error(
     save_error: &mut Option<String>,
     save_error_kind: &mut Option<SettingsSaveErrorKind>,
-    kb: &con_core::config::KeybindingConfig,
+    kb: &cube_core::config::KeybindingConfig,
 ) {
     match keybinding_conflict_message(kb) {
         Some(message) => {
@@ -5083,7 +5083,7 @@ mod tests {
     fn appearance_image_choices_keep_geometry_when_selection_changes(
         cx: &mut gpui::TestAppContext,
     ) {
-        con_core::release_channel::init();
+        cube_core::release_channel::init();
         cx.update(gpui_component::init);
         for (width, font_size, mode) in [
             (920.0, 16.0, gpui_component::ThemeMode::Light),
@@ -5096,7 +5096,7 @@ mod tests {
                 gpui_component::Theme::change(mode, Some(window), cx);
                 gpui_component::Theme::update(cx, |theme| theme.font_size = gpui::px(font_size));
                 window.set_rem_size(gpui::px(font_size));
-                let mut panel = SettingsPanel::new(&con_core::Config::default(), window, cx);
+                let mut panel = SettingsPanel::new(&cube_core::Config::default(), window, cx);
                 panel.standalone = true;
                 panel.visible = true;
                 panel.active_section = super::SettingsSection::Appearance;
@@ -5141,14 +5141,14 @@ mod tests {
     fn native_close_approval_keeps_windows_alive_until_platform_close(
         cx: &mut gpui::TestAppContext,
     ) {
-        con_core::release_channel::init();
+        cube_core::release_channel::init();
         cx.update(gpui_component::init);
         let main_window = cx
             .add_empty_window()
             .update(|window, _| window.window_handle());
         let _runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
         let (panel, view) = cx.add_window_view(|window, cx| {
-            let mut panel = SettingsPanel::new(&con_core::Config::default(), window, cx);
+            let mut panel = SettingsPanel::new(&cube_core::Config::default(), window, cx);
             panel.open_standalone(window, cx);
             panel
         });
@@ -5193,13 +5193,13 @@ mod tests {
 
     #[gpui::test]
     fn selected_font_names_wrap_without_clipping(cx: &mut gpui::TestAppContext) {
-        con_core::release_channel::init();
+        cube_core::release_channel::init();
         cx.update(gpui_component::init);
         let family = "JetBrainsMonoNL Nerd Font Complete Very Long Family Name";
         for width in [920.0, 375.0] {
             let _runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
             let (panel, view) = cx.add_window_view(|window, cx| {
-                let mut config = con_core::Config::default();
+                let mut config = cube_core::Config::default();
                 config.terminal.font_family = family.to_string();
                 let mut panel = SettingsPanel::new(&config, window, cx);
                 panel.standalone = true;
@@ -5230,11 +5230,11 @@ mod tests {
 
     #[gpui::test]
     fn long_save_errors_leave_settings_content_visible(cx: &mut gpui::TestAppContext) {
-        con_core::release_channel::init();
+        cube_core::release_channel::init();
         cx.update(gpui_component::init);
         let _runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().unwrap());
         let (_panel, cx) = cx.add_window_view(|window, cx| {
-            let mut panel = SettingsPanel::new(&con_core::Config::default(), window, cx);
+            let mut panel = SettingsPanel::new(&cube_core::Config::default(), window, cx);
             panel.standalone = true;
             panel.visible = true;
             panel.save_error =
@@ -5258,7 +5258,7 @@ mod tests {
 
     #[gpui::test]
     fn settings_fields_align_and_scale_across_window_sizes(cx: &mut gpui::TestAppContext) {
-        con_core::release_channel::init();
+        cube_core::release_channel::init();
         cx.update(gpui_component::init);
         let mut label_heights = Vec::new();
 
@@ -5278,7 +5278,7 @@ mod tests {
                     theme.font_size = gpui::px(font_size);
                 });
                 window.set_rem_size(gpui::px(font_size));
-                let mut panel = SettingsPanel::new(&con_core::Config::default(), window, cx);
+                let mut panel = SettingsPanel::new(&cube_core::Config::default(), window, cx);
                 panel.standalone = true;
                 panel.visible = true;
                 panel
@@ -5473,7 +5473,7 @@ mod tests {
 
     #[test]
     fn config_matches_returns_true_for_identical_configs() {
-        use con_core::Config;
+        use cube_core::Config;
         let a = Config::default();
         let b = Config::default();
         assert!(SettingsPanel::config_matches(&a, &b));
@@ -5481,7 +5481,7 @@ mod tests {
 
     #[test]
     fn config_matches_returns_false_when_a_field_diverges() {
-        use con_core::Config;
+        use cube_core::Config;
         let a = Config::default();
         let mut b = Config::default();
         b.appearance.close_to_quit = !a.appearance.close_to_quit;
@@ -5494,7 +5494,7 @@ mod tests {
         // If this assertion ever fires, the
         // `has_unsaved_changes` prompt would start firing on every
         // open even for a clean user, which is the #181 inverse.
-        use con_core::Config;
+        use cube_core::Config;
         let a = Config::default();
         let b = Config::default();
         assert!(SettingsPanel::config_matches(&a, &b));
@@ -5502,7 +5502,7 @@ mod tests {
 
     #[test]
     fn keybinding_default_returns_shipped_binding_for_known_fields() {
-        let defaults = con_core::config::KeybindingConfig::default();
+        let defaults = cube_core::config::KeybindingConfig::default();
         assert_eq!(
             keybinding_default("new_tab").as_deref(),
             keybinding_field(&defaults, "new_tab"),
@@ -5513,7 +5513,7 @@ mod tests {
 
     #[test]
     fn keybinding_field_mut_writes_same_field_that_binding_value_reads() {
-        use con_core::config::KeybindingConfig;
+        use cube_core::config::KeybindingConfig;
         let mut kb = KeybindingConfig::default();
         if let Some(slot) = keybinding_field_mut(&mut kb, "rename_surface") {
             *slot = "custom-chord".to_string();

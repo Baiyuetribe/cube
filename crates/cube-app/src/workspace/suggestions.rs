@@ -1,6 +1,6 @@
 use super::*;
 
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) fn record_shell_command(
         &mut self,
         tab_idx: usize,

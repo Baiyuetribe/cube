@@ -230,7 +230,7 @@ _Static_assert(offsetof(ghostty_runtime_config_s, read_clipboard_cb) == 32,
 _Static_assert(offsetof(ghostty_runtime_config_s, close_surface_cb) == 56,
                "ghostty runtime close callback changed offset");
 
-#ifdef CON_GHOSTTY_EMBEDDED_INITIAL_OUTPUT
+#ifdef CUBE_GHOSTTY_EMBEDDED_INITIAL_OUTPUT
 _Static_assert(sizeof(ghostty_surface_config_s) == 96,
                "patched ghostty surface config changed layout");
 _Static_assert(offsetof(ghostty_surface_config_s, wait_after_command) == 88,

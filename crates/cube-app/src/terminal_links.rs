@@ -8,7 +8,7 @@
 #[cfg(any(target_os = "windows", target_os = "linux", test))]
 use crate::terminal_url::{Osc8UrlDecision, evaluate_osc8_url};
 #[cfg(any(target_os = "windows", target_os = "linux"))]
-use con_ghostty::vt::ScreenSnapshot;
+use cube_ghostty::vt::ScreenSnapshot;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use gpui::Modifiers;
 
@@ -176,7 +176,7 @@ pub(crate) fn link_at_snapshot(
         let start = line.len();
         line.push_str(cell.text(&mut [0; 4]));
         // A wide tail hits the same grapheme as its preceding column.
-        let range = if cell.width == con_ghostty::vt::CellWidth::SpacerTail {
+        let range = if cell.width == cube_ghostty::vt::CellWidth::SpacerTail {
             col_byte_ranges.last().copied().unwrap_or((start, start))
         } else {
             (start, line.len())
@@ -333,7 +333,7 @@ mod tests {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     #[test]
     fn snapshot_links_preserve_graphemes_and_include_wide_tail() {
-        let screen = con_ghostty::vt::VtScreen::new(40, 2, None).unwrap();
+        let screen = cube_ghostty::vt::VtScreen::new(40, 2, None).unwrap();
         let url = "https://x/e\u{301}👩\u{200d}🚒";
         screen.feed(format!("\x1b[?2027h{url} !").as_bytes());
         let snapshot = screen.snapshot();

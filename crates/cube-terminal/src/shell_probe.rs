@@ -44,24 +44,24 @@ pub fn build_shell_probe_command(nonce: &str) -> String {
     ]
     .map(|field| {
         format!(
-            r##"con_probe_emit tmux_{field} "$(tmux display-message -p "#{{{field}}}" 2>/dev/null || printf "")""##
+            r##"cube_probe_emit tmux_{field} "$(tmux display-message -p "#{{{field}}}" 2>/dev/null || printf "")""##
         )
     })
     .join("; ");
     let statements = [
-        format!(r#"con_probe_emit() {{ printf "{PREFIX} %s=%s\n" "$1" "$2"; }}"#),
+        format!(r#"cube_probe_emit() {{ printf "{PREFIX} %s=%s\n" "$1" "$2"; }}"#),
         format!(r#"printf "%s\n" "__CON_SHELL_PROBE_BEGIN_{nonce}__""#),
-        r#"con_probe_emit host "$(hostname 2>/dev/null || uname -n 2>/dev/null || printf "")""#
+        r#"cube_probe_emit host "$(hostname 2>/dev/null || uname -n 2>/dev/null || printf "")""#
             .into(),
-        r#"con_probe_emit pwd "$(pwd 2>/dev/null || printf "")""#.into(),
-        r#"con_probe_emit term "${TERM-}""#.into(),
-        r#"con_probe_emit term_program "${TERM_PROGRAM-}""#.into(),
-        r#"con_probe_emit ssh_connection "${SSH_CONNECTION-}""#.into(),
-        r#"con_probe_emit ssh_tty "${SSH_TTY-}""#.into(),
-        r#"con_probe_emit tmux_env "${TMUX-}""#.into(),
-        r#"con_probe_emit nvim_listen_address "${NVIM_LISTEN_ADDRESS-}""#.into(),
+        r#"cube_probe_emit pwd "$(pwd 2>/dev/null || printf "")""#.into(),
+        r#"cube_probe_emit term "${TERM-}""#.into(),
+        r#"cube_probe_emit term_program "${TERM_PROGRAM-}""#.into(),
+        r#"cube_probe_emit ssh_connection "${SSH_CONNECTION-}""#.into(),
+        r#"cube_probe_emit ssh_tty "${SSH_TTY-}""#.into(),
+        r#"cube_probe_emit tmux_env "${TMUX-}""#.into(),
+        r#"cube_probe_emit nvim_listen_address "${NVIM_LISTEN_ADDRESS-}""#.into(),
         format!(
-            r#"if [ -n "${{TMUX-}}" ] && command -v tmux >/dev/null 2>&1; then con_probe_emit tmux_available "1"; {tmux_facts}; else con_probe_emit tmux_available "0"; fi"#
+            r#"if [ -n "${{TMUX-}}" ] && command -v tmux >/dev/null 2>&1; then cube_probe_emit tmux_available "1"; {tmux_facts}; else cube_probe_emit tmux_available "0"; fi"#
         ),
         format!(r#"printf "%s\n" "__CON_SHELL_PROBE_END_{nonce}__""#),
     ];

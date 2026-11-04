@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// 工作区错误面板在会话快照里的 owner 标识。
+///
+/// 保持旧值 `con:` 前缀：已保存的 `session.json` 里写的就是它，
+/// 改了会让恢复时认不出这个 surface，导致错误面板被当成普通终端重建。
 pub const WORKSPACE_ERROR_SURFACE_OWNER: &str = "con:workspace-error";
 
 /// Session state for persistence across restarts
@@ -311,10 +315,10 @@ impl Session {
     }
 
     pub fn session_path() -> PathBuf {
-        if let Some(path) = std::env::var_os("CON_SESSION_PATH") {
+        if let Some(path) = std::env::var_os("CUBE_SESSION_PATH") {
             return PathBuf::from(path);
         }
-        con_paths::app_data_dir().join("session.json")
+        cube_paths::app_data_dir().join("session.json")
     }
 }
 
@@ -341,9 +345,9 @@ impl GlobalHistoryState {
     }
 
     pub fn history_path() -> PathBuf {
-        if let Some(path) = std::env::var_os("CON_HISTORY_PATH") {
+        if let Some(path) = std::env::var_os("CUBE_HISTORY_PATH") {
             return PathBuf::from(path);
         }
-        con_paths::app_data_dir().join("history.json")
+        cube_paths::app_data_dir().join("history.json")
     }
 }

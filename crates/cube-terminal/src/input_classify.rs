@@ -49,7 +49,7 @@ fn shell_aliases() -> &'static HashSet<String> {
     static CACHE: OnceLock<HashSet<String>> = OnceLock::new();
     CACHE.get_or_init(|| {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
-        let output = con_paths::host_command(&shell)
+        let output = cube_paths::host_command(&shell)
             .args(["-ic", "alias"])
             .stderr(std::process::Stdio::null())
             .output()

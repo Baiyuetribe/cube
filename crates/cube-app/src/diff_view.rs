@@ -6,7 +6,7 @@
 //!
 //! 不做编辑、光标、选区——这些在 diff 里没有意义。
 
-use con_core::git::{DiffFile, DiffLine, DiffLineKind, InlineSpan, ParsedDiff};
+use cube_core::git::{DiffFile, DiffLine, DiffLineKind, InlineSpan, ParsedDiff};
 use gpui::{
     AnyElement, Context, EventEmitter, FontWeight, Hsla, IntoElement, ParentElement, Render,
     SharedString, Styled, TextRun, Window, div, prelude::*, px,
@@ -110,7 +110,7 @@ pub struct DiffView {
 pub struct DiffReload {
     pub root: PathBuf,
     /// 目标文件信息。`None` 表示整个仓库的工作区 diff。
-    pub change: Option<con_core::git::GitChange>,
+    pub change: Option<cube_core::git::GitChange>,
     /// 文件变更信号。监视线程推、DiffView 拉。
     pub signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -344,8 +344,8 @@ impl DiffView {
         let mut highlights = Vec::with_capacity(self.diff.files.len());
         let mut old_highlights = Vec::with_capacity(self.diff.files.len());
         for file in &self.diff.files {
-            let new_lines = con_core::git::reconstructed_new_lines(file);
-            let old_lines = con_core::git::reconstructed_old_lines(file);
+            let new_lines = cube_core::git::reconstructed_new_lines(file);
+            let old_lines = cube_core::git::reconstructed_old_lines(file);
             highlights.push(highlight_lines(
                 file, &new_lines, theme, &mono_font, font_size,
             ));
@@ -498,8 +498,10 @@ impl DiffView {
                 .background_executor()
                 .spawn(async move {
                     match change {
-                        Some(change) => con_core::git::working_diff(&root, &change).map(|d| d.text),
-                        None => con_core::git::working_diff_all(&root),
+                        Some(change) => {
+                            cube_core::git::working_diff(&root, &change).map(|d| d.text)
+                        }
+                        None => cube_core::git::working_diff_all(&root),
                     }
                 })
                 .await;
@@ -513,7 +515,7 @@ impl DiffView {
                     return;
                 }
                 this.last_raw = Some(text.clone());
-                this.diff = con_core::git::parse_diff(&text);
+                this.diff = cube_core::git::parse_diff(&text);
                 this.highlighted_with = None;
                 this.rebuild_rows();
                 // 行数变了，滚动位置可能越界，让 gpui 自己收拢。
@@ -940,7 +942,7 @@ fn inline_spans_for(content: &[&DiffLine]) -> Vec<Vec<InlineSpan>> {
         for pair in 0..pairs {
             let old = &content[removed_start + pair];
             let new = &content[added_start + pair];
-            let (old_spans, new_spans) = con_core::git::inline_diff(&old.text, &new.text);
+            let (old_spans, new_spans) = cube_core::git::inline_diff(&old.text, &new.text);
             // 配对不看内容，两个不相干的行也会被强行对应，字符级高亮铺满整行
             // 反而看不出重点。未改动部分占比太低就不配对，交给整行着色。
             if !mostly_unchanged(&old_spans, &new_spans, &old.text, &new.text) {
@@ -1694,7 +1696,7 @@ fn render_line(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use con_core::git::parse_diff;
+    use cube_core::git::parse_diff;
 
     fn make(raw: &str) -> DiffView {
         let diff = parse_diff(raw);

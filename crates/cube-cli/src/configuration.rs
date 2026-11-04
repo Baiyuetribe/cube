@@ -6,7 +6,7 @@ use std::path::PathBuf;
 pub enum ConfigurationCommand {
     /// Import a self-contained Ghostty config snapshot without overwriting the destination.
     ImportGhostty(ImportGhosttyArgs),
-    /// Export a self-contained native Ghostty snapshot, excluding Con settings and comments.
+    /// Export a self-contained native Ghostty snapshot, excluding Cube settings and comments.
     ExportGhostty(ExportGhosttyArgs),
 }
 
@@ -28,12 +28,12 @@ pub struct ExportGhosttyArgs {
 
 pub fn run(command: ConfigurationCommand) -> Result<()> {
     match command {
-        ConfigurationCommand::ImportGhostty(args) => con_core::config::transfer::import_ghostty(
+        ConfigurationCommand::ImportGhostty(args) => cube_core::config::transfer::import_ghostty(
             args.from,
-            args.to.unwrap_or_else(con_paths::config_file),
+            args.to.unwrap_or_else(cube_paths::config_file),
         ),
-        ConfigurationCommand::ExportGhostty(args) => con_core::config::transfer::export_ghostty(
-            args.from.unwrap_or_else(con_paths::config_file),
+        ConfigurationCommand::ExportGhostty(args) => cube_core::config::transfer::export_ghostty(
+            args.from.unwrap_or_else(cube_paths::config_file),
             args.to,
         ),
     }

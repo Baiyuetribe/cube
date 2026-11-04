@@ -5,7 +5,7 @@ use std::os::unix::fs as unix_fs;
 
 pub fn ensure_cli_shim() {
     if let Err(err) = ensure_cli_shim_inner() {
-        log::warn!("con-cli shim: {err}");
+        log::warn!("cube-cli shim: {err}");
     }
 }
 
@@ -19,13 +19,13 @@ fn ensure_cli_shim_inner() -> Result<(), String> {
         return Ok(());
     }
 
-    let cli = macos_dir.join("con-cli");
+    let cli = macos_dir.join("cube-cli");
     if !cli.is_file() {
         return Ok(());
     }
-    if !is_installed_con_app_cli_target(&cli) {
+    if !is_installed_cube_app_cli_target(&cli) {
         log::info!(
-            "con-cli shim: not linking from transient app bundle at {}",
+            "cube-cli shim: not linking from transient app bundle at {}",
             cli.display()
         );
         return Ok(());
@@ -35,7 +35,7 @@ fn ensure_cli_shim_inner() -> Result<(), String> {
         return Ok(());
     };
     let bin_dir = home.join(".local/bin");
-    let link = bin_dir.join("con-cli");
+    let link = bin_dir.join("cube-cli");
 
     match std::fs::symlink_metadata(&link) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -44,9 +44,9 @@ fn ensure_cli_shim_inner() -> Result<(), String> {
             if target == cli {
                 return Ok(());
             }
-            if !is_installed_con_app_cli_target(&target) {
+            if !is_installed_cube_app_cli_target(&target) {
                 log::info!(
-                    "con-cli shim: preserving user-managed symlink at {} -> {}",
+                    "cube-cli shim: preserving user-managed symlink at {} -> {}",
                     link.display(),
                     target.display()
                 );
@@ -57,7 +57,7 @@ fn ensure_cli_shim_inner() -> Result<(), String> {
         }
         Ok(_) => {
             log::info!(
-                "con-cli shim: preserving user-managed file at {}",
+                "cube-cli shim: preserving user-managed file at {}",
                 link.display()
             );
             return Ok(());
@@ -78,7 +78,7 @@ fn ensure_cli_shim_inner() -> Result<(), String> {
         )
     })?;
     log::info!(
-        "con-cli shim: linked {} -> {}",
+        "cube-cli shim: linked {} -> {}",
         link.display(),
         cli.display()
     );
@@ -100,8 +100,8 @@ fn is_app_bundle_macos_dir(path: &Path) -> bool {
             == Some("app")
 }
 
-fn is_con_app_cli_target(target: &Path) -> bool {
-    if target.file_name().and_then(|name| name.to_str()) != Some("con-cli") {
+fn is_cube_app_cli_target(target: &Path) -> bool {
+    if target.file_name().and_then(|name| name.to_str()) != Some("cube-cli") {
         return false;
     }
 
@@ -113,20 +113,20 @@ fn is_con_app_cli_target(target: &Path) -> bool {
     }
 
     // Keep ownership intentionally narrow. Sparkle/manual installs should
-    // repair stale links to Con's own app bundles, but we must not replace a
-    // user-managed symlink to another app that happens to ship `con-cli`.
+    // repair stale links to Cube's own app bundles, but we must not replace a
+    // user-managed symlink to another app that happens to ship `cube-cli`.
     matches!(
         macos_dir
             .parent()
             .and_then(Path::parent)
             .and_then(Path::file_name)
             .and_then(|name| name.to_str()),
-        Some("con.app" | "con Beta.app" | "con Dev.app")
+        Some("cube.app" | "cube Beta.app" | "cube Dev.app")
     )
 }
 
-fn is_installed_con_app_cli_target(target: &Path) -> bool {
-    if !is_con_app_cli_target(target) {
+fn is_installed_cube_app_cli_target(target: &Path) -> bool {
+    if !is_cube_app_cli_target(target) {
         return false;
     }
 
@@ -140,7 +140,7 @@ fn is_installed_con_app_cli_target(target: &Path) -> bool {
 
     // Only app bundles in normal install locations are considered managed.
     // A mounted DMG or copied test bundle with the same app name must not steal
-    // ~/.local/bin/con-cli away from the installed app.
+    // ~/.local/bin/cube-cli away from the installed app.
     app_bundle.starts_with("/Applications")
         || dirs::home_dir()
             .map(|home| app_bundle.starts_with(home.join("Applications")))
@@ -159,43 +159,43 @@ mod tests {
     #[test]
     fn app_bundle_macos_dir_is_recognized() {
         assert!(is_app_bundle_macos_dir(Path::new(
-            "/Applications/con Beta.app/Contents/MacOS"
+            "/Applications/cube Beta.app/Contents/MacOS"
         )));
         assert!(!is_app_bundle_macos_dir(Path::new("/tmp/target/release")));
     }
 
     #[test]
-    fn only_con_app_cli_symlinks_are_managed() {
-        assert!(is_con_app_cli_target(Path::new(
-            "/Applications/con Beta.app/Contents/MacOS/con-cli"
+    fn only_cube_app_cli_symlinks_are_managed() {
+        assert!(is_cube_app_cli_target(Path::new(
+            "/Applications/cube Beta.app/Contents/MacOS/cube-cli"
         )));
-        assert!(is_con_app_cli_target(Path::new(
-            "/Applications/con Dev.app/Contents/MacOS/con-cli"
+        assert!(is_cube_app_cli_target(Path::new(
+            "/Applications/cube Dev.app/Contents/MacOS/cube-cli"
         )));
-        assert!(!is_con_app_cli_target(Path::new(
-            "/opt/homebrew/bin/con-cli"
+        assert!(!is_cube_app_cli_target(Path::new(
+            "/opt/homebrew/bin/cube-cli"
         )));
-        assert!(!is_con_app_cli_target(Path::new(
+        assert!(!is_cube_app_cli_target(Path::new(
             "/Applications/Other.app/Contents/MacOS/other-cli"
         )));
-        assert!(!is_con_app_cli_target(Path::new(
-            "/Applications/Other.app/Contents/MacOS/con-cli"
+        assert!(!is_cube_app_cli_target(Path::new(
+            "/Applications/Other.app/Contents/MacOS/cube-cli"
         )));
     }
 
     #[test]
-    fn only_installed_con_app_cli_symlinks_are_managed() {
-        assert!(is_installed_con_app_cli_target(Path::new(
-            "/Applications/con Beta.app/Contents/MacOS/con-cli"
+    fn only_installed_cube_app_cli_symlinks_are_managed() {
+        assert!(is_installed_cube_app_cli_target(Path::new(
+            "/Applications/cube Beta.app/Contents/MacOS/cube-cli"
         )));
-        assert!(is_installed_con_app_cli_target(Path::new(
-            "/Applications/con Dev.app/Contents/MacOS/con-cli"
+        assert!(is_installed_cube_app_cli_target(Path::new(
+            "/Applications/cube Dev.app/Contents/MacOS/cube-cli"
         )));
-        assert!(!is_installed_con_app_cli_target(Path::new(
-            "/Volumes/con Beta/con Beta.app/Contents/MacOS/con-cli"
+        assert!(!is_installed_cube_app_cli_target(Path::new(
+            "/Volumes/cube Beta/cube Beta.app/Contents/MacOS/cube-cli"
         )));
-        assert!(!is_installed_con_app_cli_target(Path::new(
-            "/tmp/con Beta.app/Contents/MacOS/con-cli"
+        assert!(!is_installed_cube_app_cli_target(Path::new(
+            "/tmp/cube Beta.app/Contents/MacOS/cube-cli"
         )));
     }
 }

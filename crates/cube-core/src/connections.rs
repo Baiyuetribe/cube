@@ -283,7 +283,7 @@ const FILE_NAME: &str = "connections.json";
 
 impl ConnectionBook {
     pub fn path() -> PathBuf {
-        con_paths::app_config_dir().join(FILE_NAME)
+        cube_paths::app_config_dir().join(FILE_NAME)
     }
 
     /// 读取已保存的连接。文件不存在或损坏时返回空列表——这份数据是纯附加

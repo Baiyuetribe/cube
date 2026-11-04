@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Weak;
 use std::time::{Duration, Instant};
 
-use con_core::program_status::{self, Incoming};
-use con_core::terminal_status::{AgentIdentity, IdentityScope, SurfaceStatus};
-use con_ghostty::process::ProcessInfo;
-use con_ghostty::{GhosttyTerminal, ProgramStatusEvent};
+use cube_core::program_status::{self, Incoming};
+use cube_core::terminal_status::{AgentIdentity, IdentityScope, SurfaceStatus};
+use cube_ghostty::process::ProcessInfo;
+use cube_ghostty::{GhosttyTerminal, ProgramStatusEvent};
 
 use super::*;
 
@@ -16,7 +16,7 @@ enum Query {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     Foreground(u32),
     #[cfg(target_os = "windows")]
-    Descendants(con_ghostty::process::ProcessIdentity),
+    Descendants(cube_ghostty::process::ProcessIdentity),
     Unavailable,
 }
 
@@ -55,7 +55,7 @@ impl Query {
                     Self::Unavailable => 0,
                 })
                 .collect();
-            con_ghostty::process::group_members_batch(&groups)
+            cube_ghostty::process::group_members_batch(&groups)
         }
         #[cfg(target_os = "windows")]
         {
@@ -66,7 +66,7 @@ impl Query {
                     Self::Unavailable => None,
                 })
                 .collect();
-            let mut results = con_ghostty::process::descendants_batch(&roots).into_iter();
+            let mut results = cube_ghostty::process::descendants_batch(&roots).into_iter();
             queries
                 .iter()
                 .map(|query| match query {
@@ -82,10 +82,10 @@ struct Surface {
     instance: Weak<GhosttyTerminal>,
     query: Query,
     processes: Vec<ProcessInfo>,
-    identity_process: Option<con_ghostty::process::ProcessIdentity>,
+    identity_process: Option<cube_ghostty::process::ProcessIdentity>,
     /// Interpreter process whose screen may name a script-based agent. A
     /// screen identity lives exactly as long as this process does.
-    screen_host: Option<con_ghostty::process::ProcessIdentity>,
+    screen_host: Option<cube_ghostty::process::ProcessIdentity>,
     /// Visible lines last seen before the current program started. Output
     /// left by earlier commands is not evidence about the next program.
     shell_screen: HashMap<String, usize>,
@@ -217,7 +217,7 @@ impl Surface {
                     _ => true,
                 })
                 .collect();
-            con_terminal::classify_screen_agent_cli(None, &lines)
+            cube_terminal::classify_screen_agent_cli(None, &lines)
                 .or_else(|| agent_from_screen_text(&lines))
                 .map(|agent| (agent, IdentityScope::Screen))
         } else {
@@ -232,8 +232,8 @@ impl Surface {
 
 fn screen_host<'a>(
     processes: &'a [ProcessInfo],
-    previous: Option<&con_ghostty::process::ProcessIdentity>,
-) -> Option<&'a con_ghostty::process::ProcessIdentity> {
+    previous: Option<&cube_ghostty::process::ProcessIdentity>,
+) -> Option<&'a cube_ghostty::process::ProcessIdentity> {
     let hosts: Vec<_> = processes
         .iter()
         .map(|process| &process.identity)
@@ -255,8 +255,8 @@ fn screen_host<'a>(
 
 fn native_agent<'a>(
     processes: &'a [ProcessInfo],
-    previous: Option<&con_ghostty::process::ProcessIdentity>,
-) -> Option<(&'static str, &'a con_ghostty::process::ProcessIdentity)> {
+    previous: Option<&cube_ghostty::process::ProcessIdentity>,
+) -> Option<(&'static str, &'a cube_ghostty::process::ProcessIdentity)> {
     let mut candidates = processes.iter().filter_map(|process| {
         process
             .identity
@@ -296,7 +296,7 @@ fn native_agent<'a>(
 #[derive(Default)]
 pub(super) struct TerminalPresentation {
     surfaces: HashMap<u64, Surface>,
-    pub(super) tabs: HashMap<u64, Option<con_core::terminal_status::Status>>,
+    pub(super) tabs: HashMap<u64, Option<cube_core::terminal_status::Status>>,
     program_details: HashMap<u64, Option<String>>,
     in_flight: bool,
     last_query: Option<Instant>,
@@ -304,7 +304,7 @@ pub(super) struct TerminalPresentation {
     presented_focus: Option<(u64, usize, Option<u64>)>,
 }
 
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) fn observe_terminal_title(
         &mut self,
         entity: &Entity<GhosttyView>,
@@ -451,7 +451,7 @@ impl ConWorkspace {
                 surface
                     .status
                     .observe_progress(terminal.progress(cx).map(|progress| {
-                        use con_core::terminal_status::{Activity, Progress};
+                        use cube_core::terminal_status::{Activity, Progress};
                         let (activity, percent) = match progress {
                             TerminalProgress::Running(percent) => (Activity::Busy, percent),
                             TerminalProgress::Indeterminate => (Activity::Busy, None),
@@ -522,10 +522,10 @@ impl ConWorkspace {
                 tab.agent_cli = focused_agent;
                 changed = true;
             }
-            let status = con_core::terminal_status::aggregate(statuses, focused);
+            let status = cube_core::terminal_status::aggregate(statuses, focused);
             let detail = status
                 .filter(|status| {
-                    status.evidence == con_core::terminal_status::Evidence::ProgramStatus
+                    status.evidence == cube_core::terminal_status::Evidence::ProgramStatus
                 })
                 .and_then(|status| {
                     let detail = state
@@ -746,7 +746,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Instant;
 
-    use con_ghostty::ProgramStatusEvent;
+    use cube_ghostty::ProgramStatusEvent;
 
     #[test]
     fn program_detail_changes_invalidate_without_activity_changes() {
@@ -777,7 +777,7 @@ mod tests {
 
     fn process(pid: u32, name: &str) -> ProcessInfo {
         ProcessInfo {
-            identity: con_ghostty::process::ProcessIdentity {
+            identity: cube_ghostty::process::ProcessIdentity {
                 pid,
                 started_at: 100,
                 executable: name.into(),
@@ -1104,7 +1104,7 @@ mod tests {
     #[test]
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn batch_keeps_unavailable_slots_and_duplicate_jobs_in_order() {
-        let process = con_ghostty::process::read_process(std::process::id()).unwrap();
+        let process = cube_ghostty::process::read_process(std::process::id()).unwrap();
         let pgid = process.process_group_id.unwrap();
         let results = Query::collect_batch(&[
             Query::Unavailable,
@@ -1136,7 +1136,7 @@ mod tests {
         );
         assert_eq!(
             status.status(now).map(|status| status.activity),
-            Some(con_core::terminal_status::Activity::Busy)
+            Some(cube_core::terminal_status::Activity::Busy)
         );
         apply_program_events(&mut status, vec![ProgramStatusEvent::Prompt], now);
         assert_eq!(status.status(now), None);
@@ -1155,17 +1155,17 @@ mod tests {
         );
         assert_eq!(
             status.status(now).map(|status| status.evidence),
-            Some(con_core::terminal_status::Evidence::ProgramStatus)
+            Some(cube_core::terminal_status::Evidence::ProgramStatus)
         );
         apply_program_events(&mut status, vec![ProgramStatusEvent::Key], now);
         let acknowledged = status.status(now).expect("acknowledged root stays idle");
         assert_eq!(
             acknowledged.activity,
-            con_core::terminal_status::Activity::Idle
+            cube_core::terminal_status::Activity::Idle
         );
         assert_eq!(
             acknowledged.evidence,
-            con_core::terminal_status::Evidence::ProgramStatus
+            cube_core::terminal_status::Evidence::ProgramStatus
         );
         apply_program_events(&mut status, vec![ProgramStatusEvent::FullReset], now);
         assert_eq!(status.program_records(), Vec::new());
@@ -1187,12 +1187,12 @@ mod tests {
         apply_program_events(&mut status, vec![report(1, 0, 10, "build", "")], now);
         assert_eq!(
             status.status(now).map(|status| status.activity),
-            Some(con_core::terminal_status::Activity::Busy)
+            Some(cube_core::terminal_status::Activity::Busy)
         );
         apply_program_events(&mut status, vec![report(3, 1, 40, "build", "Apply?")], now);
         assert_eq!(
             status.status(now).map(|status| status.activity),
-            Some(con_core::terminal_status::Activity::NeedsInput)
+            Some(cube_core::terminal_status::Activity::NeedsInput)
         );
         assert!(
             status
@@ -1203,12 +1203,12 @@ mod tests {
         apply_program_events(&mut status, vec![report(1, 0, 80, "build", "")], now);
         assert_eq!(
             status.status(now).map(|status| status.activity),
-            Some(con_core::terminal_status::Activity::Busy)
+            Some(cube_core::terminal_status::Activity::Busy)
         );
         apply_program_events(&mut status, vec![report(2, 0, -1, "build", "ready")], now);
         assert_eq!(
             status.status(now).map(|status| status.activity),
-            Some(con_core::terminal_status::Activity::Done)
+            Some(cube_core::terminal_status::Activity::Done)
         );
         apply_program_events(&mut status, vec![ProgramStatusEvent::Key], now);
         assert_eq!(status.status(now), None);
@@ -1220,12 +1220,12 @@ mod tests {
         );
         assert_eq!(
             status.status(now).map(|status| status.activity),
-            Some(con_core::terminal_status::Activity::Error)
+            Some(cube_core::terminal_status::Activity::Error)
         );
         apply_program_events(&mut status, vec![ProgramStatusEvent::ProcessExit], now);
         assert_eq!(
             status.status(now).map(|status| status.activity),
-            Some(con_core::terminal_status::Activity::Error)
+            Some(cube_core::terminal_status::Activity::Error)
         );
         assert!(!status.program_status_alternate_screen(true, now));
         assert_eq!(status.program_records().len(), 2);
@@ -1240,8 +1240,8 @@ mod tests {
         for step in 0..UPDATES {
             if surface
                 .observe_program_status(
-                    con_core::program_status::Incoming {
-                        state: con_core::program_status::State::Working,
+                    cube_core::program_status::Incoming {
+                        state: cube_core::program_status::State::Working,
                         id: "build",
                         kind: None,
                         progress: Some((step % 101) as u8),
@@ -1257,7 +1257,7 @@ mod tests {
             }
             let status = surface.status(now).unwrap();
             assert_eq!(status.surface_id, 1);
-            assert_eq!(status.activity, con_core::terminal_status::Activity::Busy);
+            assert_eq!(status.activity, cube_core::terminal_status::Activity::Busy);
             assert_eq!(status.percent, Some((step % 101) as u8));
         }
         assert_eq!(surface.program_records().len(), 1);
@@ -1265,8 +1265,8 @@ mod tests {
         assert!(
             !surface
                 .observe_program_status(
-                    con_core::program_status::Incoming {
-                        state: con_core::program_status::State::Working,
+                    cube_core::program_status::Incoming {
+                        state: cube_core::program_status::State::Working,
                         id: "build",
                         kind: None,
                         progress: Some(((UPDATES - 1) % 101) as u8),

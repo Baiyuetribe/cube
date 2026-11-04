@@ -152,7 +152,7 @@ impl WindowsGhosttyApp {
         self.config.lock().clone()
     }
 
-    /// Command used for new ConPTY sessions. An unset value preserves the
+    /// Command used for new CubePTY sessions. An unset value preserves the
     /// platform auto-detection performed by `default_shell_command`.
     pub fn shell_command(&self) -> String {
         super::conpty::shell_command(self.shell.as_deref())
@@ -162,7 +162,7 @@ impl WindowsGhosttyApp {
 unsafe impl Send for WindowsGhosttyApp {}
 unsafe impl Sync for WindowsGhosttyApp {}
 
-/// One per pane. The `RenderSession` (renderer + VT + ConPTY) is
+/// One per pane. The `RenderSession` (renderer + VT + CubePTY) is
 /// constructed lazily by the GPUI view once it has a size and DPI.
 pub struct WindowsGhosttyTerminal {
     inner: Arc<Mutex<Option<RenderSession>>>,

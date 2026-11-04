@@ -115,7 +115,7 @@ impl LspClient {
             return Ok(None);
         };
 
-        let mut command = con_paths::host_command(spec.command);
+        let mut command = cube_paths::host_command(spec.command);
         command
             .args(spec.args)
             .stdin(Stdio::piped())

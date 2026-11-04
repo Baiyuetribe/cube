@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
-use con_ghostty::GhosttyTerminal;
+use cube_ghostty::GhosttyTerminal;
 use gpui::{ClipboardEntry, ClipboardItem, ExternalPaths};
 
 #[derive(Debug, Clone, Eq, PartialEq)]

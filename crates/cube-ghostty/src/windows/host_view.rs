@@ -1,4 +1,4 @@
-//! Terminal pane session: Renderer + VT parser + ConPTY.
+//! Terminal pane session: Renderer + VT parser + CubePTY.
 //!
 //! No child HWND is created. The renderer draws into an offscreen D3D11
 //! texture; the caller reads back BGRA bytes each dirty frame and hands
@@ -12,7 +12,7 @@
 //! Thread model:
 //! - All `Renderer` calls happen on GPUI's main thread via
 //!   [`RenderSession::render_frame`] et al.
-//! - The VT parser is fed from the ConPTY reader thread
+//! - The VT parser is fed from the CubePTY reader thread
 //!   (`conpty.rs`) and snapshotted read-only on the main thread under
 //!   its own Mutex.
 
@@ -30,7 +30,7 @@ use crate::stub::GhosttyScrollbar;
 use crate::transcript::{TranscriptBuffer, snapshot_to_lines};
 use crate::{DesktopNotificationPolicy, clipboard_write_policy};
 
-use super::conpty::{ConPty, PtySize};
+use super::conpty::{CubePty, PtySize};
 use super::profile::{perf_trace_enabled, perf_trace_verbose};
 use super::render::{RenderOutcome, Renderer, RendererConfig, ThemeColors};
 use super::vt::{
@@ -41,14 +41,14 @@ use super::vt::{
 
 use super::render::CellMetrics;
 
-/// Owns the D3D11 renderer, the VT parser, and the ConPTY child shell
+/// Owns the D3D11 renderer, the VT parser, and the CubePTY child shell
 /// for a single terminal pane. Exposes methods the GPUI view calls to
 /// feed input, query state, and pull the latest rendered frame.
 pub struct RenderSession {
     renderer: Mutex<Renderer>,
     vt: Arc<VtScreen>,
     transcript: Arc<Mutex<TranscriptBuffer>>,
-    conpty: Arc<ConPty>,
+    conpty: Arc<CubePty>,
     shell_cwd: Option<PathBuf>,
     config: Mutex<RendererConfig>,
     /// Logical (96-DPI) font size. Settings can update it while the pane is
@@ -56,7 +56,7 @@ pub struct RenderSession {
     /// time value.
     base_font_size_px: Mutex<f32>,
     dpi: AtomicU32,
-    /// A live metrics change must be reconciled with VT and ConPTY geometry.
+    /// A live metrics change must be reconciled with VT and CubePTY geometry.
     /// Kept explicit so a partial resize failure is retried by the next
     /// prepaint instead of leaving the renderer and child process desynced.
     geometry_sync_pending: AtomicBool,
@@ -121,9 +121,9 @@ impl RenderSession {
     const LOW_LATENCY_BURST_WINDOW: Duration = Duration::from_millis(750);
     const UNCHANGED_FRAME_LOG_THRESHOLD_MS: f64 = 2.0;
 
-    /// Build a renderer + VT parser + ConPTY child shell.
+    /// Build a renderer + VT parser + CubePTY child shell.
     ///
-    /// `wake` is invoked from the ConPTY reader thread after every
+    /// `wake` is invoked from the CubePTY reader thread after every
     /// chunk of bytes is fed into the VT parser. The view passes a
     /// closure that pokes a GPUI prepaint via `cx.notify()`, so freshly
     /// arrived shell output paints on the next frame instead of waiting
@@ -165,7 +165,7 @@ impl RenderSession {
         let (cols, rows) = renderer.grid_for_dimensions(&renderer_config);
         log::info!("RenderSession: grid {cols}x{rows}");
 
-        let prepared_conpty = ConPty::prepare().context("prepare ConPTY pipes failed")?;
+        let prepared_conpty = CubePty::prepare().context("prepare CubePTY pipes failed")?;
         let vt_writer = prepared_conpty.writer();
         let accept_vt_replies = Arc::new(AtomicBool::new(false));
         let accept_vt_replies_in_callback = accept_vt_replies.clone();
@@ -224,7 +224,7 @@ impl RenderSession {
         let wake_for_exit = wake_for_pty.clone();
         let shell_cwd = resolve_shell_cwd(cwd);
         log::info!(
-            "RenderSession: spawning ConPTY shell={shell} cwd={shell_cwd:?} \
+            "RenderSession: spawning CubePTY shell={shell} cwd={shell_cwd:?} \
              cell={cell_width_px}x{cell_height_px}"
         );
         let conpty = prepared_conpty
@@ -243,7 +243,7 @@ impl RenderSession {
                     wake_for_exit();
                 },
             )
-            .context("ConPty::spawn failed")?;
+            .context("CubePty::spawn failed")?;
         let conpty = Arc::new(conpty);
 
         Ok(Self {
@@ -352,7 +352,7 @@ impl RenderSession {
             .context("mouse geometry resize failed")?;
         self.conpty
             .resize(PtySize { cols, rows })
-            .context("ConPty::resize failed")?;
+            .context("CubePty::resize failed")?;
         self.geometry_sync_pending.store(false, Ordering::Release);
         log::debug!(
             "RenderSession::resize -> {width_px}x{height_px} grid={cols}x{rows} \
@@ -401,7 +401,7 @@ impl RenderSession {
     }
 
     /// Apply a live font change, rebuild cell metrics, and resize both the VT
-    /// and ConPTY grid. The settings panel updates existing sessions, so only
+    /// and CubePTY grid. The settings panel updates existing sessions, so only
     /// changing the app-level template is not sufficient.
     pub fn set_font(
         &self,
@@ -447,7 +447,7 @@ impl RenderSession {
         Ok(())
     }
 
-    /// Whether a metrics change still needs to reach VT and ConPTY.
+    /// Whether a metrics change still needs to reach VT and CubePTY.
     pub fn geometry_sync_pending(&self) -> bool {
         self.geometry_sync_pending.load(Ordering::Acquire)
     }
@@ -503,7 +503,7 @@ impl RenderSession {
         self.vt.mouse_tracking_active()
     }
 
-    /// Send UTF-8 text to the child shell. Handles the ConPTY Enter
+    /// Send UTF-8 text to the child shell. Handles the CubePTY Enter
     /// quirk (shell expects CR, not LF).
     pub fn write_input(&self, text: &str) -> Result<()> {
         self.write_text_input(text, false)
@@ -526,7 +526,7 @@ impl RenderSession {
         } else {
             self.vt.write_input(&bytes)
         }
-        .context("failed to queue ConPTY input")
+        .context("failed to queue CubePTY input")
     }
 
     pub fn send_key(&self, event: &VtKeyEvent<'_>) -> Result<VtKeyOutcome> {
@@ -753,7 +753,7 @@ impl RenderSession {
     }
 
     /// Mouse-wheel report using the terminal's active protocol. Shift bypass is
-    /// handled by the view so users can still scroll Con's own scrollback.
+    /// handled by the view so users can still scroll Cube's own scrollback.
     pub fn forward_wheel(&self, point: SelectionPoint, delta_y: f32, mods: MouseEventMods) {
         if delta_y.abs() < f32::EPSILON {
             return;
@@ -984,7 +984,7 @@ fn resolve_shell_cwd(cwd: Option<PathBuf>) -> Option<PathBuf> {
         if is_valid_shell_cwd(&cwd) {
             return Some(cwd);
         }
-        log::warn!("Ignoring invalid ConPTY cwd: {cwd:?}");
+        log::warn!("Ignoring invalid CubePTY cwd: {cwd:?}");
     }
     default_shell_cwd()
 }

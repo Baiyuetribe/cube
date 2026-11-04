@@ -1,11 +1,11 @@
 [package]
-name = "con-terminal"
+name = "cube-terminal"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
 
 [dependencies]
-con-paths.workspace = true
+cube-paths.workspace = true
 serde.workspace = true
 crossbeam-channel.workspace = true
 log.workspace = true

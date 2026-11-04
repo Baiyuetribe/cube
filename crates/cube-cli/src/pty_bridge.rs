@@ -49,7 +49,7 @@ const MAX_PENDING_METADATA_REQUESTS: usize = 1;
 fn process_metadata_frame(
     sequence: u64,
     process_group_id: Option<u32>,
-    processes: Vec<con_process::ProcessInfo>,
+    processes: Vec<cube_process::ProcessInfo>,
 ) -> Vec<u8> {
     // Metadata failure must not terminate the user's shell. Non-Unicode paths
     // and overlarge snapshots yield an unavailable observation instead.
@@ -220,7 +220,7 @@ pub fn run_pty_bridge(args: PtyBridgeArgs) -> Result<()> {
                         let process_group_id = (pgid > 0).then_some(pgid as u32);
                         let processes = process_group_id
                             .map(|id| {
-                                con_process::group_members_batch(&[id])
+                                cube_process::group_members_batch(&[id])
                                     .pop()
                                     .unwrap_or_default()
                             })
@@ -369,7 +369,7 @@ pub fn run_pty_bridge(args: PtyBridgeArgs) -> Result<()> {
     running.store(false, Ordering::Relaxed);
     metadata_active.store(false, Ordering::Release);
 
-    // Stop waiting for more input from Con and wake the PTY reader. It drains
+    // Stop waiting for more input from Cube and wake the PTY reader. It drains
     // buffered output until the PTY is briefly quiet, with a hard limit for
     // descendants that inherited and kept the slave descriptor open.
     let _ = socket_reader_interrupt.shutdown(std::net::Shutdown::Read);
@@ -423,8 +423,8 @@ mod tests {
             let frame = process_metadata_frame(
                 7301,
                 Some(17),
-                vec![con_process::ProcessInfo {
-                    identity: con_process::ProcessIdentity {
+                vec![cube_process::ProcessInfo {
+                    identity: cube_process::ProcessIdentity {
                         pid: 19,
                         started_at: 201,
                         executable,
@@ -588,7 +588,7 @@ mod tests {
                     let (sequence, pgid, processes): (
                         u64,
                         Option<u32>,
-                        Vec<con_process::ProcessInfo>,
+                        Vec<cube_process::ProcessInfo>,
                     ) = serde_json::from_slice(payload).unwrap();
                     assert_eq!(sequence, 7301);
                     assert!(pgid.is_some_and(|pid| pid > 0));

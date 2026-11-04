@@ -3,7 +3,7 @@ use std::{fs, path::Path, process::Command};
 #[test]
 fn imports_custom_theme_from_explicit_xdg_home_without_a_running_app() {
     let root = std::env::temp_dir().join(format!(
-        "con-cli-theme-{}-{}",
+        "cube-cli-theme-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -13,13 +13,13 @@ fn imports_custom_theme_from_explicit_xdg_home_without_a_running_app() {
     let xdg = root.join("custom-xdg");
     let themes = xdg.join("ghostty/themes");
     fs::create_dir_all(&themes).unwrap();
-    let name = "ConImportRegressionTheme";
+    let name = "CubeImportRegressionTheme";
     let colors = "background = 13579b\nforeground = fefefe\n";
     fs::write(themes.join(name), colors).unwrap();
     let source = root.join("source");
     fs::write(&source, format!("theme = {name}\n")).unwrap();
     let destination = root.join("imported.ghostty");
-    let output = Command::new(env!("CARGO_BIN_EXE_con-cli"))
+    let output = Command::new(env!("CARGO_BIN_EXE_cube-cli"))
         .env("XDG_CONFIG_HOME", &xdg)
         .args(["config", "import-ghostty", "--from"])
         .arg(&source)

@@ -3,18 +3,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-typedef void (*con_hotkey_callback_t)(void);
+typedef void (*cube_hotkey_callback_t)(void);
 
 static EventHotKeyRef g_con_hotkey_ref = NULL;
 static EventHandlerRef g_con_hotkey_handler = NULL;
-static con_hotkey_callback_t g_con_hotkey_callback = NULL;
+static cube_hotkey_callback_t g_con_hotkey_callback = NULL;
 static EventHotKeyRef g_con_qt_hotkey_ref = NULL;
-static con_hotkey_callback_t g_con_qt_hotkey_callback = NULL;
+static cube_hotkey_callback_t g_con_qt_hotkey_callback = NULL;
 static id g_con_window_cycle_monitor = nil;
 static NSMutableArray<NSNumber *> *g_con_window_cycle_order = nil;
 static NSTimeInterval g_con_last_window_cycle_timestamp = 0;
 
-static OSStatus con_hotkey_handler(EventHandlerCallRef nextHandler, EventRef event, void *userData) {
+static OSStatus cube_hotkey_handler(EventHandlerCallRef nextHandler, EventRef event, void *userData) {
     (void)nextHandler;
     (void)userData;
     if (GetEventClass(event) != kEventClassKeyboard ||
@@ -43,13 +43,13 @@ static OSStatus con_hotkey_handler(EventHandlerCallRef nextHandler, EventRef eve
     return noErr;
 }
 
-bool con_register_global_hotkey(
+bool cube_register_global_hotkey(
     uint32_t key_code,
     bool shift,
     bool control,
     bool alt,
     bool command,
-    con_hotkey_callback_t callback
+    cube_hotkey_callback_t callback
 ) {
     if (g_con_hotkey_ref != NULL) {
         UnregisterEventHotKey(g_con_hotkey_ref);
@@ -62,7 +62,7 @@ bool con_register_global_hotkey(
             .eventKind = kEventHotKeyPressed,
         };
         InstallApplicationEventHandler(
-            NewEventHandlerUPP(con_hotkey_handler),
+            NewEventHandlerUPP(cube_hotkey_handler),
             1,
             &spec,
             NULL,
@@ -103,13 +103,13 @@ bool con_register_global_hotkey(
     return status == noErr;
 }
 
-bool con_register_quick_terminal_hotkey(
+bool cube_register_quick_terminal_hotkey(
     uint32_t key_code,
     bool shift,
     bool control,
     bool alt,
     bool command,
-    con_hotkey_callback_t callback
+    cube_hotkey_callback_t callback
 ) {
     if (g_con_qt_hotkey_ref != NULL) {
         UnregisterEventHotKey(g_con_qt_hotkey_ref);
@@ -122,7 +122,7 @@ bool con_register_quick_terminal_hotkey(
             .eventKind = kEventHotKeyPressed,
         };
         InstallApplicationEventHandler(
-            NewEventHandlerUPP(con_hotkey_handler),
+            NewEventHandlerUPP(cube_hotkey_handler),
             1,
             &spec,
             NULL,
@@ -163,7 +163,7 @@ bool con_register_quick_terminal_hotkey(
     return status == noErr;
 }
 
-void con_unregister_global_hotkey(void) {
+void cube_unregister_global_hotkey(void) {
     if (g_con_hotkey_ref != NULL) {
         UnregisterEventHotKey(g_con_hotkey_ref);
         g_con_hotkey_ref = NULL;
@@ -179,7 +179,7 @@ void con_unregister_global_hotkey(void) {
     }
 }
 
-void con_unregister_quick_terminal_hotkey(void) {
+void cube_unregister_quick_terminal_hotkey(void) {
     if (g_con_qt_hotkey_ref != NULL) {
         UnregisterEventHotKey(g_con_qt_hotkey_ref);
         g_con_qt_hotkey_ref = NULL;
@@ -192,11 +192,11 @@ void con_unregister_quick_terminal_hotkey(void) {
     }
 }
 
-bool con_app_is_active(void) {
+bool cube_app_is_active(void) {
     return NSApp != nil && [NSApp isActive];
 }
 
-static BOOL con_should_cycle_window(NSEvent *event, BOOL *reverse) {
+static BOOL cube_should_cycle_window(NSEvent *event, BOOL *reverse) {
     if (event.type != NSEventTypeKeyDown) {
         return NO;
     }
@@ -227,7 +227,7 @@ static BOOL con_should_cycle_window(NSEvent *event, BOOL *reverse) {
     return YES;
 }
 
-static NSArray<NSWindow *> *con_cycleable_windows(void) {
+static NSArray<NSWindow *> *cube_cycleable_windows(void) {
     NSMutableArray<NSWindow *> *windows = [NSMutableArray array];
     for (NSWindow *window in NSApp.orderedWindows) {
         if (!window.isVisible || window.isMiniaturized || !window.canBecomeKeyWindow) {
@@ -238,7 +238,7 @@ static NSArray<NSWindow *> *con_cycleable_windows(void) {
     return windows;
 }
 
-static NSWindow *con_find_cycleable_window(NSArray<NSWindow *> *windows, NSInteger window_number) {
+static NSWindow *cube_find_cycleable_window(NSArray<NSWindow *> *windows, NSInteger window_number) {
     for (NSWindow *window in windows) {
         if (window.windowNumber == window_number) {
             return window;
@@ -247,7 +247,7 @@ static NSWindow *con_find_cycleable_window(NSArray<NSWindow *> *windows, NSInteg
     return nil;
 }
 
-static NSMutableArray<NSNumber *> *con_rebuild_window_cycle_order(NSArray<NSWindow *> *windows) {
+static NSMutableArray<NSNumber *> *cube_rebuild_window_cycle_order(NSArray<NSWindow *> *windows) {
     NSMutableArray<NSNumber *> *order = [NSMutableArray arrayWithCapacity:windows.count];
     for (NSWindow *window in windows) {
         [order addObject:@(window.windowNumber)];
@@ -255,7 +255,7 @@ static NSMutableArray<NSNumber *> *con_rebuild_window_cycle_order(NSArray<NSWind
     return order;
 }
 
-static NSMutableArray<NSNumber *> *con_current_window_cycle_order(
+static NSMutableArray<NSNumber *> *cube_current_window_cycle_order(
     NSArray<NSWindow *> *windows,
     NSWindow *current,
     NSTimeInterval timestamp
@@ -265,12 +265,12 @@ static NSMutableArray<NSNumber *> *con_current_window_cycle_order(
     if (g_con_window_cycle_order == nil ||
         expired ||
         ![g_con_window_cycle_order containsObject:current_number]) {
-        return con_rebuild_window_cycle_order(windows);
+        return cube_rebuild_window_cycle_order(windows);
     }
 
     NSMutableArray<NSNumber *> *order = [NSMutableArray arrayWithCapacity:windows.count];
     for (NSNumber *window_number in g_con_window_cycle_order) {
-        if (con_find_cycleable_window(windows, window_number.integerValue) != nil) {
+        if (cube_find_cycleable_window(windows, window_number.integerValue) != nil) {
             [order addObject:window_number];
         }
     }
@@ -283,19 +283,19 @@ static NSMutableArray<NSNumber *> *con_current_window_cycle_order(
     return order;
 }
 
-static void con_cycle_app_window_at_time(BOOL reverse, NSTimeInterval timestamp) {
-    NSArray<NSWindow *> *windows = con_cycleable_windows();
+static void cube_cycle_app_window_at_time(BOOL reverse, NSTimeInterval timestamp) {
+    NSArray<NSWindow *> *windows = cube_cycleable_windows();
     NSUInteger count = windows.count;
     if (count < 2) {
         return;
     }
 
     NSWindow *current = NSApp.keyWindow ?: NSApp.mainWindow ?: windows.firstObject;
-    NSMutableArray<NSNumber *> *order = con_current_window_cycle_order(windows, current, timestamp);
+    NSMutableArray<NSNumber *> *order = cube_current_window_cycle_order(windows, current, timestamp);
     NSNumber *current_number = @(current.windowNumber);
     NSUInteger current_index = [order indexOfObject:current_number];
     if (current_index == NSNotFound) {
-        order = con_rebuild_window_cycle_order(windows);
+        order = cube_rebuild_window_cycle_order(windows);
         current_index = [order indexOfObject:current_number];
         if (current_index == NSNotFound) {
             current_index = 0;
@@ -307,7 +307,7 @@ static void con_cycle_app_window_at_time(BOOL reverse, NSTimeInterval timestamp)
         ? (current_index == 0 ? count - 1 : current_index - 1)
         : (current_index + 1) % count;
 
-    NSWindow *target = con_find_cycleable_window(windows, order[target_index].integerValue);
+    NSWindow *target = cube_find_cycleable_window(windows, order[target_index].integerValue);
     if (target == nil) {
         return;
     }
@@ -319,11 +319,11 @@ static void con_cycle_app_window_at_time(BOOL reverse, NSTimeInterval timestamp)
     [target makeKeyAndOrderFront:nil];
 }
 
-void con_cycle_app_window(bool reverse) {
-    con_cycle_app_window_at_time(reverse, [NSDate timeIntervalSinceReferenceDate]);
+void cube_cycle_app_window(bool reverse) {
+    cube_cycle_app_window_at_time(reverse, [NSDate timeIntervalSinceReferenceDate]);
 }
 
-void con_install_window_cycle_shortcuts(void) {
+void cube_install_window_cycle_shortcuts(void) {
     if (g_con_window_cycle_monitor != nil) {
         return;
     }
@@ -331,8 +331,8 @@ void con_install_window_cycle_shortcuts(void) {
     g_con_window_cycle_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
                                                                        handler:^NSEvent *(NSEvent *event) {
         BOOL reverse = NO;
-        if (con_should_cycle_window(event, &reverse)) {
-            con_cycle_app_window_at_time(reverse, [NSDate timeIntervalSinceReferenceDate]);
+        if (cube_should_cycle_window(event, &reverse)) {
+            cube_cycle_app_window_at_time(reverse, [NSDate timeIntervalSinceReferenceDate]);
             return nil;
         }
         return event;

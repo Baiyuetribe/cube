@@ -4,7 +4,7 @@
 //! Offsets are in scrollbar rows: `0` is the oldest scrollback row and
 //! `total - len` is the live tail.
 
-use con_ghostty::GhosttyScrollbar;
+use cube_ghostty::GhosttyScrollbar;
 
 pub(crate) const SCROLLBAR_INSET_PX: f32 = 4.0;
 pub(crate) const SCROLLBAR_WIDTH_PX: f32 = 6.0;

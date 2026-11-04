@@ -1,5 +1,5 @@
 use super::*;
-use con_terminal::{PaneQuery, PaneResponse};
+use cube_terminal::{PaneQuery, PaneResponse};
 
 const AGENT_CLI_DETECT_LOOKBACK_LINES: usize = 80;
 const PROMPT_STABLE_POLLS: u32 = 2;
@@ -105,7 +105,7 @@ impl VisibleExecTracker {
     }
 }
 
-impl ConWorkspace {
+impl CubeWorkspace {
     /// Handle a visible terminal execution request from the agent.
     ///
     /// Writes the command to the focused PTY so the user sees it execute.
@@ -139,14 +139,14 @@ impl ConWorkspace {
         }
 
         let (observation, runtime) = self.observe_terminal_runtime_for_tab(tab_idx, &pane, 20, cx);
-        let control = con_terminal::PaneControlState::from_runtime(&runtime);
+        let control = cube_terminal::PaneControlState::from_runtime(&runtime);
         let managed_remote_workspace =
-            con_terminal::remote_workspace_anchor(&runtime, &observation);
+            cube_terminal::remote_workspace_anchor(&runtime, &observation);
         if !control.allows_visible_shell_exec() && managed_remote_workspace.is_none() {
             let active_scope = runtime
                 .active_scope
                 .as_ref()
-                .map(con_terminal::PaneRuntimeScope::summary)
+                .map(cube_terminal::PaneRuntimeScope::summary)
                 .unwrap_or_else(|| runtime.mode.as_str().to_string());
             let host = runtime.remote_host.unwrap_or_else(|| "unknown".to_string());
             let notes = if control.notes.is_empty() {
@@ -155,10 +155,10 @@ impl ConWorkspace {
                 format!("\nnotes:\n- {}", control.notes.join("\n- "))
             };
             let suggestion = match control.visible_target.kind {
-                con_terminal::PaneVisibleTargetKind::TmuxSession => {
+                cube_terminal::PaneVisibleTargetKind::TmuxSession => {
                     if control
                         .capabilities
-                        .contains(&con_terminal::PaneControlCapability::QueryTmux)
+                        .contains(&cube_terminal::PaneControlCapability::QueryTmux)
                     {
                         format!(
                             "\n\nSUGGESTED APPROACH: This pane exposes native tmux control. Prefer tmux-native tools over outer-pane send_keys.\n\
@@ -180,7 +180,7 @@ impl ConWorkspace {
                         )
                     }
                 }
-                con_terminal::PaneVisibleTargetKind::InteractiveApp => {
+                cube_terminal::PaneVisibleTargetKind::InteractiveApp => {
                     format!(
                         "\n\nSUGGESTED APPROACH: Use read_pane(pane_index={idx}) to inspect the current screen, then \
                          send_keys(pane_index={idx}, ...) for keystroke-level interaction. \
@@ -250,7 +250,7 @@ impl ConWorkspace {
         self.record_runtime_event_for_terminal(
             tab_idx,
             &pane,
-            con_terminal::PaneRuntimeEvent::VisibleShellExec {
+            cube_terminal::PaneRuntimeEvent::VisibleShellExec {
                 command: req.command.clone(),
                 input_generation: pane.input_generation(cx),
             },
@@ -302,7 +302,7 @@ impl ConWorkspace {
                             observed_prompt_like = observation.screen_hints.iter().any(|hint| {
                                 matches!(
                                     hint.kind,
-                                    con_terminal::PaneObservationHintKind::PromptLikeInput
+                                    cube_terminal::PaneObservationHintKind::PromptLikeInput
                                 )
                             });
                             observed_generation = Some(prompt_state.output_generation);
@@ -396,7 +396,7 @@ impl ConWorkspace {
     pub(super) fn handle_pane_request_for_tab(
         &mut self,
         tab_idx: usize,
-        req: con_terminal::PaneRequest,
+        req: cube_terminal::PaneRequest,
         cx: &mut Context<Self>,
     ) {
         let pane_tree = &self.tabs[tab_idx].pane_tree;
@@ -406,7 +406,7 @@ impl ConWorkspace {
         let response = match req.query {
             PaneQuery::List => {
                 self.reconcile_runtime_trackers_for_tab(tab_idx);
-                let panes: Vec<con_terminal::PaneInfo> = all_terminals
+                let panes: Vec<cube_terminal::PaneInfo> = all_terminals
                     .iter()
                     .enumerate()
                     .map(|(idx, terminal)| {
@@ -417,15 +417,15 @@ impl ConWorkspace {
                             Self::SECONDARY_PANE_OBSERVATION_LINES,
                             cx,
                         );
-                        let control = con_terminal::PaneControlState::from_runtime(&runtime);
+                        let control = cube_terminal::PaneControlState::from_runtime(&runtime);
                         let remote_workspace =
-                            con_terminal::remote_workspace_anchor(&runtime, &observation);
+                            cube_terminal::remote_workspace_anchor(&runtime, &observation);
                         let title = observation
                             .title
                             .clone()
                             .unwrap_or_else(|| format!("Pane {}", idx + 1));
                         let (cols, rows) = terminal.grid_size(cx);
-                        con_terminal::PaneInfo {
+                        cube_terminal::PaneInfo {
                             index: idx + 1,
                             pane_id: pid,
                             title,
@@ -489,7 +489,7 @@ impl ConWorkspace {
                         self.record_runtime_event_for_terminal(
                             tab_idx,
                             &resolved.pane,
-                            con_terminal::PaneRuntimeEvent::RawInput {
+                            cube_terminal::PaneRuntimeEvent::RawInput {
                                 keys: keys.clone(),
                                 input_generation: resolved.pane.input_generation(cx),
                             },
@@ -540,7 +540,7 @@ impl ConWorkspace {
                     Ok(resolved) => {
                         let (_, runtime) =
                             self.observe_terminal_runtime_for_tab(tab_idx, &resolved.pane, 20, cx);
-                        let control = con_terminal::PaneControlState::from_runtime(&runtime);
+                        let control = cube_terminal::PaneControlState::from_runtime(&runtime);
                         if let Some(tmux) = control.tmux {
                             PaneResponse::TmuxInfo(tmux)
                         } else {
@@ -558,11 +558,11 @@ impl ConWorkspace {
                     Ok(resolved) => {
                         let (_, runtime) =
                             self.observe_terminal_runtime_for_tab(tab_idx, &resolved.pane, 20, cx);
-                        let control = con_terminal::PaneControlState::from_runtime(&runtime);
+                        let control = cube_terminal::PaneControlState::from_runtime(&runtime);
                         let tmux_mode = control.tmux.as_ref().map(|tmux| tmux.mode);
                         if !control
                             .capabilities
-                            .contains(&con_terminal::PaneControlCapability::QueryTmux)
+                            .contains(&cube_terminal::PaneControlCapability::QueryTmux)
                         {
                             PaneResponse::Error(format!(
                                 "Pane {} (id {}) does not currently expose tmux native query capability.\nvisible_target: {}\ntmux_mode: {}\ncontrol_attachments: {}\ncontrol_capabilities: {}",
@@ -570,7 +570,7 @@ impl ConWorkspace {
                                 resolved.pane_id,
                                 control.visible_target.summary(),
                                 tmux_mode.map(|mode| mode.as_str()).unwrap_or("none"),
-                                con_terminal::format_control_attachments(&control.attachments),
+                                cube_terminal::format_control_attachments(&control.attachments),
                                 control
                                     .capabilities
                                     .iter()
@@ -593,7 +593,7 @@ impl ConWorkspace {
                                     .map(|duration| duration.as_nanos())
                                     .unwrap_or_default()
                             );
-                            let command = con_terminal::build_tmux_list_command(&nonce);
+                            let command = cube_terminal::build_tmux_list_command(&nonce);
                             self.spawn_shell_anchor_command(
                                 tab_idx,
                                 resolved.pane,
@@ -601,8 +601,8 @@ impl ConWorkspace {
                                 command,
                                 10,
                                 move |lines| {
-                                    con_terminal::parse_tmux_list_lines(&lines, &nonce)
-                                        .map(con_terminal::PaneResponse::TmuxList)
+                                    cube_terminal::parse_tmux_list_lines(&lines, &nonce)
+                                        .map(cube_terminal::PaneResponse::TmuxList)
                                 },
                                 response_tx,
                                 cx,
@@ -621,10 +621,10 @@ impl ConWorkspace {
                 Ok(resolved) => {
                     let (_, runtime) =
                         self.observe_terminal_runtime_for_tab(tab_idx, &resolved.pane, 20, cx);
-                    let control = con_terminal::PaneControlState::from_runtime(&runtime);
+                    let control = cube_terminal::PaneControlState::from_runtime(&runtime);
                     if !control
                         .capabilities
-                        .contains(&con_terminal::PaneControlCapability::QueryTmux)
+                        .contains(&cube_terminal::PaneControlCapability::QueryTmux)
                     {
                         PaneResponse::Error(format!(
                             "Pane {} (id {}) does not currently expose tmux native query capability for capture.\nvisible_target: {}\ncontrol_capabilities: {}",
@@ -653,7 +653,7 @@ impl ConWorkspace {
                                 .map(|duration| duration.as_nanos())
                                 .unwrap_or_default()
                         );
-                        let command = con_terminal::build_tmux_capture_command(
+                        let command = cube_terminal::build_tmux_capture_command(
                             &nonce,
                             target.as_deref(),
                             lines,
@@ -665,12 +665,12 @@ impl ConWorkspace {
                             command,
                             10,
                             move |lines| {
-                                con_terminal::parse_tmux_capture_lines(
+                                cube_terminal::parse_tmux_capture_lines(
                                     &lines,
                                     &nonce,
                                     target.as_deref(),
                                 )
-                                .map(con_terminal::PaneResponse::TmuxCapture)
+                                .map(cube_terminal::PaneResponse::TmuxCapture)
                             },
                             response_tx,
                             cx,
@@ -690,10 +690,10 @@ impl ConWorkspace {
                 Ok(resolved) => {
                     let (_, runtime) =
                         self.observe_terminal_runtime_for_tab(tab_idx, &resolved.pane, 20, cx);
-                    let control = con_terminal::PaneControlState::from_runtime(&runtime);
+                    let control = cube_terminal::PaneControlState::from_runtime(&runtime);
                     if !control
                         .capabilities
-                        .contains(&con_terminal::PaneControlCapability::SendTmuxKeys)
+                        .contains(&cube_terminal::PaneControlCapability::SendTmuxKeys)
                     {
                         PaneResponse::Error(format!(
                             "Pane {} (id {}) does not currently expose tmux native send-keys capability.\nvisible_target: {}\ncontrol_capabilities: {}",
@@ -713,7 +713,7 @@ impl ConWorkspace {
                             resolved.pane_index, resolved.pane_id
                         ))
                     } else {
-                        match con_terminal::build_tmux_send_keys_command(
+                        match cube_terminal::build_tmux_send_keys_command(
                             &target,
                             literal_text.as_deref(),
                             &key_names,
@@ -728,7 +728,7 @@ impl ConWorkspace {
                                     command,
                                     10,
                                     move |_lines| {
-                                        Ok(con_terminal::PaneResponse::Content(format!(
+                                        Ok(cube_terminal::PaneResponse::Content(format!(
                                             "tmux send-keys delivered to target {}",
                                             target
                                         )))
@@ -756,10 +756,10 @@ impl ConWorkspace {
                 Ok(resolved) => {
                     let (_, runtime) =
                         self.observe_terminal_runtime_for_tab(tab_idx, &resolved.pane, 20, cx);
-                    let control = con_terminal::PaneControlState::from_runtime(&runtime);
+                    let control = cube_terminal::PaneControlState::from_runtime(&runtime);
                     if !control
                         .capabilities
-                        .contains(&con_terminal::PaneControlCapability::ExecTmuxCommand)
+                        .contains(&cube_terminal::PaneControlCapability::ExecTmuxCommand)
                     {
                         PaneResponse::Error(format!(
                             "Pane {} (id {}) does not currently expose tmux native run-command capability.\nvisible_target: {}\ncontrol_capabilities: {}",
@@ -788,7 +788,7 @@ impl ConWorkspace {
                                 .map(|duration| duration.as_nanos())
                                 .unwrap_or_default()
                         );
-                        let shell_command = con_terminal::build_tmux_exec_command(
+                        let shell_command = cube_terminal::build_tmux_exec_command(
                             &nonce,
                             location,
                             target.as_deref(),
@@ -804,10 +804,10 @@ impl ConWorkspace {
                             shell_command,
                             12,
                             move |lines| {
-                                con_terminal::parse_tmux_exec_lines(
+                                cube_terminal::parse_tmux_exec_lines(
                                     &lines, &nonce, location, detached,
                                 )
-                                .map(con_terminal::PaneResponse::TmuxExec)
+                                .map(cube_terminal::PaneResponse::TmuxExec)
                             },
                             response_tx,
                             cx,
@@ -825,7 +825,7 @@ impl ConWorkspace {
                         let pane = resolved.pane;
                         let (_, runtime) =
                             self.observe_terminal_runtime_for_tab(tab_idx, &pane, 20, cx);
-                        let control = con_terminal::PaneControlState::from_runtime(&runtime);
+                        let control = cube_terminal::PaneControlState::from_runtime(&runtime);
                         if !control.allows_shell_probe() {
                             PaneResponse::Error(format!(
                                 "Pane {} (id {}) does not currently expose the probe_shell_context capability. \
@@ -834,7 +834,7 @@ impl ConWorkspace {
                                 pane_index,
                                 pane_id,
                                 control.visible_target.summary(),
-                                con_terminal::format_control_attachments(&control.attachments),
+                                cube_terminal::format_control_attachments(&control.attachments),
                                 control
                                     .capabilities
                                     .iter()
@@ -857,7 +857,7 @@ impl ConWorkspace {
                                     .map(|duration| duration.as_nanos())
                                     .unwrap_or_default()
                             );
-                            let command = con_terminal::build_shell_probe_command(&nonce);
+                            let command = cube_terminal::build_shell_probe_command(&nonce);
                             let _ = pane.take_command_finished(cx);
                             pane.write(format!("{command}\n").as_bytes(), cx);
 
@@ -891,12 +891,12 @@ impl ConWorkspace {
                                     .update(cx, |_, cx| pane.recent_lines(200, cx))
                                     .unwrap_or_default();
                                 // `!is_busy` can hold before the shell has run the probe.
-                                if !con_terminal::shell_probe_output_complete(
+                                if !cube_terminal::shell_probe_output_complete(
                                     &lines, &nonce,
                                 ) {
                                     continue;
                                 }
-                                match con_terminal::parse_shell_probe_lines(&lines, &nonce)
+                                match cube_terminal::parse_shell_probe_lines(&lines, &nonce)
                                 {
                                     Ok(result) => {
                                         let recorded_result = result.clone();
@@ -904,7 +904,7 @@ impl ConWorkspace {
                                             workspace.record_runtime_event_for_terminal(
                                                 tab_idx,
                                                 &pane,
-                                                con_terminal::PaneRuntimeEvent::ShellProbe {
+                                                cube_terminal::PaneRuntimeEvent::ShellProbe {
                                                     result: Box::new(recorded_result),
                                                     captured_input_generation: pane.input_generation(cx),
                                                 },
@@ -961,7 +961,7 @@ impl ConWorkspace {
                     Ok(resolved) => {
                         let pane_index = resolved.pane_index;
                         let pane_id = resolved.pane_id;
-                        let pane_target = con_terminal::PaneSelector::new(None, Some(pane_id));
+                        let pane_target = cube_terminal::PaneSelector::new(None, Some(pane_id));
                         let pane = resolved.pane;
                         let has_si = pane.has_shell_integration(cx);
                         let timeout = timeout_secs.unwrap_or(30).min(120);
@@ -973,7 +973,7 @@ impl ConWorkspace {
                         // appears hung. Short-circuit with guidance toward agent_cli_turn.
                         let observation =
                             pane.observation_frame(AGENT_CLI_DETECT_LOOKBACK_LINES, cx);
-                        if let Some(agent) = con_terminal::classify_screen_agent_cli(
+                        if let Some(agent) = cube_terminal::classify_screen_agent_cli(
                             observation.title.as_deref(),
                             &observation.recent_output,
                         ) {

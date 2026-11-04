@@ -1,4 +1,4 @@
-//! Con's compatibility implementation of Ghostty's `+ssh` helper.
+//! Cube's compatibility implementation of Ghostty's `+ssh` helper.
 //!
 //! The shell integration is intentionally a thin wrapper around this command.
 //! SSH arguments are kept as OsStrings and are passed to the real ssh process
@@ -15,7 +15,7 @@ use crate::ssh_cache::Cache;
 
 const TERMINFO_NAME: &str = "xterm-ghostty";
 const FALLBACK_TERM: &str = "xterm-256color";
-const CON_TERM: &str = "xterm-ghostty";
+const CUBE_TERM: &str = "xterm-ghostty";
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Options {
@@ -94,11 +94,11 @@ fn parse_bool(name: &str, value: &str) -> Result<bool, String> {
 }
 
 fn usage() -> String {
-    "Usage: con-cli +ssh [flags] [--] <ssh args...>\n\n\
+    "Usage: cube-cli +ssh [flags] [--] <ssh args...>\n\n\
 Flags:\n\
   --forward-env[=bool]  Forward terminal environment (default: true)\n\
   --terminfo[=bool]     Install xterm-ghostty terminfo (default: true)\n\
-  --cache[=bool]        Use the Con terminfo cache (default: true)\n\
+  --cache[=bool]        Use the Cube terminfo cache (default: true)\n\
   --ssh=<path>          SSH executable (default: ssh)\n\
   --verbose             Print setup diagnostics\n\
   --help                Show this help\n"
@@ -113,7 +113,7 @@ pub fn run(args: &[OsString]) -> i32 {
             return 0;
         }
         Err(error) => {
-            eprintln!("con-cli +ssh: {error}");
+            eprintln!("cube-cli +ssh: {error}");
             return 2;
         }
     };
@@ -131,13 +131,13 @@ fn run_with_options(options: &Options) -> i32 {
             let cached =
                 options.cache && Cache::user().contains(destination, None).unwrap_or(false);
             if cached {
-                term = CON_TERM;
+                term = CUBE_TERM;
                 verbose(options, &format!("terminfo cache hit for {destination}"));
             } else if let Some(payload) = local_terminfo() {
                 let connection_args = ssh_connection_args(&options.ssh_args);
                 match install_terminfo(options, &connection_args, &payload) {
                     Ok(path) => {
-                        term = CON_TERM;
+                        term = CUBE_TERM;
                         control_path = Some(path);
                         if options.cache {
                             cache_entry = Some(destination.to_string());
@@ -176,7 +176,7 @@ fn run_with_options(options: &Options) -> i32 {
     let status = match command.status() {
         Ok(status) => status,
         Err(error) => {
-            eprintln!("con-cli +ssh: failed to run {:?}: {error}", options.ssh);
+            eprintln!("cube-cli +ssh: failed to run {:?}: {error}", options.ssh);
             return 1;
         }
     };

@@ -1,7 +1,7 @@
 use super::*;
 #[cfg(target_os = "macos")]
-use con_core::config::transfer::prepare_import;
-use con_core::config::transfer::{PreparedImport, ghostty_config_candidates};
+use cube_core::config::transfer::prepare_import;
+use cube_core::config::transfer::{PreparedImport, ghostty_config_candidates};
 use std::path::PathBuf;
 
 pub(super) enum ConfigurationImport {
@@ -94,7 +94,7 @@ impl SettingsPanel {
                     #[cfg(target_os = "macos")]
                     {
                         let prepared = prepare_import(&selected, &current, &Config::config_path())?;
-                        crate::workspace::ConWorkspace::validate_native_config_candidate(
+                        crate::workspace::CubeWorkspace::validate_native_config_candidate(
                             prepared.config(),
                         )
                         .map_err(anyhow::Error::msg)?;
@@ -258,7 +258,7 @@ impl SettingsPanel {
                                     .small()
                                     .label("打开文件夹")
                                     .on_click(|_, _, cx| {
-                                        cx.reveal_path(&con_paths::app_config_dir());
+                                        cx.reveal_path(&cube_paths::app_config_dir());
                                     }),
                             ),
                     ),
@@ -279,7 +279,7 @@ impl SettingsPanel {
                             .child("从 Ghostty 导入"),
                     )
                     .child(div().text_sm().text_color(muted).child(
-                        "替换终端设置，保留 Con 的应用快捷键和其他专属设置。Ghostty 文件不会改动。",
+                        "替换终端设置，保留 Cube 的应用快捷键和其他专属设置。Ghostty 文件不会改动。",
                     )),
             );
 
@@ -287,7 +287,7 @@ impl SettingsPanel {
             content = content.child(
                 div()
                     .text_color(warning)
-                    .child("已导入。重启 Con 后生效。现有终端会话不受影响。"),
+                    .child("已导入。重启 Cube 后生效。现有终端会话不受影响。"),
             );
             if let Some(backup) = backup {
                 content = content
@@ -310,15 +310,15 @@ impl SettingsPanel {
                     Button::new("configuration-restart")
                         .primary()
                         .small()
-                        .label("重启 Con…")
+                        .label("重启 Cube…")
                         .on_click(|_, window, cx| {
                             let answer = window.prompt(
                                 PromptLevel::Warning,
-                                "重启 Con？",
+                                "重启 Cube？",
                                 Some(
                                     "正在运行的终端命令将中断。重启前请保存编辑器中未保存的文件。",
                                 ),
-                                &["取消", "重启 Con"],
+                                &["取消", "重启 Cube"],
                                 cx,
                             );
                             cx.spawn(async move |cx| {
@@ -438,7 +438,7 @@ impl SettingsPanel {
                     .any(|entry| entry.key == "config-file");
                 content = content.child(div().font_weight(FontWeight::MEDIUM).child("可以导入"))
                     .child(div().text_sm().text_color(muted).child(source.display().to_string()))
-                    .child(div().text_sm().child("Con 会备份当前文件并替换其终端设置，重启后生效。该文件配置的 shell 命令可能在新终端会话中执行。"));
+                    .child(div().text_sm().child("Cube 会备份当前文件并替换其终端设置，重启后生效。该文件配置的 shell 命令可能在新终端会话中执行。"));
                 if includes {
                     content = content.child(div().text_sm().text_color(warning).child("此配置包含其他文件。原生终端设置需在复制后的文件中修改，设置界面无法覆盖。"));
                 }

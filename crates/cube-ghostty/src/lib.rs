@@ -5,7 +5,7 @@
 //! | target | backend | source |
 //! |---|---|---|
 //! | macOS | full libghostty (Metal + AppKit NSView) | `terminal.rs` + `ffi.rs` |
-//! | Windows | libghostty-vt + ConPTY + D3D11 + DirectWrite, hosted via GPUI image composition | `windows/` |
+//! | Windows | libghostty-vt + CubePTY + D3D11 + DirectWrite, hosted via GPUI image composition | `windows/` |
 //! | Linux | local backend scaffold (Unix PTY + future GPUI-owned renderer) | `linux/` |
 //! | other | no-op stub (UI compiles, terminal pane shows placeholder) | `stub.rs` |
 //!

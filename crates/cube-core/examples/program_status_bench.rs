@@ -1,7 +1,7 @@
 //! Reproducible reducer microbenchmark, not a window/rendering benchmark.
 use std::{hint::black_box, time::Instant};
 
-use con_core::{
+use cube_core::{
     program_status::{Incoming, State},
     terminal_status::{Activity, Progress, SurfaceStatus},
 };

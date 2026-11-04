@@ -1,6 +1,6 @@
 use super::*;
 
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) fn on_window_activation_changed(
         &mut self,
         window: &mut Window,
@@ -299,7 +299,7 @@ impl ConWorkspace {
     pub(super) fn open_tab_with_label(
         &mut self,
         user_label: Option<String>,
-        server: Option<con_core::connections::SshConnection>,
+        server: Option<cube_core::connections::SshConnection>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> TerminalPane {

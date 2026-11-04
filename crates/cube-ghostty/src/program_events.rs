@@ -4,7 +4,7 @@
 //! Backends reduce events in arrival order and hand off one bounded snapshot.
 //! Lifecycle barriers cannot be evicted by a burst of progress reports.
 
-use con_terminal::program_status::{BlockedKind, Incoming, State, SurfaceProgramStatus};
+use cube_terminal::program_status::{BlockedKind, Incoming, State, SurfaceProgramStatus};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProgramStatusEvent {

@@ -1,4 +1,4 @@
-# con — justfile
+# cube — justfile
 # https://github.com/casey/just
 #
 # 用法：
@@ -32,7 +32,7 @@ default:
 
 # ============== 开发阶段 ==============
 
-exe_name := "con"
+exe_name := "cube"
 
 # Rust 后端类型检查
 dev:
@@ -44,35 +44,35 @@ pre:
 
 # ── 通用开发命令 ──────────────────────────────────────────────────────────────
 # 这些命令分发到对应平台的配方。Windows 必须使用 `w*` cargo 别名，
-# 因为 `CON` 是 DOS 保留设备名，且 Windows 二进制通过特性门控命名为 `con-app.exe`。
+# `CUBE` 不是 DOS 保留名，所有平台用同一套 cargo 命令。
 # Debug 构建 —— 当前平台。
-# con-cli 必须与 Con 二进制位于同一目录：handoff 启动辅助程序及其
+# cube-cli 必须与 Con 二进制位于同一目录：handoff 启动辅助程序及其
 
-# 分发前协议门禁会在 `current_exe()` 旁边查找 `con-cli`。
+# 分发前协议门禁会在 `current_exe()` 旁边查找 `cube-cli`。
 build:
-    {{ if os() == "windows" { "cargo wbuild -p con && cargo build -p con-cli" } else { "cargo build -p con -p con-cli" } }}
+    cargo build -p cube -p cube-cli
 
 # Release 构建 —— 当前平台
 build-release:
-    {{ if os() == "windows" { "cargo wbuild -p con --release && cargo build -p con-cli --release" } else { "cargo build --release -p con -p con-cli" } }}
+    cargo build --release -p cube -p cube-cli
 
-# 构建完成后，替换，然后 chmod +x "/Applications/con Beta.app/Contents/MacOS/con-cli"
+# 构建完成后，替换，然后 chmod +x "/Applications/cube Beta.app/Contents/MacOS/cube-cli"
 
-# 从源码运行 —— 当前平台（先构建 con-cli，确保 handoff 能找到它）
+# 从源码运行 —— 当前平台（先构建 cube-cli，确保 handoff 能找到它）
 run:
-    {{ if os() == "windows" { "cargo build -p con-cli && cargo wrun -p con" } else { "cargo build -p con-cli && cargo run -p con" } }}
+    cargo build -p cube-cli && cargo run -p cube
 
 # 运行当前平台对应的测试集
 test:
-    {{ if os() == "windows" { "cargo wtest -p con-core -p con-cli -p con-agent -p con-terminal" } else { "cargo test --workspace" } }}
+    cargo test --workspace
 
 # 只做检查不构建 —— 当前平台
 check:
-    {{ if os() == "windows" { "cargo wcheck -p con" } else { "cargo check --workspace" } }}
+    cargo check --workspace
 
 # 运行 clippy —— 当前平台
 lint:
-    {{ if os() == "windows" { "cargo clippy --workspace --no-default-features --features con/bin-con-app -- -D warnings" } else { "cargo clippy --workspace -- -D warnings" } }}
+    cargo clippy --workspace -- -D warnings
 
 # 清理 cargo 构建产物
 clean:
@@ -84,7 +84,7 @@ install:
 
 # 打印当前包 id，含工作区版本
 version:
-    @cargo pkgid -p con
+    @cargo pkgid -p cube
 
 unsupported-platform:
     @echo "此 justfile 不支持的平台"
@@ -93,7 +93,7 @@ unsupported-platform:
 # ── macOS ─────────────────────────────────────────────────────────────────────
 # [macOS] 构建本地 .app 包 —— 不签名、不公证
 
-# 输出：dist/macos/{channel}/{arch}/con.app
+# 输出：dist/macos/{channel}/{arch}/cube.app
 macos-bundle channel=channel arch=arch:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -111,9 +111,9 @@ macos-install channel=channel arch=arch: (macos-bundle channel arch)
     if [[ -z "${resolved_arch}" ]]; then
         resolved_arch="$(uname -m | sed 's/aarch64/arm64/')"
     fi
-    app_name="con"
-    if [[ "{{ channel }}" == "beta" ]]; then app_name="con Beta"; fi
-    if [[ "{{ channel }}" == "dev" ]];  then app_name="con Dev";  fi
+    app_name="cube"
+    if [[ "{{ channel }}" == "beta" ]]; then app_name="cube Beta"; fi
+    if [[ "{{ channel }}" == "dev" ]];  then app_name="cube Dev";  fi
     src="dist/macos/{{ channel }}/${resolved_arch}/${app_name}.app"
     dst="/Applications/${app_name}.app"
     echo "正在安装 ${src} → ${dst}"
@@ -129,9 +129,9 @@ macos-bundle-adhoc channel=channel arch=arch: (macos-bundle channel arch)
     if [[ -z "${resolved_arch}" ]]; then
         resolved_arch="$(uname -m | sed 's/aarch64/arm64/')"
     fi
-    app_name="con"
-    if [[ "{{ channel }}" == "beta" ]]; then app_name="con Beta"; fi
-    if [[ "{{ channel }}" == "dev" ]];  then app_name="con Dev";  fi
+    app_name="cube"
+    if [[ "{{ channel }}" == "beta" ]]; then app_name="cube Beta"; fi
+    if [[ "{{ channel }}" == "dev" ]];  then app_name="cube Dev";  fi
     bundle="dist/macos/{{ channel }}/${resolved_arch}/${app_name}.app"
     echo "正在对 ${bundle} 做 Ad-hoc 签名"
     codesign --force --deep --sign - "${bundle}"
@@ -145,9 +145,9 @@ macos-install-adhoc channel=channel arch=arch: (macos-bundle-adhoc channel arch)
     if [[ -z "${resolved_arch}" ]]; then
         resolved_arch="$(uname -m | sed 's/aarch64/arm64/')"
     fi
-    app_name="con"
-    if [[ "{{ channel }}" == "beta" ]]; then app_name="con Beta"; fi
-    if [[ "{{ channel }}" == "dev" ]];  then app_name="con Dev";  fi
+    app_name="cube"
+    if [[ "{{ channel }}" == "beta" ]]; then app_name="cube Beta"; fi
+    if [[ "{{ channel }}" == "dev" ]];  then app_name="cube Dev";  fi
     src="dist/macos/{{ channel }}/${resolved_arch}/${app_name}.app"
     dst="/Applications/${app_name}.app"
     echo "正在安装 ${src} → ${dst}"
@@ -178,15 +178,15 @@ macos-open channel=channel arch=arch:
     if [[ -z "${resolved_arch}" ]]; then
         resolved_arch="$(uname -m | sed 's/aarch64/arm64/')"
     fi
-    app_name="con"
-    if [[ "{{ channel }}" == "beta" ]]; then app_name="con Beta"; fi
-    if [[ "{{ channel }}" == "dev" ]];  then app_name="con Dev";  fi
+    app_name="cube"
+    if [[ "{{ channel }}" == "beta" ]]; then app_name="cube Beta"; fi
+    if [[ "{{ channel }}" == "dev" ]];  then app_name="cube Dev";  fi
     open "dist/macos/{{ channel }}/${resolved_arch}/${app_name}.app"
 
 # ── Linux ─────────────────────────────────────────────────────────────────────
 # [Linux] 构建 release 二进制并打包
 
-# 输出：dist/con-{version}-linux-{arch}.tar.gz
+# 输出：dist/cube-{version}-linux-{arch}.tar.gz
 linux-release channel=channel arch=arch:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -204,26 +204,26 @@ linux-install channel=channel arch=arch: (linux-release channel arch)
     if [[ -z "${resolved_arch}" ]]; then
         resolved_arch="$(uname -m | sed 's/aarch64/arm64/')"
     fi
-    # scripts/linux/release.sh 会暂存到 dist/con-{version}-linux-{arch}/
+    # scripts/linux/release.sh 会暂存到 dist/cube-{version}-linux-{arch}/
     # 使用 || true，避免 glob 无匹配时被 set -e 退出。
-    stage_dir="$(ls -d dist/con-*-linux-${resolved_arch} 2>/dev/null | sort -V | tail -1 || true)"
-    if [[ -z "${stage_dir}" || ! -f "${stage_dir}/con" ]]; then
-        echo "在 dist/con-*-linux-${resolved_arch}/ 下未找到二进制 —— 请先运行 'just linux-release'"
+    stage_dir="$(ls -d dist/cube-*-linux-${resolved_arch} 2>/dev/null | sort -V | tail -1 || true)"
+    if [[ -z "${stage_dir}" || ! -f "${stage_dir}/cube" ]]; then
+        echo "在 dist/cube-*-linux-${resolved_arch}/ 下未找到二进制 —— 请先运行 'just linux-release'"
         exit 1
     fi
     mkdir -p "$HOME/.local/bin"
-    cp "${stage_dir}/con" "$HOME/.local/bin/con"
-    chmod 755 "$HOME/.local/bin/con"
-    echo "已安装 ${stage_dir}/con → $HOME/.local/bin/con"
-    if [[ -f "${stage_dir}/con-cli" ]]; then
-        cp "${stage_dir}/con-cli" "$HOME/.local/bin/con-cli"
-        chmod 755 "$HOME/.local/bin/con-cli"
-        echo "已安装 ${stage_dir}/con-cli → $HOME/.local/bin/con-cli"
+    cp "${stage_dir}/cube" "$HOME/.local/bin/cube"
+    chmod 755 "$HOME/.local/bin/cube"
+    echo "已安装 ${stage_dir}/cube → $HOME/.local/bin/cube"
+    if [[ -f "${stage_dir}/cube-cli" ]]; then
+        cp "${stage_dir}/cube-cli" "$HOME/.local/bin/cube-cli"
+        chmod 755 "$HOME/.local/bin/cube-cli"
+        echo "已安装 ${stage_dir}/cube-cli → $HOME/.local/bin/cube-cli"
     fi
 
 # [Linux] 使用 AetherPak Zero-Manifest 模式构建 Flatpak 包
 
-# 输出：dist/co.nowledge.con.flatpak
+# 输出：dist/co.nowledge.cube.flatpak
 flatpak-build channel=channel arch=arch:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -253,31 +253,31 @@ flatpak-build channel=channel arch=arch:
 
 # ── Windows（在 Developer Command Prompt for VS 2022 中运行）─────────────────
 
-# [Windows] Debug 构建（con-app.exe —— CON 是 DOS 保留设备名）
+# [Windows] Debug 构建
 windows-build:
-    cargo wbuild -p con
-    cargo build -p con-cli
+    cargo build -p cube
+    cargo build -p cube-cli
 
 # [Windows] Release 构建
 windows-build-release:
-    cargo wbuild -p con --release
-    cargo build -p con-cli --release
+    cargo build --release -p cube
+    cargo build -p cube-cli --release
 
 # [Windows] 运行
 windows-run:
-    cargo build -p con-cli
-    cargo wrun -p con
+    cargo build -p cube-cli
+    cargo run -p cube
 
 # [Windows] 测试
 windows-test:
-    cargo wtest -p con-core -p con-cli -p con-agent -p con-terminal
+    cargo test -p cube-core -p cube-cli -p cube-terminal
 
 # [Windows] 构建并安装本地 release 二进制到用户安装根目录
 windows-install: windows-build-release
-    if not exist "%LOCALAPPDATA%\Programs\con" mkdir "%LOCALAPPDATA%\Programs\con"
-    copy /Y "target\release\con-app.exe" "%LOCALAPPDATA%\Programs\con\con-app.exe"
-    copy /Y "target\release\con-cli.exe" "%LOCALAPPDATA%\Programs\con\con-cli.exe"
-    echo 已将 con-app.exe 和 con-cli.exe 安装到 %LOCALAPPDATA%\Programs\con
+    if not exist "%LOCALAPPDATA%\Programs\cube" mkdir "%LOCALAPPDATA%\Programs\cube"
+    copy /Y "target\release\cube.exe" "%LOCALAPPDATA%\Programs\cube\cube.exe"
+    copy /Y "target\release\cube-cli.exe" "%LOCALAPPDATA%\Programs\cube\cube-cli.exe"
+    echo 已将 cube.exe 和 cube-cli.exe 安装到 %LOCALAPPDATA%\Programs\cube
 
 # ── dist 清理 ─────────────────────────────────────────────────────────────────
 

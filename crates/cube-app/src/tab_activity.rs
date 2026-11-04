@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use con_core::terminal_status::{Activity, Status};
+use cube_core::terminal_status::{Activity, Status};
 use gpui::{
     Animation, AnimationExt, AnyElement, AppContext, Bounds, ContentMask, Context, Hsla,
     InteractiveElement, IntoElement, ParentElement, PathBuilder, Pixels, Render, Styled, Window,
@@ -438,7 +438,7 @@ impl Render for TabActivity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use con_core::terminal_status::Evidence;
+    use cube_core::terminal_status::Evidence;
 
     #[test]
     fn busy_bars_are_periodic_staggered_and_static_with_reduced_motion() {

@@ -62,7 +62,7 @@ fn editor_text_for_key_event(
     editor_text_for_key(key, key_char)
 }
 
-impl ConWorkspace {
+impl CubeWorkspace {
     fn with_focused_editor_view<R>(
         &mut self,
         window: &Window,

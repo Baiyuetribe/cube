@@ -1,18 +1,18 @@
 [package]
-name = "con-cli"
+name = "cube-cli"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
 
 [[bin]]
-name = "con-cli"
+name = "cube-cli"
 path = "src/main.rs"
 
 [dependencies]
-con-core.workspace = true
-con-terminal.workspace = true
-con-paths.workspace = true
-con-process.workspace = true
+cube-core.workspace = true
+cube-terminal.workspace = true
+cube-paths.workspace = true
+cube-process.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 clap = { version = "4.5", features = ["derive"] }

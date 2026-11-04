@@ -1,7 +1,7 @@
 //! Pane 协议类型：UI 与后台请求之间的传输契约。
 //!
 //! 这些类型原先定义在 `con-agent::tools` 中，但它们是终端本身的领域概念，
-//! 与 AI Agent 无关。`con-core` 的控制面接口（panes.*）和 `con-app` 的
+//! 与 AI Agent 无关。`cube-core` 的控制面接口（panes.*）和 `cube-app` 的
 //! workspace 都直接依赖它们。
 
 use crossbeam_channel::Sender;
@@ -99,7 +99,7 @@ pub struct PaneInfo {
     pub observation_support: PaneObservationSupport,
     /// The only address space valid for pane_index today.
     pub address_space: PaneAddressSpace,
-    /// The best-known visible target inside this con pane.
+    /// The best-known visible target inside this Cube pane.
     pub visible_target: PaneVisibleTarget,
     /// Nested runtime/control targets from outer shell toward the front-most visible app.
     pub target_stack: Vec<PaneVisibleTarget>,
@@ -107,7 +107,7 @@ pub struct PaneInfo {
     pub tmux_control: Option<TmuxControlState>,
     /// Explicit protocol attachments currently available on this pane.
     pub control_attachments: Vec<PaneProtocolAttachment>,
-    /// Control channels con can use on this pane.
+    /// Control channels Cube can use on this pane.
     pub control_channels: Vec<PaneControlChannel>,
     /// Capabilities currently available on this pane.
     pub control_capabilities: Vec<PaneControlCapability>,
@@ -127,7 +127,7 @@ pub struct PaneInfo {
     pub runtime_warnings: Vec<String>,
     /// Last typed shell-context snapshot captured for this pane.
     pub shell_context: Option<crate::pane_state::PaneShellContext>,
-    /// Recent con-originated actions for this pane.
+    /// Recent Cube-originated actions for this pane.
     pub recent_actions: Vec<crate::pane_state::PaneActionRecord>,
     /// Weak observation hints derived from the current visible screen snapshot.
     pub screen_hints: Vec<PaneObservationHint>,

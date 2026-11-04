@@ -1,4 +1,4 @@
-use con_core::config::{MAX_UI_FONT_SIZE, MIN_UI_FONT_SIZE};
+use cube_core::config::{MAX_UI_FONT_SIZE, MIN_UI_FONT_SIZE};
 use gpui::{Pixels, px};
 use gpui_component::Theme;
 

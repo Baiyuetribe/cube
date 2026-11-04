@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use con_ghostty::GhosttyTerminal;
+use cube_ghostty::GhosttyTerminal;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -287,7 +287,7 @@ impl Drop for TerminalFind {
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 mod portable {
     use super::*;
-    use con_ghostty::vt::SearchProgress;
+    use cube_ghostty::vt::SearchProgress;
     use futures::channel::mpsc::{Sender, UnboundedReceiver, UnboundedSender, channel, unbounded};
     use futures::{FutureExt, SinkExt, StreamExt};
 

@@ -192,14 +192,14 @@ pub(super) struct Tab {
     pub(super) title: String,
     /// 这个标签是通过远程连接打开的服务器。分屏时新 pane 会用同一个
     /// 连接再开一个独立会话，而不是落到本地 shell。
-    pub(super) server: Option<con_core::connections::SshConnection>,
+    pub(super) server: Option<cube_core::connections::SshConnection>,
     /// User-supplied label that overrides every auto-derived name in
     /// the panel/strip. Set via inline rename (double-click in
     /// vertical panel) or context menu. `None` means "use smart
     /// auto-derived name".
     pub(super) user_label: Option<String>,
     /// Optional accent color set via the tab context menu.
-    pub(super) color: Option<con_core::session::TabAccentColor>,
+    pub(super) color: Option<cube_core::session::TabAccentColor>,
     /// Cached classification of the focused terminal as an interactive agent
     /// CLI. Detection combines process, title, and bounded screen signals.
     pub(super) agent_cli: Option<&'static str>,
@@ -207,8 +207,8 @@ pub(super) struct Tab {
     /// Stable id for this tab across the window's lifetime.
     /// Sidebar rows use it so reorders, closes, and re-opens don't collide.
     pub(super) summary_id: u64,
-    pub(super) runtime_trackers: RefCell<HashMap<usize, con_terminal::PaneRuntimeTracker>>,
-    pub(super) runtime_cache: RefCell<HashMap<usize, con_terminal::PaneRuntimeState>>,
+    pub(super) runtime_trackers: RefCell<HashMap<usize, cube_terminal::PaneRuntimeTracker>>,
+    pub(super) runtime_cache: RefCell<HashMap<usize, cube_terminal::PaneRuntimeState>>,
     pub(super) shell_history: HashMap<usize, VecDeque<CommandSuggestionEntry>>,
 }
 
@@ -248,8 +248,8 @@ pub(super) struct PendingCreatePane {
     pub(super) command: Option<String>,
     pub(super) cwd: Option<String>,
     pub(super) tab_idx: usize,
-    pub(super) location: con_terminal::PaneCreateLocation,
-    pub(super) response_tx: crossbeam_channel::Sender<con_terminal::PaneResponse>,
+    pub(super) location: cube_terminal::PaneCreateLocation,
+    pub(super) response_tx: crossbeam_channel::Sender<cube_terminal::PaneResponse>,
 }
 
 pub(super) enum PendingWindowControlRequest {

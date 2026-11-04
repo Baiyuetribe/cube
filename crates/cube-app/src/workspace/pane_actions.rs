@@ -1,6 +1,6 @@
 use super::*;
 
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) fn create_surface_in_focused_pane(
         &mut self,
         window: &mut Window,
@@ -48,7 +48,7 @@ impl ConWorkspace {
         self.record_runtime_event_for_terminal(
             tab_idx,
             &terminal,
-            con_terminal::PaneRuntimeEvent::PaneCreated {
+            cube_terminal::PaneRuntimeEvent::PaneCreated {
                 startup_command: None,
             },
         );
@@ -111,7 +111,7 @@ impl ConWorkspace {
         self.record_runtime_event_for_terminal(
             tab_idx,
             &terminal,
-            con_terminal::PaneRuntimeEvent::PaneCreated {
+            cube_terminal::PaneRuntimeEvent::PaneCreated {
                 startup_command: None,
             },
         );
@@ -340,7 +340,7 @@ impl ConWorkspace {
         self.record_runtime_event_for_terminal(
             self.active_tab,
             &terminal,
-            con_terminal::PaneRuntimeEvent::PaneCreated {
+            cube_terminal::PaneRuntimeEvent::PaneCreated {
                 // 远程分屏的新 pane 确实以 ssh 启动，记下来能反映真实的
                 // 前台意图；本地分屏没有启动命令。
                 startup_command: is_remote.then(|| "ssh".to_string()),
@@ -399,7 +399,7 @@ impl ConWorkspace {
         self.record_runtime_event_for_terminal(
             self.active_tab,
             &terminal,
-            con_terminal::PaneRuntimeEvent::PaneCreated {
+            cube_terminal::PaneRuntimeEvent::PaneCreated {
                 startup_command: is_remote.then(|| "ssh".to_string()),
             },
         );

@@ -1,9 +1,9 @@
 {
-  "name": "Con Light",
+  "name": "Cube Light",
   "author": "con",
   "themes": [
     {
-      "name": "Con Light",
+      "name": "Cube Light",
       "mode": "light",
       "is_default": false,
       "font.size": 14,

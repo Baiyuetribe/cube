@@ -1,7 +1,7 @@
 //! Tabby/iTerm2 社区配色。
 //!
 //! 这些主题从 Tabby 的 `tabby-community-color-schemes`（MIT）转换而来，
-//! 统一放在 `tabby-` 前缀下，避免覆盖 Con 内置的同名主题。
+//! 统一放在 `tabby-` 前缀下，避免覆盖 Cube 内置的同名主题。
 //!
 //! 每个 `.conf` 都是标准 Ghostty 语法，由 [`super::TerminalTheme::from_ghostty_format`]
 //! 解析；解析一次后缓存在进程内，主题选择器不需要重复解析。

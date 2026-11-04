@@ -186,7 +186,7 @@ fn window_corner_radius(window: &Window) -> f32 {
     let raw_window_handle::RawWindowHandle::AppKit(handle) = handle.as_raw() else {
         return 0.0;
     };
-    unsafe { con_window_corner_radius(handle.ns_view.as_ptr()) as f32 }
+    unsafe { cube_window_corner_radius(handle.ns_view.as_ptr()) as f32 }
 }
 
 /// Shared fine edge with a short, diagonal contact shadow. Never shade native content.
@@ -637,7 +637,7 @@ pub(crate) fn native_corner_coverage(
                 bytes
             } else {
                 let renderer =
-                    gpui::SvgRenderer::new(std::sync::Arc::new(crate::assets::ConAssets));
+                    gpui::SvgRenderer::new(std::sync::Arc::new(crate::assets::CubeAssets));
                 let image = match renderer.render_single_frame(CORNER_MASK, side as f32) {
                     Ok(image) => image,
                     Err(err) => return Some(Err(anyhow::anyhow!(err))),
@@ -799,7 +799,7 @@ pub(super) fn prepare_native_canvas(bounds: Bounds<Pixels>, radius: f32, window:
     };
     let bounds = crate::terminal_geometry::snap_terminal_bounds(bounds, window.scale_factor());
     let changed = unsafe {
-        con_terminal_canvas_set_clip(
+        cube_terminal_canvas_set_clip(
             handle.ns_view.as_ptr(),
             f64::from(bounds.left()),
             f64::from(bounds.top()),
@@ -823,7 +823,7 @@ fn prepare_native_safe_area(height: f32, color: Hsla, window: &Window) {
     };
     let color: gpui::Rgba = color.into();
     if unsafe {
-        con_terminal_canvas_set_safe_area(
+        cube_terminal_canvas_set_safe_area(
             handle.ns_view.as_ptr(),
             height as f64,
             color.r as f64,
@@ -837,7 +837,7 @@ fn prepare_native_safe_area(height: f32, color: Hsla, window: &Window) {
 }
 
 unsafe extern "C" {
-    fn con_terminal_canvas_set_safe_area(
+    fn cube_terminal_canvas_set_safe_area(
         view: *mut std::ffi::c_void,
         height: f64,
         red: f64,
@@ -845,8 +845,8 @@ unsafe extern "C" {
         blue: f64,
         alpha: f64,
     ) -> bool;
-    fn con_window_corner_radius(view: *mut std::ffi::c_void) -> f64;
-    fn con_terminal_canvas_set_clip(
+    fn cube_window_corner_radius(view: *mut std::ffi::c_void) -> f64;
+    fn cube_terminal_canvas_set_clip(
         view: *mut std::ffi::c_void,
         x: f64,
         y: f64,
@@ -855,7 +855,7 @@ unsafe extern "C" {
         radius: f64,
     ) -> bool;
     #[cfg(test)]
-    fn con_terminal_canvas_header_corners(
+    fn cube_terminal_canvas_header_corners(
         view: *mut std::ffi::c_void,
         x: f64,
         y: f64,
@@ -1308,8 +1308,8 @@ mod tests {
             let gpui: *mut objc::runtime::Object = msg_send![class!(NSView), alloc];
             let gpui: *mut objc::runtime::Object = msg_send![gpui, initWithFrame: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(600.0, 400.0))];
             let _: () = msg_send![parent, addSubview: gpui];
-            con_terminal_canvas_set_clip(gpui.cast(), 4.0, 4.0, 592.0, 392.0, 8.0);
-            assert!(!con_terminal_canvas_set_safe_area(
+            cube_terminal_canvas_set_clip(gpui.cast(), 4.0, 4.0, 592.0, 392.0, 8.0);
+            assert!(!cube_terminal_canvas_set_safe_area(
                 gpui.cast(),
                 0.0,
                 1.0,
@@ -1317,7 +1317,7 @@ mod tests {
                 0.8,
                 0.9
             ));
-            assert!(con_terminal_canvas_set_safe_area(
+            assert!(cube_terminal_canvas_set_safe_area(
                 gpui.cast(),
                 64.0,
                 1.0,
@@ -1325,7 +1325,7 @@ mod tests {
                 0.8,
                 0.9
             ));
-            assert!(!con_terminal_canvas_set_safe_area(
+            assert!(!cube_terminal_canvas_set_safe_area(
                 gpui.cast(),
                 64.0,
                 1.0,
@@ -1352,7 +1352,7 @@ mod tests {
             assert!(hit.is_null());
             let accepts: bool = msg_send![material, acceptsFirstResponder];
             assert!(!accepts);
-            assert!(con_terminal_canvas_set_safe_area(
+            assert!(cube_terminal_canvas_set_safe_area(
                 gpui.cast(),
                 0.0,
                 1.0,
@@ -1362,7 +1362,7 @@ mod tests {
             ));
             let hidden: bool = msg_send![material, isHidden];
             assert!(hidden);
-            assert!(con_terminal_canvas_set_safe_area(
+            assert!(cube_terminal_canvas_set_safe_area(
                 gpui.cast(),
                 64.0,
                 0.2,
@@ -1404,7 +1404,7 @@ mod tests {
 
     #[test]
     fn corner_masks_keep_smooth_coverage_and_leave_the_card_interior_unpainted() {
-        let renderer = gpui::SvgRenderer::new(std::sync::Arc::new(crate::assets::ConAssets));
+        let renderer = gpui::SvgRenderer::new(std::sync::Arc::new(crate::assets::CubeAssets));
         let bounds = Bounds::new(point(px(0.0), px(0.0)), gpui::size(px(600.0), px(400.0)));
         for scale in [1.0, 1.5, 2.0] {
             let masks = corner_cutouts(bounds, gpui::Corners::all(px(PANE_RADIUS)));
@@ -1478,7 +1478,7 @@ mod tests {
     #[test]
     fn shared_corner_coverage_preserves_material_weights_and_reuses_tiles() {
         let bounds = Bounds::new(point(px(5.0), px(7.0)), gpui::size(px(200.0), px(120.0)));
-        let renderer = gpui::SvgRenderer::new(std::sync::Arc::new(crate::assets::ConAssets));
+        let renderer = gpui::SvgRenderer::new(std::sync::Arc::new(crate::assets::CubeAssets));
         for scale in [1.0, 1.5, 2.0] {
             for alpha in [0.0, 0.25, 0.82, 1.0] {
                 let tiles =
@@ -1577,8 +1577,8 @@ mod tests {
         use objc::{class, msg_send, sel, sel_impl};
         use std::ffi::c_void;
         unsafe extern "C" {
-            fn con_terminal_canvas_apply_clip(view: *mut c_void);
-            fn con_terminal_canvas_clip_is_attached(view: *mut c_void) -> bool;
+            fn cube_terminal_canvas_apply_clip(view: *mut c_void);
+            fn cube_terminal_canvas_clip_is_attached(view: *mut c_void) -> bool;
         }
         unsafe {
             let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(400.0, 300.0));
@@ -1593,9 +1593,9 @@ mod tests {
                 layer.is_null(),
                 "fixture must exercise the unbacked host path"
             );
-            con_terminal_canvas_set_clip(parent.cast(), 0.0, 0.0, 400.0, 300.0, 8.0);
-            con_terminal_canvas_apply_clip(host.cast());
-            assert!(con_terminal_canvas_clip_is_attached(host.cast()));
+            cube_terminal_canvas_set_clip(parent.cast(), 0.0, 0.0, 400.0, 300.0, 8.0);
+            cube_terminal_canvas_apply_clip(host.cast());
+            assert!(cube_terminal_canvas_clip_is_attached(host.cast()));
             let parent_layer: *mut objc::runtime::Object = msg_send![parent, layer];
             assert!(
                 parent_layer.is_null(),
@@ -1613,10 +1613,10 @@ mod tests {
         use objc::{class, msg_send, sel, sel_impl};
         use std::ffi::c_void;
         unsafe extern "C" {
-            fn con_terminal_canvas_generation(view: *mut c_void) -> u64;
-            fn con_terminal_canvas_apply_clip(view: *mut c_void);
-            fn con_terminal_canvas_clip_is_attached(view: *mut c_void) -> bool;
-            fn con_terminal_pane_set_clip(
+            fn cube_terminal_canvas_generation(view: *mut c_void) -> u64;
+            fn cube_terminal_canvas_apply_clip(view: *mut c_void);
+            fn cube_terminal_canvas_clip_is_attached(view: *mut c_void) -> bool;
+            fn cube_terminal_pane_set_clip(
                 view: *mut c_void,
                 x: f64,
                 y: f64,
@@ -1639,14 +1639,14 @@ mod tests {
             let _: () = msg_send![parent, addSubview: host];
             let _: () = msg_send![host, setWantsLayer: true];
             let parent_ptr = parent.cast();
-            assert!(con_terminal_canvas_set_clip(
+            assert!(cube_terminal_canvas_set_clip(
                 parent_ptr, 6.0, 6.0, 588.0, 388.0, 9.0
             ));
-            assert_eq!(con_terminal_canvas_generation(host.cast()), 1);
+            assert_eq!(cube_terminal_canvas_generation(host.cast()), 1);
             let subviews: *mut objc::runtime::Object = msg_send![parent, subviews];
             let view_count: usize = msg_send![subviews, count];
             assert_eq!(view_count, 1, "edge material added an input-receiving view");
-            con_terminal_canvas_apply_clip(host.cast());
+            cube_terminal_canvas_apply_clip(host.cast());
             let layer: *mut objc::runtime::Object = msg_send![host, layer];
             let mask: *mut objc::runtime::Object = msg_send![layer, mask];
             assert!(!mask.is_null());
@@ -1657,46 +1657,46 @@ mod tests {
             assert!(contains(15.0, 7.0));
             assert!(!contains(6.5, 6.5));
             assert!(!contains(2.0, 200.0));
-            assert!(!con_terminal_canvas_set_clip(
+            assert!(!cube_terminal_canvas_set_clip(
                 parent_ptr, 6.0, 6.0, 588.0, 388.0, 9.0
             ));
-            con_terminal_canvas_apply_clip(host.cast());
+            cube_terminal_canvas_apply_clip(host.cast());
             let same_path: *const c_void = msg_send![mask, path];
             assert_eq!(path, same_path, "idle layout rebuilt the mask");
-            assert!(con_terminal_canvas_clip_is_attached(host.cast()));
+            assert!(cube_terminal_canvas_clip_is_attached(host.cast()));
             let _: () = msg_send![layer, setMask: std::ptr::null_mut::<objc::runtime::Object>()];
-            assert!(!con_terminal_canvas_clip_is_attached(host.cast()));
-            con_terminal_canvas_apply_clip(host.cast());
+            assert!(!cube_terminal_canvas_clip_is_attached(host.cast()));
+            cube_terminal_canvas_apply_clip(host.cast());
             assert!(
-                con_terminal_canvas_clip_is_attached(host.cast()),
+                cube_terminal_canvas_clip_is_attached(host.cast()),
                 "same-size layout failed to reattach its mask"
             );
             let replacement: *mut objc::runtime::Object = msg_send![class!(CALayer), layer];
             let _: () = msg_send![host, setLayer: replacement];
-            assert!(!con_terminal_canvas_clip_is_attached(host.cast()));
-            con_terminal_canvas_apply_clip(host.cast());
+            assert!(!cube_terminal_canvas_clip_is_attached(host.cast()));
+            cube_terminal_canvas_apply_clip(host.cast());
             assert!(
-                con_terminal_canvas_clip_is_attached(host.cast()),
+                cube_terminal_canvas_clip_is_attached(host.cast()),
                 "same-size replacement layer bypassed the mask cache"
             );
             let layer = replacement;
             assert_eq!(
-                con_terminal_canvas_header_corners(parent_ptr, 6.0, 6.0, 588.0),
+                cube_terminal_canvas_header_corners(parent_ptr, 6.0, 6.0, 588.0),
                 3
             );
             assert_eq!(
-                con_terminal_canvas_header_corners(parent_ptr, 300.0, 6.0, 294.0),
+                cube_terminal_canvas_header_corners(parent_ptr, 300.0, 6.0, 294.0),
                 2
             );
             assert_eq!(
-                con_terminal_canvas_header_corners(parent_ptr, 6.0, 100.0, 588.0),
+                cube_terminal_canvas_header_corners(parent_ptr, 6.0, 100.0, 588.0),
                 0
             );
-            assert!(con_terminal_canvas_set_clip(
+            assert!(cube_terminal_canvas_set_clip(
                 parent_ptr, 12.0, 6.0, 580.0, 300.0, 9.0
             ));
-            assert_eq!(con_terminal_canvas_generation(host.cast()), 2);
-            con_terminal_canvas_apply_clip(host.cast());
+            assert_eq!(cube_terminal_canvas_generation(host.cast()), 2);
+            cube_terminal_canvas_apply_clip(host.cast());
             let changed_path: *const c_void = msg_send![mask, path];
             assert_ne!(changed_path, same_path);
             assert!(!CGPathContainsPoint(
@@ -1705,11 +1705,11 @@ mod tests {
                 NSPoint::new(15.0, 50.0),
                 false
             ));
-            assert!(con_terminal_canvas_set_clip(
+            assert!(cube_terminal_canvas_set_clip(
                 parent_ptr, 6.0, 6.0, 588.0, 388.0, 9.0
             ));
             let _: () = msg_send![host, setFrame: NSRect::new(NSPoint::new(298.0, 4.0), NSSize::new(298.0, 392.0))];
-            con_terminal_canvas_apply_clip(host.cast());
+            cube_terminal_canvas_apply_clip(host.cast());
             let split_path: *const c_void = msg_send![mask, path];
             assert!(CGPathContainsPoint(
                 split_path,
@@ -1723,8 +1723,8 @@ mod tests {
                 NSPoint::new(295.5, 389.5),
                 false
             ));
-            let generation = con_terminal_canvas_generation(host.cast());
-            assert!(!con_terminal_canvas_set_clip(
+            let generation = cube_terminal_canvas_generation(host.cast());
+            assert!(!cube_terminal_canvas_set_clip(
                 parent_ptr,
                 f64::NAN,
                 0.0,
@@ -1732,11 +1732,11 @@ mod tests {
                 10.0,
                 9.0
             ));
-            assert_eq!(con_terminal_canvas_generation(host.cast()), generation);
-            assert!(con_terminal_canvas_set_clip(
+            assert_eq!(cube_terminal_canvas_generation(host.cast()), generation);
+            assert!(cube_terminal_canvas_set_clip(
                 parent_ptr, 0.0, 0.0, 600.0, 400.0, 0.0
             ));
-            con_terminal_canvas_apply_clip(host.cast());
+            cube_terminal_canvas_apply_clip(host.cast());
             let clean_mask: *mut objc::runtime::Object = msg_send![layer, mask];
             assert!(
                 clean_mask.is_null(),
@@ -1745,7 +1745,7 @@ mod tests {
             // A split pane intersects the workspace mask; it must not replace
             // it, rebuild idle paths, or leave rounded clipping after unzoom.
             let _: () = msg_send![host, setFrame: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(600.0, 400.0))];
-            assert!(con_terminal_pane_set_clip(
+            assert!(cube_terminal_pane_set_clip(
                 host.cast(),
                 10.0,
                 10.0,
@@ -1753,7 +1753,7 @@ mod tests {
                 380.0,
                 7.0
             ));
-            con_terminal_canvas_apply_clip(host.cast());
+            cube_terminal_canvas_apply_clip(host.cast());
             let pane_mask: *mut objc::runtime::Object = msg_send![layer, mask];
             let inner_mask: *mut objc::runtime::Object = msg_send![pane_mask, mask];
             assert!(!inner_mask.is_null());
@@ -1762,7 +1762,7 @@ mod tests {
             let sibling: *mut objc::runtime::Object = msg_send![sibling, initWithFrame: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(600.0, 400.0))];
             let _: () = msg_send![parent, addSubview: sibling];
             let _: () = msg_send![sibling, setWantsLayer: true];
-            con_terminal_canvas_apply_clip(sibling.cast());
+            cube_terminal_canvas_apply_clip(sibling.cast());
             let sibling_layer: *mut objc::runtime::Object = msg_send![sibling, layer];
             let sibling_mask: *mut objc::runtime::Object = msg_send![sibling_layer, mask];
             assert!(
@@ -1783,7 +1783,7 @@ mod tests {
                 NSPoint::new(10.5, 10.5),
                 false
             ));
-            assert!(!con_terminal_pane_set_clip(
+            assert!(!cube_terminal_pane_set_clip(
                 host.cast(),
                 10.0,
                 10.0,
@@ -1791,10 +1791,10 @@ mod tests {
                 380.0,
                 7.0
             ));
-            con_terminal_canvas_apply_clip(host.cast());
+            cube_terminal_canvas_apply_clip(host.cast());
             let unchanged: *const c_void = msg_send![inner_mask, path];
             assert_eq!(pane_path, unchanged);
-            assert!(!con_terminal_pane_set_clip(
+            assert!(!cube_terminal_pane_set_clip(
                 host.cast(),
                 f64::NAN,
                 0.0,
@@ -1802,10 +1802,10 @@ mod tests {
                 1.0,
                 7.0
             ));
-            assert!(con_terminal_canvas_set_clip(
+            assert!(cube_terminal_canvas_set_clip(
                 parent_ptr, 20.0, 0.0, 580.0, 400.0, 8.0
             ));
-            con_terminal_canvas_apply_clip(host.cast());
+            cube_terminal_canvas_apply_clip(host.cast());
             let outer_path: *const c_void = msg_send![pane_mask, path];
             let pane_path: *const c_void = msg_send![inner_mask, path];
             assert!(!CGPathContainsPoint(
@@ -1820,10 +1820,10 @@ mod tests {
                 NSPoint::new(15.0, 200.0),
                 false
             ));
-            assert!(con_terminal_canvas_set_clip(
+            assert!(cube_terminal_canvas_set_clip(
                 parent_ptr, 0.0, 0.0, 600.0, 400.0, 0.0
             ));
-            assert!(con_terminal_pane_set_clip(
+            assert!(cube_terminal_pane_set_clip(
                 host.cast(),
                 10.0,
                 10.0,
@@ -1831,7 +1831,7 @@ mod tests {
                 380.0,
                 0.0
             ));
-            con_terminal_canvas_apply_clip(host.cast());
+            cube_terminal_canvas_apply_clip(host.cast());
             let rectangular_mask: *mut objc::runtime::Object = msg_send![layer, mask];
             assert!(
                 !rectangular_mask.is_null(),
@@ -1852,7 +1852,7 @@ mod tests {
                 NSPoint::new(5.0, 200.0),
                 false
             ));
-            assert!(con_terminal_pane_set_clip(
+            assert!(cube_terminal_pane_set_clip(
                 host.cast(),
                 0.0,
                 0.0,
@@ -1860,22 +1860,22 @@ mod tests {
                 400.0,
                 0.0
             ));
-            assert!(!con_terminal_canvas_set_clip(
+            assert!(!cube_terminal_canvas_set_clip(
                 parent_ptr, 0.0, 0.0, 600.0, 400.0, 0.0
             ));
-            con_terminal_canvas_apply_clip(host.cast());
+            cube_terminal_canvas_apply_clip(host.cast());
             let reset_mask: *mut objc::runtime::Object = msg_send![layer, mask];
             assert!(reset_mask.is_null(), "zoom retained the outgoing pane mask");
-            assert!(con_terminal_canvas_set_clip(
+            assert!(cube_terminal_canvas_set_clip(
                 parent_ptr, 0.0, 0.0, 1.0, 1.0, 9.0
             ));
-            con_terminal_canvas_apply_clip(host.cast());
-            assert!(con_terminal_canvas_set_clip(
+            cube_terminal_canvas_apply_clip(host.cast());
+            assert!(cube_terminal_canvas_set_clip(
                 parent_ptr, 0.0, 0.0, 0.0, 0.0, 9.0
             ));
-            con_terminal_canvas_apply_clip(host.cast());
+            cube_terminal_canvas_apply_clip(host.cast());
             assert_eq!(
-                con_terminal_canvas_header_corners(parent_ptr, 0.0, 0.0, 0.0),
+                cube_terminal_canvas_header_corners(parent_ptr, 0.0, 0.0, 0.0),
                 0
             );
             let _: () = msg_send![host, release];

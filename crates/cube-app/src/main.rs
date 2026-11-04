@@ -34,7 +34,7 @@ mod terminal_identity;
 
 // The terminal-view module is selected per platform:
 //   macOS   -> ghostty_view.rs (libghostty + child NSView)
-//   Windows -> windows_view.rs (libghostty-vt + ConPTY + D3D11 child HWND)
+//   Windows -> windows_view.rs (libghostty-vt + CubePTY + D3D11 child HWND)
 //   Linux   -> linux_view.rs (Unix PTY + libghostty-vt + GPUI paint path)
 //   other   -> stub_view.rs
 //
@@ -107,16 +107,16 @@ mod workspace;
 
 use std::any::TypeId;
 
-use con_core::config::KeybindingConfig;
-use con_core::session::{
+use cube_core::config::KeybindingConfig;
+use cube_core::session::{
     GlobalHistoryState, PaneLayoutState, Session, SurfaceState, WORKSPACE_ERROR_SURFACE_OWNER,
 };
-use con_core::workspace_layout::WorkspaceLayout;
+use cube_core::workspace_layout::WorkspaceLayout;
 use gpui::*;
 use gpui_component::ActiveTheme;
 #[cfg(target_os = "macos")]
 use gpui_component::link::Link;
-use workspace::ConWorkspace;
+use workspace::CubeWorkspace;
 
 use crate::startup_args::StartupArgs;
 
@@ -237,7 +237,7 @@ fn supports_transparent_main_window() -> bool {
 
 #[cfg(target_os = "linux")]
 fn supports_transparent_main_window() -> bool {
-    // Linux keeps Con's integrated client-side chrome so titlebar
+    // Linux keeps Cube's integrated client-side chrome so titlebar
     // actions match macOS/Windows. Wayland uses the transparent GPUI
     // surface directly; X11 additionally receives a SHAPE mask.
     linux_uses_client_side_decorations()
@@ -281,7 +281,7 @@ pub fn set_windows_backdrop_blur(window: &mut Window, blur: bool) {
 /// can toggle "background blur" in settings without restarting the
 /// window.
 ///
-/// Linux uses a transparent top-level surface so Con's integrated
+/// Linux uses a transparent top-level surface so Cube's integrated
 /// client-side chrome can define the visible rounded shape.
 #[cfg(target_os = "linux")]
 pub fn set_linux_window_blur(window: &mut Window, _blur: bool) {
@@ -694,7 +694,7 @@ fn default_window_decorations() -> Option<WindowDecorations> {
 }
 
 pub(crate) fn open_con_window(
-    config: con_core::Config,
+    config: cube_core::Config,
     session: Session,
     exit_on_error: bool,
     cx: &mut App,
@@ -703,7 +703,7 @@ pub(crate) fn open_con_window(
 }
 
 fn open_con_window_with_startup(
-    config: con_core::Config,
+    config: cube_core::Config,
     session: Session,
     exit_on_error: bool,
     startup: Option<StartupArgs>,
@@ -740,7 +740,7 @@ fn open_con_window_with_startup(
             #[cfg(not(target_os = "linux"))]
             let working_directory = None;
             let view = cx.new(|cx| {
-                ConWorkspace::from_session_with_initial_terminal(
+                CubeWorkspace::from_session_with_initial_terminal(
                     config.clone(),
                     restored_session,
                     working_directory,
@@ -789,7 +789,7 @@ fn open_con_window_with_startup(
         };
         // `open_window` makes the window key inside the app but does not bring
         // the app itself forward, so launching from a terminal or Spotlight
-        // would leave Con behind the invoker. Activate after the window exists
+        // would leave Cube behind the invoker. Activate after the window exists
         // so macOS has something to order to the front.
         let handle = handle.into();
         cx.update(|cx| {
@@ -801,7 +801,7 @@ fn open_con_window_with_startup(
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn open_quick_terminal(config: con_core::Config, session: Session, cx: &mut App) {
+pub(crate) fn open_quick_terminal(config: cube_core::Config, session: Session, cx: &mut App) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     if first_run::pending(cx) {
@@ -815,7 +815,7 @@ pub(crate) fn open_quick_terminal(config: con_core::Config, session: Session, cx
             let restored_session = session.clone();
             let view = cx.new(|cx| {
                 let mut workspace =
-                    ConWorkspace::from_session(config.clone(), restored_session, window, cx);
+                    CubeWorkspace::from_session(config.clone(), restored_session, window, cx);
                 workspace.mark_as_quick_terminal();
                 workspace
             });
@@ -945,7 +945,7 @@ fn workspace_path_error_session(path: &std::path::Path, err: &anyhow::Error) -> 
     let mut session =
         fresh_window_session_with_history_for_cwd(fallback_cwd_for_workspace_path(path));
     let screen_text = vec![
-        "Con could not open the requested workspace profile.".to_string(),
+        "Cube could not open the requested workspace profile.".to_string(),
         format!("Path: {}", path.display()),
         format!("Reason: {err}"),
         "Opened a fresh shell instead. Fix the profile and run con <path> again.".to_string(),
@@ -967,7 +967,7 @@ fn workspace_path_error_session(path: &std::path::Path, err: &anyhow::Error) -> 
             surfaces: vec![SurfaceState {
                 surface_id: 0,
                 title: Some("Shell".to_string()),
-                // Synthetic Con-owned diagnostic surface. Keep it out of
+                // Synthetic Cube-owned diagnostic surface. Keep it out of
                 // human/subagent owner namespaces used by the orchestrator.
                 owner: Some(WORKSPACE_ERROR_SURFACE_OWNER.to_string()),
                 cwd,
@@ -1056,8 +1056,11 @@ pub(crate) fn workspace_layout_root_for_file(path: &std::path::Path) -> std::pat
         return std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     };
 
-    if parent.file_name().and_then(|name| name.to_str()) == Some(".con")
-        && let Some(project_root) = parent.parent()
+    // 同时接受旧 .con 目录，保证已有工作区布局仍能被定位到项目根。
+    if matches!(
+        parent.file_name().and_then(|name| name.to_str()),
+        Some(".cube") | Some(".con")
+    ) && let Some(project_root) = parent.parent()
     {
         return project_root.to_path_buf();
     }
@@ -1087,7 +1090,7 @@ pub(crate) fn session_from_workspace_layout_file(
 
 #[cfg(unix)]
 fn live_control_endpoint_exists() -> bool {
-    let path = con_core::control_socket_path();
+    let path = cube_core::control_socket_path();
     let addr = match socket2::SockAddr::unix(&path) {
         Ok(addr) => addr,
         Err(err) => {
@@ -1125,7 +1128,7 @@ fn live_control_endpoint_exists() -> bool {
     use windows::Win32::System::Pipes::WaitNamedPipeW;
     use windows::core::PCWSTR;
 
-    let path = con_core::control_socket_path();
+    let path = cube_core::control_socket_path();
     let pipe_name: Vec<u16> = path
         .as_os_str()
         .encode_wide()
@@ -1167,14 +1170,14 @@ fn open_window_from_disk(cx: &mut App) {
     open_con_window(config, fresh_window_session_with_history(), false, cx);
 }
 
-fn load_validated_config() -> Result<con_core::Config, String> {
-    let config = con_core::Config::load().map_err(|error| error.to_string())?;
+fn load_validated_config() -> Result<cube_core::Config, String> {
+    let config = cube_core::Config::load().map_err(|error| error.to_string())?;
     #[cfg(target_os = "macos")]
-    ConWorkspace::validate_native_config_candidate(&config)?;
+    CubeWorkspace::validate_native_config_candidate(&config)?;
     Ok(config)
 }
 
-fn load_config_for_new_window(cx: &mut App) -> Option<con_core::Config> {
+fn load_config_for_new_window(cx: &mut App) -> Option<cube_core::Config> {
     match load_validated_config() {
         Ok(config) => Some(config),
         Err(error) => {
@@ -1265,11 +1268,11 @@ pub(crate) fn app_display_version() -> String {
     let version = bundle_info_value(b"CFBundleShortVersionString\0")
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
     // Non-macOS builds pick up the full tag-derived version (e.g.
-    // `0.1.0-beta.31`) from `CON_RELEASE_VERSION`, which the release
+    // `0.1.0-beta.31`) from `CUBE_RELEASE_VERSION`, which the release
     // pipeline exports before `cargo build`. Cargo.toml is frozen at
     // `0.1.0` so `CARGO_PKG_VERSION` alone loses the prerelease suffix.
     #[cfg(not(target_os = "macos"))]
-    let version = option_env!("CON_RELEASE_VERSION")
+    let version = option_env!("CUBE_RELEASE_VERSION")
         .map(str::to_owned)
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
 
@@ -1282,7 +1285,7 @@ pub(crate) fn app_build_number() -> String {
     let build = bundle_info_value(b"CFBundleVersion\0")
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
     #[cfg(not(target_os = "macos"))]
-    let build = option_env!("CON_RELEASE_VERSION")
+    let build = option_env!("CUBE_RELEASE_VERSION")
         .map(str::to_owned)
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
 
@@ -1291,7 +1294,7 @@ pub(crate) fn app_build_number() -> String {
 
 #[cfg(target_os = "linux")]
 fn apply_linux_platform_override() {
-    let Some(requested) = std::env::var("CON_LINUX_BACKEND")
+    let Some(requested) = std::env::var("CUBE_LINUX_BACKEND")
         .ok()
         .map(|value| value.trim().to_ascii_lowercase())
         .filter(|value| !value.is_empty())
@@ -1306,7 +1309,7 @@ fn apply_linux_platform_override() {
                 log::info!("Linux compositor override: forcing X11 backend");
             } else {
                 log::warn!(
-                    "CON_LINUX_BACKEND=x11 requested, but DISPLAY is not set; keeping default compositor detection"
+                    "CUBE_LINUX_BACKEND=x11 requested, but DISPLAY is not set; keeping default compositor detection"
                 );
             }
         }
@@ -1316,13 +1319,13 @@ fn apply_linux_platform_override() {
                 log::info!("Linux compositor override: forcing Wayland backend");
             } else {
                 log::warn!(
-                    "CON_LINUX_BACKEND=wayland requested, but WAYLAND_DISPLAY is not set; keeping default compositor detection"
+                    "CUBE_LINUX_BACKEND=wayland requested, but WAYLAND_DISPLAY is not set; keeping default compositor detection"
                 );
             }
         }
         other => {
             log::warn!(
-                "Ignoring unsupported CON_LINUX_BACKEND={other:?}; expected \"x11\" or \"wayland\""
+                "Ignoring unsupported CUBE_LINUX_BACKEND={other:?}; expected \"x11\" or \"wayland\""
             );
         }
     }
@@ -1353,11 +1356,11 @@ fn about_panel_name() -> String {
 fn about_panel_version_detail() -> String {
     let version = app_display_version();
     let build = app_build_number();
-    let channel = con_core::release_channel::current().display_name();
+    let channel = cube_core::release_channel::current().display_name();
 
     if build.is_empty() || build == version {
-        match con_core::release_channel::current() {
-            con_core::release_channel::ReleaseChannel::Dev => "Development Build".to_string(),
+        match cube_core::release_channel::current() {
+            cube_core::release_channel::ReleaseChannel::Dev => "Development Build".to_string(),
             _ => channel.to_string(),
         }
     } else {
@@ -1707,7 +1710,7 @@ fn fixed_app_binding_specs() -> Vec<BindingSpec> {
 fn editor_binding_specs() -> Vec<BindingSpec> {
     let mut specs = Vec::new();
 
-    // Editor-only editing shortcuts must not bind to Global/ConWorkspace/Input,
+    // Editor-only editing shortcuts must not bind to Global/CubeWorkspace/Input,
     // otherwise terminal input such as Enter can be intercepted.
     push_editor::<EditorMoveLeft>(&mut specs, "left");
     push_editor::<EditorMoveRight>(&mut specs, "right");
@@ -1832,7 +1835,7 @@ fn install_file_sidebar_shortcut_interceptor(cx: &mut App, kb: &KeybindingConfig
         if !event
             .context_stack
             .iter()
-            .any(|context| context.contains("ConWorkspace"))
+            .any(|context| context.contains("CubeWorkspace"))
         {
             return;
         }
@@ -1880,7 +1883,7 @@ pub(crate) fn fixed_app_keybinding_shortcuts() -> Vec<(&'static str, &'static st
     let shortcuts = {
         let mut shortcuts = shortcuts;
         shortcuts.extend([
-            ("隐藏 Con", "cmd-h"),
+            ("隐藏 Cube", "cmd-h"),
             ("隐藏其他应用", "cmd-alt-h"),
             ("显示所有应用", "cmd-alt-shift-h"),
             ("下一个窗口", "cmd-`"),
@@ -1897,12 +1900,12 @@ pub(crate) fn fixed_app_keybinding_shortcuts() -> Vec<(&'static str, &'static st
 }
 
 fn is_fixed_configurable_app_keybinding(key: &str, action_name: &SharedString) -> bool {
-    let Some(key) = con_core::config::canonical_keybinding(key) else {
+    let Some(key) = cube_core::config::canonical_keybinding(key) else {
         return false;
     };
-    let fixed_next_tab = con_core::config::canonical_keybinding("secondary-shift-]")
+    let fixed_next_tab = cube_core::config::canonical_keybinding("secondary-shift-]")
         .expect("fixed shortcut is valid");
-    let fixed_previous_tab = con_core::config::canonical_keybinding("secondary-shift-[")
+    let fixed_previous_tab = cube_core::config::canonical_keybinding("secondary-shift-[")
         .expect("fixed shortcut is valid");
     let next_tab: SharedString = gpui::Action::name(&NextTab).into();
     let previous_tab: SharedString = gpui::Action::name(&PreviousTab).into();
@@ -2000,7 +2003,7 @@ mod tests {
         FindInTerminal, FocusFiles, NewTab, SearchFiles, SelectTab1, Undo, binding_specs,
         command_palette, keystroke_matches_single_binding, push_app_override,
     };
-    use con_core::config::KeybindingConfig;
+    use cube_core::config::KeybindingConfig;
     use gpui::Keystroke;
     use std::any::TypeId;
 
@@ -2329,7 +2332,7 @@ mod tests {
         let mut seen = std::collections::HashMap::new();
 
         for spec in &specs {
-            let canonical = con_core::config::canonical_keybinding(spec.key.as_ref())
+            let canonical = cube_core::config::canonical_keybinding(spec.key.as_ref())
                 .unwrap_or_else(|| spec.key.to_string());
             let key = (canonical, spec.scope.name());
             if let Some(existing_action) = seen.insert(key.clone(), spec.action) {
@@ -2497,7 +2500,7 @@ fn inherit_shell_env() {
     // -l : login shell — sources /etc/profile, ~/.zprofile, ~/.bash_profile …
     //      (no -i: avoids interactive-only rc noise and TTY hangs)
     const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-    let mut child = match con_paths::host_command(&shell)
+    let mut child = match cube_paths::host_command(&shell)
         .args(["-l", "-c", "env"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -2639,6 +2642,15 @@ fn main() {
     // Critical on Windows where double-clicking the exe detaches
     // stderr and a panic produces a silent exit.
     install_panic_hook();
+
+    // 从旧 `con` 名字迁移一次用户数据（配置、会话、SSH 连接等）。
+    // 失败只记日志，不阻止启动——用户会看到空配置而不是崩溃。
+    match cube_paths::migrate_legacy_data_dir() {
+        Ok(Some(from)) => log::info!("migrated user data from {}", from.display()),
+        Ok(None) => {}
+        Err(error) => log::warn!("could not migrate legacy user data: {error}"),
+    }
+
     terminal_env::sanitize_inherited_terminal_environment();
 
     // Catch C-level access violations / stack overflows / etc. from
@@ -2662,7 +2674,7 @@ fn main() {
         builder.filter_level(log::LevelFilter::Info);
     }
     let mut log_file_path = None;
-    if let Some(path) = std::env::var_os("CON_LOG_FILE") {
+    if let Some(path) = std::env::var_os("CUBE_LOG_FILE") {
         match std::fs::File::create(&path) {
             Ok(file) => {
                 builder.target(env_logger::Target::Pipe(Box::new(file)));
@@ -2671,7 +2683,7 @@ fn main() {
             }
             Err(err) => {
                 eprintln!(
-                    "con: failed to open CON_LOG_FILE={}: {err}",
+                    "con: failed to open CUBE_LOG_FILE={}: {err}",
                     std::path::Path::new(&path).display()
                 );
             }
@@ -2723,7 +2735,7 @@ fn main() {
 
     let app = gpui_platform::application()
         .with_quit_mode(quit_mode)
-        .with_assets(assets::ConAssets)
+        .with_assets(assets::CubeAssets)
         // Real HTTP client so markdown preview can fetch remote images;
         // gpui's default NullHttpClient fails every request. reqwest picks
         // up HTTP(S)_PROXY from the environment (see [network] proxy above).
@@ -2744,7 +2756,7 @@ fn main() {
                 Ok(_) => match config_recovery::restart() {
                     Ok(()) => cx.quit(),
                     Err(error) => config_recovery::open(
-                        format!("Settings are valid, but Con could not restart: {error}"),
+                        format!("Settings are valid, but Cube could not restart: {error}"),
                         true,
                         cx,
                     ),
@@ -2758,14 +2770,14 @@ fn main() {
     });
     app.run(move |cx: &mut App| {
         // Detect release channel (stable/beta/dev) from bundle Info.plist
-        let channel = con_core::release_channel::init();
+        let channel = cube_core::release_channel::init();
         log::info!("Release channel: {}", channel.display_name());
 
         let config = match config {
             Ok(config) => config,
             Err(error) => {
                 gpui_component::init(cx);
-                let defaults = con_core::Config::default();
+                let defaults = cube_core::Config::default();
                 theme::init_theme(
                     cx,
                     &defaults.terminal.theme,

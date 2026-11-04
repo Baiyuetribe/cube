@@ -1,5 +1,5 @@
 [package]
-name = "con-paths"
+name = "cube-paths"
 edition.workspace = true
 license.workspace = true
 version.workspace = true

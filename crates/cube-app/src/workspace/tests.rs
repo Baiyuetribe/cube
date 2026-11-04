@@ -7,7 +7,7 @@ use super::{
     should_show_activity_bar, workspace_close_intent, workspace_close_intent_for_close_tab,
 };
 use super::{
-    ConWorkspace, SPLIT_PREVIEW_SEAM_THICKNESS, SplitDirection, SplitPlacement,
+    CubeWorkspace, SPLIT_PREVIEW_SEAM_THICKNESS, SplitDirection, SplitPlacement,
     TabRenameStateSnapshot, centered_drag_preview_origin, clamp_preview_origin_to_tab_bar,
     clear_pane_tab_promotion_drag_state, is_dragged_tab_source, is_tab_strip_preview_active,
     normalize_tab_user_label, pane_drag_floating_preview_origin, pane_drag_needs_horizontal_tabs,
@@ -987,7 +987,7 @@ fn top_bar_clickables_explicitly_consume_left_mouse_down() {
         .split("fn chrome_button(")
         .nth(1)
         .expect("shared chrome button constructor")
-        .split("impl ConWorkspace")
+        .split("impl CubeWorkspace")
         .next()
         .unwrap();
     let normalized = constructor.split_whitespace().collect::<String>();
@@ -1006,7 +1006,7 @@ fn top_bar_clickables_explicitly_consume_left_mouse_down() {
 
 #[test]
 fn new_tab_requires_immediate_ui_sync() {
-    let policy = ConWorkspace::new_tab_sync_policy_for_tests();
+    let policy = CubeWorkspace::new_tab_sync_policy_for_tests();
     assert!(policy.activates_new_tab);
     assert!(policy.syncs_sidebar);
     assert!(policy.notifies_ui);
@@ -1025,7 +1025,7 @@ fn new_tab_reveals_hidden_vertical_tab_rail_only() {
 #[test]
 fn promoting_single_tab_to_tab_strip_requires_deferred_top_chrome_refresh() {
     assert_eq!(
-        ConWorkspace::should_defer_top_chrome_refresh_when_tab_strip_appears_for_tests(),
+        CubeWorkspace::should_defer_top_chrome_refresh_when_tab_strip_appears_for_tests(),
         cfg!(not(target_os = "macos")),
     );
 }

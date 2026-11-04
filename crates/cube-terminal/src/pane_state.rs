@@ -441,9 +441,9 @@ impl PaneRuntimeTracker {
                 let summary = startup_command
                     .as_ref()
                     .map(|command| {
-                        format!("con created this pane with startup command `{command}`")
+                        format!("Cube created this pane with startup command `{command}`")
                     })
-                    .unwrap_or_else(|| "con created this pane".to_string());
+                    .unwrap_or_else(|| "Cube created this pane".to_string());
                 self.push_recent_action(PaneActionRecord {
                     sequence,
                     kind: PaneActionKind::PaneCreated,
@@ -462,7 +462,7 @@ impl PaneRuntimeTracker {
                 self.push_recent_action(PaneActionRecord {
                     sequence,
                     kind: PaneActionKind::VisibleShellExec,
-                    summary: format!("con executed `{command}` in the visible shell"),
+                    summary: format!("Cube executed `{command}` in the visible shell"),
                     command: Some(command.clone()),
                     source: PaneEvidenceSource::ActionHistory,
                     confidence: PaneConfidence::Advisory,
@@ -477,13 +477,13 @@ impl PaneRuntimeTracker {
                 self.push_recent_action(PaneActionRecord {
                     sequence,
                     kind: PaneActionKind::RawInput,
-                    summary: format!("con sent raw input `{}`", summarize_raw_input(&keys)),
+                    summary: format!("Cube sent raw input `{}`", summarize_raw_input(&keys)),
                     command: None,
                     source: PaneEvidenceSource::ActionHistory,
                     confidence: PaneConfidence::Advisory,
                     input_generation: Some(input_generation),
                     note: Some(
-                        "Raw input describes what con sent to the pane, not what the foreground app proved in response."
+                        "Raw input describes what Cube sent to the pane, not what the foreground app proved in response."
                             .to_string(),
                     ),
                 });
@@ -506,7 +506,7 @@ impl PaneRuntimeTracker {
                     confidence: PaneConfidence::Strong,
                     input_generation: Some(captured_input_generation),
                     note: Some(
-                        "This probe describes the shell frame that was visible when con ran the probe."
+                        "This probe describes the shell frame that was visible when Cube ran the probe."
                             .to_string(),
                     ),
                 });
@@ -741,7 +741,7 @@ impl PaneRuntimeTracker {
                     confidence: PaneConfidence::Advisory,
                     generation,
                     note: Some(
-                        "A recent con-executed tmux command targeted this session from the current fresh shell prompt. con can use that shell as a tmux control anchor while the prompt remains fresh."
+                        "A recent Cube-executed tmux command targeted this session from the current fresh shell prompt. Cube can use that shell as a tmux control anchor while the prompt remains fresh."
                             .to_string(),
                     ),
                 });
@@ -845,10 +845,10 @@ fn summarize_shell_probe(result: &ShellProbeResult) -> String {
     }
 
     if parts.is_empty() {
-        "con probed the visible shell context".to_string()
+        "Cube probed the visible shell context".to_string()
     } else {
         format!(
-            "con probed the visible shell context and captured {}",
+            "Cube probed the visible shell context and captured {}",
             parts.join(", ")
         )
     }
@@ -857,7 +857,7 @@ fn summarize_shell_probe(result: &ShellProbeResult) -> String {
 fn command_intent_note(command: &str) -> Option<String> {
     if looks_like_tmux_command(command) {
         return Some(
-            "This command targets tmux/tmate. Treat it as causal history about how con entered a multiplexer, not as proof that tmux is still front-most now."
+            "This command targets tmux/tmate. Treat it as causal history about how Cube entered a multiplexer, not as proof that tmux is still front-most now."
                 .to_string(),
         );
     }
@@ -1308,7 +1308,7 @@ pub fn remote_workspace_anchor(
         host,
         source: PaneEvidenceSource::ActionHistory,
         confidence: PaneConfidence::Advisory,
-        note: "con created or used this pane for SSH recently, and the current screen still looks prompt-like without contradictory tmux/TUI evidence.".to_string(),
+        note: "Cube created or used this pane for SSH recently, and the current screen still looks prompt-like without contradictory tmux/TUI evidence.".to_string(),
     })
 }
 

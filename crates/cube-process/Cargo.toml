@@ -1,5 +1,5 @@
 [package]
-name = "con-process"
+name = "cube-process"
 edition.workspace = true
 license.workspace = true
 version.workspace = true

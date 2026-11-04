@@ -1,4 +1,4 @@
-use con_core::session::{PaneLayoutState, PaneSplitDirection, SurfaceState};
+use cube_core::session::{PaneLayoutState, PaneSplitDirection, SurfaceState};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::{
@@ -1183,7 +1183,7 @@ impl PaneTree {
         rename_editor: Option<SurfaceRenameEditor>,
         divider_color: Hsla,
         resize_cover_color: Hsla,
-        tab_accent_color: Option<con_core::session::TabAccentColor>,
+        tab_accent_color: Option<cube_core::session::TabAccentColor>,
         tab_accent_inactive_alpha: f32,
         canvas_depth: f32,
         cx: &App,
@@ -2017,7 +2017,7 @@ impl PaneTree {
         tree_has_splits: bool,
         zoomed_pane_id: Option<PaneId>,
         session_id: u64,
-        tab_accent_color: Option<con_core::session::TabAccentColor>,
+        tab_accent_color: Option<cube_core::session::TabAccentColor>,
         tab_accent_inactive_alpha: f32,
         canvas_depth: f32,
         cx: &App,
@@ -2259,7 +2259,7 @@ impl PaneTree {
         tree_has_splits: bool,
         zoomed_pane_id: Option<PaneId>,
         session_id: u64,
-        tab_accent_color: Option<con_core::session::TabAccentColor>,
+        tab_accent_color: Option<cube_core::session::TabAccentColor>,
         tab_accent_inactive_alpha: f32,
         canvas_depth: f32,
         cx: &App,
@@ -2891,7 +2891,7 @@ impl PaneTree {
         tree_has_splits: bool,
         zoomed_pane_id: Option<PaneId>,
         session_id: u64,
-        _tab_accent_color: Option<con_core::session::TabAccentColor>,
+        _tab_accent_color: Option<cube_core::session::TabAccentColor>,
         tab_accent_inactive_alpha: f32,
         _canvas_depth: f32,
         cx: &App,
@@ -3424,7 +3424,7 @@ impl PaneTree {
                         Some(clamped_screen_text.as_slice())
                     };
                     let force_restored_screen_text = state.owner.as_deref()
-                        == Some(con_core::session::WORKSPACE_ERROR_SURFACE_OWNER);
+                        == Some(cube_core::session::WORKSPACE_ERROR_SURFACE_OWNER);
                     let mut surface = PaneSurface::new(
                         surface_id,
                         make_terminal(restore_cwd, restored_text, force_restored_screen_text),
@@ -3650,7 +3650,7 @@ mod tests {
     fn single_pane_render_clears_a_reused_split_mask(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
         let app = std::sync::Arc::new(
-            con_ghostty::GhosttyApp::new(
+            cube_ghostty::GhosttyApp::new(
                 None, None, None, None, None, None, None, None, None, None, None, None, None, false,
             )
             .expect("native Ghostty app"),
@@ -3706,7 +3706,7 @@ mod tests {
     fn split_card_clearance_matches_the_outer_edges_on_both_axes(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
         let app = std::sync::Arc::new(
-            con_ghostty::GhosttyApp::new(
+            cube_ghostty::GhosttyApp::new(
                 None, None, None, None, None, None, None, None, None, None, None, None, None, false,
             )
             .unwrap(),

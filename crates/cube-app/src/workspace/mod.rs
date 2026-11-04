@@ -72,8 +72,8 @@ use crate::sidebar::{
 use crate::sidebar_search_view::SidebarSearchView;
 use crate::terminal_pane::{TerminalPane, subscribe_terminal_pane};
 use crate::ui_scale::{mono_icon_px, ui_icon_px};
-use con_ghostty::TerminalProgress;
-use con_terminal::TerminalTheme;
+use cube_ghostty::TerminalProgress;
+use cube_terminal::TerminalTheme;
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use crate::ghostty_view::GhosttyDesktopNotification;
@@ -94,17 +94,17 @@ use crate::{
     SelectTab7, SelectTab8, SelectTab9, SplitDown, SplitLeft, SplitRight, SplitUp, ToggleLeftPanel,
     TogglePaneZoom, Undo,
 };
-use con_core::config::{
+use cube_core::config::{
     AppearanceConfig, Config, TabsOrientation, TerminalConfig, sanitize_app_icon,
     sanitize_terminal_font_fallback, sanitize_terminal_font_family,
 };
-use con_core::control::{
+use cube_core::control::{
     ControlCommand, ControlError, ControlRequestEnvelope, ControlResult, SystemIdentifyResult,
     TabInfo,
 };
-use con_core::session::{GlobalHistoryState, PaneLayoutState, Session, TabState};
-use con_core::workspace_layout::WorkspaceLayout;
-use con_terminal::{TerminalExecRequest, TerminalExecResponse};
+use cube_core::session::{GlobalHistoryState, PaneLayoutState, Session, TabState};
+use cube_core::workspace_layout::WorkspaceLayout;
+use cube_terminal::{TerminalExecRequest, TerminalExecResponse};
 
 mod caption;
 mod chrome;
@@ -141,7 +141,7 @@ use terminal_factory::*;
 use types::*;
 
 /// The main workspace: tabs + agent panel + input bar + settings overlay
-pub struct ConWorkspace {
+pub struct CubeWorkspace {
     config: Config,
     sidebar: Entity<SessionSidebar>,
     tabs: Vec<Tab>,
@@ -206,7 +206,7 @@ pub struct ConWorkspace {
     /// Current terminal color theme
     terminal_theme: TerminalTheme,
     /// Shared Ghostty app instance for all panes in this window.
-    ghostty_app: std::sync::Arc<con_ghostty::GhosttyApp>,
+    ghostty_app: std::sync::Arc<cube_ghostty::GhosttyApp>,
     /// Last wake generation observed from Ghostty's embedded runtime.
     last_ghostty_wake_generation: u64,
     #[cfg(target_os = "macos")]
@@ -234,14 +234,14 @@ pub struct ConWorkspace {
     agent_panel_snap_guard_until: Option<Instant>,
     #[cfg(target_os = "macos")]
     agent_panel_release_cover_until: Option<Instant>,
-    /// Control-plane requests from the external `con-cli` socket bridge.
+    /// Control-plane requests from the external `cube-cli` socket bridge.
     control_request_rx: crossbeam_channel::Receiver<ControlRequestEnvelope>,
     /// Keeps the Unix socket alive for this workspace instance.
-    control_socket: Option<con_core::ControlSocketHandle>,
+    control_socket: Option<cube_core::ControlSocketHandle>,
     /// Window handle used to re-enter a window-aware context from deferred control work.
     window_handle: AnyWindowHandle,
     /// Weak self handle for deferred window callbacks.
-    workspace_handle: WeakEntity<ConWorkspace>,
+    workspace_handle: WeakEntity<CubeWorkspace>,
     /// Ensures native window-close cleanup only runs once.
     window_close_prepared: bool,
     /// Ordered, coalescing session persistence worker.

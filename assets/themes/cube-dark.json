@@ -1,9 +1,9 @@
 {
-  "name": "Con",
+  "name": "Cube",
   "author": "con",
   "themes": [
     {
-      "name": "Con Dark",
+      "name": "Cube Dark",
       "mode": "dark",
       "is_default": false,
       "font.size": 14,

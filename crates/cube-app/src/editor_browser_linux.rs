@@ -5,7 +5,7 @@ use std::io;
 #[cfg(target_os = "linux")]
 pub(super) fn open(url: &url::Url) -> io::Result<()> {
     open_with(url, |program, args| {
-        con_paths::host_command(program)
+        cube_paths::host_command(program)
             .args(args)
             .output()
             .map_err(|error| {

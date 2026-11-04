@@ -21,19 +21,19 @@ static char kConTerminalCanvasMaskKey;
 
 typedef struct {
     CGFloat topLeft, topRight, bottomRight, bottomLeft;
-} ConTerminalCornerRadii;
+} CubeTerminalCornerRadii;
 
-static bool con_terminal_radii_equal(ConTerminalCornerRadii a, ConTerminalCornerRadii b) {
+static bool cube_terminal_radii_equal(CubeTerminalCornerRadii a, CubeTerminalCornerRadii b) {
     return a.topLeft == b.topLeft && a.topRight == b.topRight &&
         a.bottomRight == b.bottomRight && a.bottomLeft == b.bottomLeft;
 }
 
-static CGFloat con_terminal_max_radius(ConTerminalCornerRadii radii) {
+static CGFloat cube_terminal_max_radius(CubeTerminalCornerRadii radii) {
     return fmax(fmax(radii.topLeft, radii.topRight), fmax(radii.bottomRight, radii.bottomLeft));
 }
 
 // The same circular Bezier as GPUI's exterior cutouts, in AppKit's y-up space.
-static CGPathRef con_terminal_corner_path(CGRect rect, ConTerminalCornerRadii radii) {
+static CGPathRef cube_terminal_corner_path(CGRect rect, CubeTerminalCornerRadii radii) {
     CGFloat x = CGRectGetMinX(rect), y = CGRectGetMinY(rect);
     CGFloat right = CGRectGetMaxX(rect), top = CGRectGetMaxY(rect);
     CGFloat tl = radii.topLeft, tr = radii.topRight;
@@ -53,40 +53,40 @@ static CGPathRef con_terminal_corner_path(CGRect rect, ConTerminalCornerRadii ra
     return path;
 }
 
-@interface ConTerminalCanvasClip : NSObject
+@interface CubeTerminalCanvasClip : NSObject
 @property(nonatomic) NSRect rect;
 @property(nonatomic) CGFloat radius;
 @property(nonatomic) uint64_t generation;
 @property(nonatomic) CGFloat scale;
-@property(nonatomic) ConTerminalCornerRadii radii;
+@property(nonatomic) CubeTerminalCornerRadii radii;
 @property(nonatomic, strong) NSArray<NSData *> *coverageBytes;
 @property(nonatomic, strong) NSArray *coverageImages;
 @property(nonatomic, strong) NSArray<NSValue *> *coverageRects;
 @end
-@implementation ConTerminalCanvasClip
+@implementation CubeTerminalCanvasClip
 @end
 
-@interface ConTerminalCanvasMask : NSObject
+@interface CubeTerminalCanvasMask : NSObject
 @property(nonatomic, strong) CAShapeLayer *layer;
 @property(nonatomic, strong) CAShapeLayer *paneLayer;
 @property(nonatomic, weak) CALayer *targetLayer;
 @property(nonatomic) NSRect rect;
 @property(nonatomic) NSRect bounds;
 @property(nonatomic) NSRect paneRect;
-@property(nonatomic) ConTerminalCornerRadii paneRadii;
+@property(nonatomic) CubeTerminalCornerRadii paneRadii;
 @property(nonatomic) CGFloat radius;
 @property(nonatomic) CGFloat scale;
 @property(nonatomic) uint64_t paneGeneration;
 @end
-@implementation ConTerminalCanvasMask
+@implementation CubeTerminalCanvasMask
 @end
 
 // Material only: this never receives input or becomes a first responder.
-@interface ConTerminalCanvasSafeArea : NSView
+@interface CubeTerminalCanvasSafeArea : NSView
 @property(nonatomic, strong) NSColor *materialColor;
 @property(nonatomic) uint64_t clipGeneration;
 @end
-@implementation ConTerminalCanvasSafeArea
+@implementation CubeTerminalCanvasSafeArea
 - (NSView *)hitTest:(NSPoint)point { return nil; }
 - (BOOL)acceptsFirstResponder { return NO; }
 @end
@@ -96,23 +96,23 @@ static char kConTerminalPaneHeaderKey;
 
 // Header material lives beside the native terminal, not in GPUI's transparent
 // overlay. Text and controls remain GPUI elements above this noninteractive view.
-@interface ConTerminalPaneHeader : NSView
+@interface CubeTerminalPaneHeader : NSView
 @property(nonatomic) BOOL materialVisible;
 @property(nonatomic) CGFloat red;
 @property(nonatomic) CGFloat green;
 @property(nonatomic) CGFloat blue;
 @property(nonatomic) CGFloat alpha;
-@property(nonatomic) ConTerminalCornerRadii radii;
+@property(nonatomic) CubeTerminalCornerRadii radii;
 @end
 
-void con_terminal_canvas_apply_clip(void *host_ptr);
-@implementation ConTerminalPaneHeader
+void cube_terminal_canvas_apply_clip(void *host_ptr);
+@implementation CubeTerminalPaneHeader
 - (CALayer *)makeBackingLayer { return [CAShapeLayer layer]; }
 - (NSView *)hitTest:(NSPoint)point { return nil; }
 - (BOOL)acceptsFirstResponder { return NO; }
 @end
 
-bool con_terminal_pane_set_header(void *host_ptr, double x, double y,
+bool cube_terminal_pane_set_header(void *host_ptr, double x, double y,
                                  double width, double height, double top_left, double top_right,
                                  double red, double green, double blue, double alpha) {
     NSView *host = (__bridge NSView *)host_ptr;
@@ -120,7 +120,7 @@ bool con_terminal_pane_set_header(void *host_ptr, double x, double y,
         !isfinite(x) || !isfinite(y) || !isfinite(width) || !isfinite(height) ||
         !isfinite(top_left) || !isfinite(top_right) || !isfinite(red) || !isfinite(green) ||
         !isfinite(blue) || !isfinite(alpha) || width < 0 || height < 0 || top_left < 0 || top_right < 0) return false;
-    ConTerminalPaneHeader *header = objc_getAssociatedObject(host, &kConTerminalPaneHeaderKey);
+    CubeTerminalPaneHeader *header = objc_getAssociatedObject(host, &kConTerminalPaneHeaderKey);
     if (height == 0 || width == 0) {
         if (header == nil) return false;
         header.materialVisible = NO;
@@ -130,24 +130,24 @@ bool con_terminal_pane_set_header(void *host_ptr, double x, double y,
     }
     NSRect rect = NSMakeRect(x, host.superview.bounds.size.height - y - height, width, height);
     CGFloat limit = fmin(width * 0.5, height);
-    ConTerminalCornerRadii radii = {fmin(top_left, limit), fmin(top_right, limit), 0, 0};
-    ConTerminalCanvasClip *paneClip = objc_getAssociatedObject(host, &kConTerminalPaneClipKey);
-    if (paneClip.coverageImages.count > 0) radii = (ConTerminalCornerRadii){0};
+    CubeTerminalCornerRadii radii = {fmin(top_left, limit), fmin(top_right, limit), 0, 0};
+    CubeTerminalCanvasClip *paneClip = objc_getAssociatedObject(host, &kConTerminalPaneClipKey);
+    if (paneClip.coverageImages.count > 0) radii = (CubeTerminalCornerRadii){0};
     CGFloat scale = host.window != nil ? host.window.backingScaleFactor : 1.0;
     CAShapeLayer *material = (CAShapeLayer *)header.layer;
     if (header != nil && header.superview == host.superview &&
-        NSEqualRects(header.frame, rect) && con_terminal_radii_equal(header.radii, radii) &&
+        NSEqualRects(header.frame, rect) && cube_terminal_radii_equal(header.radii, radii) &&
         material.contentsScale == scale && material.path != NULL && material.fillColor != NULL &&
         header.red == red && header.green == green && header.blue == blue && header.alpha == alpha &&
         header.materialVisible && header.hidden == host.hidden) {
         objc_setAssociatedObject(header, &kConTerminalPaneClipKey, paneClip, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        con_terminal_canvas_apply_clip((__bridge void *)header);
+        cube_terminal_canvas_apply_clip((__bridge void *)header);
         return false;
     }
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     if (header == nil) {
-        header = [[ConTerminalPaneHeader alloc] initWithFrame:rect];
+        header = [[CubeTerminalPaneHeader alloc] initWithFrame:rect];
         header.wantsLayer = YES;
         header.autoresizingMask = NSViewNotSizable;
         objc_setAssociatedObject(host, &kConTerminalPaneHeaderKey, header, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -158,7 +158,7 @@ bool con_terminal_pane_set_header(void *host_ptr, double x, double y,
     }
     header.frame = rect;
     material = (CAShapeLayer *)header.layer;
-    CGPathRef path = con_terminal_corner_path(NSRectToCGRect(header.bounds), radii);
+    CGPathRef path = cube_terminal_corner_path(NSRectToCGRect(header.bounds), radii);
     material.contentsScale = scale;
     material.path = path;
     material.fillColor = [NSColor colorWithSRGBRed:red green:green blue:blue alpha:alpha].CGColor;
@@ -172,27 +172,27 @@ bool con_terminal_pane_set_header(void *host_ptr, double x, double y,
     header.hidden = host.hidden;
     objc_setAssociatedObject(header, &kConTerminalPaneClipKey, paneClip, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [CATransaction commit];
-    con_terminal_canvas_apply_clip((__bridge void *)header);
+    cube_terminal_canvas_apply_clip((__bridge void *)header);
     return true;
 }
 
-void con_terminal_pane_header_set_visible(void *host_ptr, bool visible) {
+void cube_terminal_pane_header_set_visible(void *host_ptr, bool visible) {
     NSView *host = (__bridge NSView *)host_ptr;
-    ConTerminalPaneHeader *header = objc_getAssociatedObject(host, &kConTerminalPaneHeaderKey);
+    CubeTerminalPaneHeader *header = objc_getAssociatedObject(host, &kConTerminalPaneHeaderKey);
     BOOL hidden = !visible || !header.materialVisible;
     if (header != nil && header.hidden != hidden) header.hidden = hidden;
 }
 
-void con_terminal_pane_remove_header(void *host_ptr) {
+void cube_terminal_pane_remove_header(void *host_ptr) {
     NSView *host = (__bridge NSView *)host_ptr;
-    ConTerminalPaneHeader *header = objc_getAssociatedObject(host, &kConTerminalPaneHeaderKey);
+    CubeTerminalPaneHeader *header = objc_getAssociatedObject(host, &kConTerminalPaneHeaderKey);
     [header removeFromSuperview];
     objc_setAssociatedObject(host, &kConTerminalPaneHeaderKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 // Pane bounds use the same parent coordinate system as the workspace clip.
 // Keeping them on each host leaves the window-wide transition underlay alone.
-bool con_terminal_pane_set_clip_corners(void *host_ptr, double x, double y,
+bool cube_terminal_pane_set_clip_corners(void *host_ptr, double x, double y,
                                        double width, double height, double top_left,
                                        double top_right, double bottom_right, double bottom_left) {
     NSView *host = (__bridge NSView *)host_ptr;
@@ -202,12 +202,12 @@ bool con_terminal_pane_set_clip_corners(void *host_ptr, double x, double y,
         top_left < 0 || top_right < 0 || bottom_right < 0 || bottom_left < 0) return false;
     NSRect rect = NSMakeRect(x, host.superview.bounds.size.height - y - height, width, height);
     CGFloat limit = fmin(width, height) * 0.5;
-    ConTerminalCornerRadii radii = {fmin(top_left, limit), fmin(top_right, limit),
+    CubeTerminalCornerRadii radii = {fmin(top_left, limit), fmin(top_right, limit),
         fmin(bottom_right, limit), fmin(bottom_left, limit)};
-    ConTerminalCanvasClip *clip = objc_getAssociatedObject(host, &kConTerminalPaneClipKey);
-    if (clip != nil && NSEqualRects(clip.rect, rect) && con_terminal_radii_equal(clip.radii, radii)) return false;
+    CubeTerminalCanvasClip *clip = objc_getAssociatedObject(host, &kConTerminalPaneClipKey);
+    if (clip != nil && NSEqualRects(clip.rect, rect) && cube_terminal_radii_equal(clip.radii, radii)) return false;
     if (clip == nil) {
-        clip = [ConTerminalCanvasClip new];
+        clip = [CubeTerminalCanvasClip new];
         objc_setAssociatedObject(host, &kConTerminalPaneClipKey, clip, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     clip.rect = rect;
@@ -216,9 +216,9 @@ bool con_terminal_pane_set_clip_corners(void *host_ptr, double x, double y,
 }
 
 // Uniform entry point retained for native geometry fixtures.
-bool con_terminal_pane_set_clip(void *host_ptr, double x, double y,
+bool cube_terminal_pane_set_clip(void *host_ptr, double x, double y,
                                 double width, double height, double radius) {
-    return con_terminal_pane_set_clip_corners(host_ptr, x, y, width, height,
+    return cube_terminal_pane_set_clip_corners(host_ptr, x, y, width, height,
         radius, radius, radius, radius);
 }
 
@@ -226,18 +226,18 @@ typedef struct {
     double x, y, width, height;
     size_t side;
     const uint8_t *bytes;
-} ConNativeCornerTile;
+} CubeNativeCornerTile;
 
 // Only radius/material changes upload tiny tiles. Their coordinates are in the
 // shared parent, so host and header consume one coverage field.
-bool con_terminal_pane_set_coverage(void *host_ptr, const ConNativeCornerTile *tiles, size_t count) {
+bool cube_terminal_pane_set_coverage(void *host_ptr, const CubeNativeCornerTile *tiles, size_t count) {
     NSView *host = (__bridge NSView *)host_ptr;
-    ConTerminalCanvasClip *clip = objc_getAssociatedObject(host, &kConTerminalPaneClipKey);
+    CubeTerminalCanvasClip *clip = objc_getAssociatedObject(host, &kConTerminalPaneClipKey);
     if (clip == nil || count > 4 || (count > 0 && tiles == NULL)) return false;
     BOOL unchanged = clip.coverageBytes != nil && clip.coverageBytes.count == count;
     BOOL sameRaster = unchanged;
     for (size_t i = 0; i < count; ++i) {
-        ConNativeCornerTile t = tiles[i];
+        CubeNativeCornerTile t = tiles[i];
         if (t.bytes == NULL || t.side == 0 || t.side > 256 || !isfinite(t.x) || !isfinite(t.y) ||
             !isfinite(t.width) || !isfinite(t.height) || t.width <= 0 || t.height <= 0) return false;
         NSRect rect = NSMakeRect(t.x, host.superview.bounds.size.height - t.y - t.height, t.width, t.height);
@@ -251,7 +251,7 @@ bool con_terminal_pane_set_coverage(void *host_ptr, const ConNativeCornerTile *t
     if (sameRaster) {
         NSMutableArray *rects = [NSMutableArray arrayWithCapacity:count];
         for (size_t i = 0; i < count; ++i) {
-            ConNativeCornerTile t = tiles[i];
+            CubeNativeCornerTile t = tiles[i];
             [rects addObject:[NSValue valueWithRect:NSMakeRect(t.x,
                 host.superview.bounds.size.height - t.y - t.height, t.width, t.height)]];
         }
@@ -262,7 +262,7 @@ bool con_terminal_pane_set_coverage(void *host_ptr, const ConNativeCornerTile *t
     NSMutableArray *bytes = [NSMutableArray arrayWithCapacity:count];
     NSMutableArray *rects = [NSMutableArray arrayWithCapacity:count];
     for (size_t i = 0; i < count; ++i) {
-        ConNativeCornerTile t = tiles[i];
+        CubeNativeCornerTile t = tiles[i];
         if (t.bytes == NULL || t.side == 0 || t.side > 256 || !isfinite(t.x) || !isfinite(t.y) ||
             !isfinite(t.width) || !isfinite(t.height) || t.width <= 0 || t.height <= 0) return false;
         [bytes addObject:[NSData dataWithBytes:t.bytes length:t.side * t.side * 4]];
@@ -288,13 +288,13 @@ bool con_terminal_pane_set_coverage(void *host_ptr, const ConNativeCornerTile *t
     return true;
 }
 
-static NSView *con_terminal_parent(NSView *gpui) {
+static NSView *cube_terminal_parent(NSView *gpui) {
     return gpui.superview ?: gpui;
 }
 
-bool con_terminal_canvas_set_clip(void *gpui_ptr, double x, double y,
+bool cube_terminal_canvas_set_clip(void *gpui_ptr, double x, double y,
                                   double width, double height, double radius) {
-    NSView *parent = con_terminal_parent((__bridge NSView *)gpui_ptr);
+    NSView *parent = cube_terminal_parent((__bridge NSView *)gpui_ptr);
     if (parent == nil) return false;
     if (!isfinite(x) || !isfinite(y) || !isfinite(width) || !isfinite(height) ||
         !isfinite(radius) || width < 0 || height < 0) return false;
@@ -303,9 +303,9 @@ bool con_terminal_canvas_set_clip(void *gpui_ptr, double x, double y,
     CGFloat scale = gpui.window != nil ? gpui.window.backingScaleFactor : 1.0;
     if (!isfinite(scale) || scale <= 0.0) scale = 1.0;
     NSRect rect = NSMakeRect(x, parent.bounds.size.height - y - height, width, height);
-    ConTerminalCanvasClip *clip = objc_getAssociatedObject(parent, &kConTerminalCanvasKey);
+    CubeTerminalCanvasClip *clip = objc_getAssociatedObject(parent, &kConTerminalCanvasKey);
     if (clip == nil) {
-        clip = [ConTerminalCanvasClip new];
+        clip = [CubeTerminalCanvasClip new];
         objc_setAssociatedObject(parent, &kConTerminalCanvasKey, clip, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     } else if (NSEqualRects(clip.rect, rect) && clip.radius == radius && clip.scale == scale) {
         return false;
@@ -317,27 +317,27 @@ bool con_terminal_canvas_set_clip(void *gpui_ptr, double x, double y,
     return true;
 }
 
-double con_terminal_canvas_radius(void *gpui_ptr) {
-    NSView *parent = con_terminal_parent((__bridge NSView *)gpui_ptr);
-    ConTerminalCanvasClip *clip = objc_getAssociatedObject(parent, &kConTerminalCanvasKey);
+double cube_terminal_canvas_radius(void *gpui_ptr) {
+    NSView *parent = cube_terminal_parent((__bridge NSView *)gpui_ptr);
+    CubeTerminalCanvasClip *clip = objc_getAssociatedObject(parent, &kConTerminalCanvasKey);
     return clip.radius;
 }
 
-uint64_t con_terminal_canvas_generation(void *host_ptr) {
+uint64_t cube_terminal_canvas_generation(void *host_ptr) {
     NSView *host = (__bridge NSView *)host_ptr;
-    ConTerminalCanvasClip *clip = objc_getAssociatedObject(host.superview, &kConTerminalCanvasKey);
+    CubeTerminalCanvasClip *clip = objc_getAssociatedObject(host.superview, &kConTerminalCanvasKey);
     return clip.generation;
 }
 
-void con_terminal_canvas_apply_clip(void *host_ptr) {
+void cube_terminal_canvas_apply_clip(void *host_ptr) {
     NSView *host = (__bridge NSView *)host_ptr;
-    ConTerminalCanvasClip *clip = objc_getAssociatedObject(host.superview, &kConTerminalCanvasKey);
+    CubeTerminalCanvasClip *clip = objc_getAssociatedObject(host.superview, &kConTerminalCanvasKey);
     if (clip == nil) return;
-    ConTerminalCanvasClip *pane = objc_getAssociatedObject(host, &kConTerminalPaneClipKey);
+    CubeTerminalCanvasClip *pane = objc_getAssociatedObject(host, &kConTerminalPaneClipKey);
     NSRect rect = [host convertRect:clip.rect fromView:host.superview];
-    ConTerminalCornerRadii paneRadii = pane != nil ? pane.radii : (ConTerminalCornerRadii){0};
+    CubeTerminalCornerRadii paneRadii = pane != nil ? pane.radii : (CubeTerminalCornerRadii){0};
     NSRect paneRect = pane != nil ? [host convertRect:pane.rect fromView:host.superview] : NSZeroRect;
-    BOOL paneContainsHost = pane == nil || (con_terminal_max_radius(paneRadii) <= 0 && NSContainsRect(paneRect, host.bounds));
+    BOOL paneContainsHost = pane == nil || (cube_terminal_max_radius(paneRadii) <= 0 && NSContainsRect(paneRect, host.bounds));
     BOOL clean = clip.radius <= 0 && NSContainsRect(rect, host.bounds) && paneContainsHost;
     BOOL paneMaskNeeded = !paneContainsHost;
     // A rectangular pane clip must still constrain reused/resizing hosts.
@@ -346,9 +346,9 @@ void con_terminal_canvas_apply_clip(void *host_ptr) {
     if (host.layer == nil) return;
     CGFloat scale = host.window != nil ? host.window.backingScaleFactor : host.layer.contentsScale;
     if (!isfinite(scale) || scale <= 0.0) scale = 1.0;
-    ConTerminalCanvasMask *mask = objc_getAssociatedObject(host, &kConTerminalCanvasMaskKey);
+    CubeTerminalCanvasMask *mask = objc_getAssociatedObject(host, &kConTerminalCanvasMaskKey);
     if (mask == nil) {
-        mask = [ConTerminalCanvasMask new];
+        mask = [CubeTerminalCanvasMask new];
         mask.layer = [CAShapeLayer layer];
         mask.layer.fillColor = NSColor.blackColor.CGColor;
         mask.paneLayer = [CAShapeLayer layer];
@@ -356,7 +356,7 @@ void con_terminal_canvas_apply_clip(void *host_ptr) {
         objc_setAssociatedObject(host, &kConTerminalCanvasMaskKey, mask, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     } else if (NSEqualRects(mask.rect, rect) && NSEqualRects(mask.bounds, host.bounds) &&
                mask.radius == clip.radius && mask.scale == scale && mask.paneGeneration == pane.generation &&
-               con_terminal_radii_equal(mask.paneRadii, paneRadii) && NSEqualRects(mask.paneRect, paneRect)) {
+               cube_terminal_radii_equal(mask.paneRadii, paneRadii) && NSEqualRects(mask.paneRect, paneRect)) {
         if (clean ? host.layer.mask != nil : (host.layer.mask != mask.layer ||
                 mask.targetLayer != host.layer || mask.layer.mask != (paneMaskNeeded ? mask.paneLayer : nil))) {
             // AppKit may replace a backing layer without changing view bounds.
@@ -399,7 +399,7 @@ void con_terminal_canvas_apply_clip(void *host_ptr) {
     mask.layer.contentsScale = scale;
     mask.layer.path = path;
     if (paneMaskNeeded) {
-        CGPathRef panePath = con_terminal_corner_path(NSRectToCGRect(paneRect), paneRadii);
+        CGPathRef panePath = cube_terminal_corner_path(NSRectToCGRect(paneRect), paneRadii);
         mask.paneLayer.sublayers = nil;
         mask.paneLayer.fillRule = kCAFillRuleNonZero;
         if (pane.coverageImages.count > 0) {
@@ -434,31 +434,31 @@ void con_terminal_canvas_apply_clip(void *host_ptr) {
     CGPathRelease(path);
 }
 
-bool con_terminal_canvas_clip_is_attached(void *host_ptr) {
+bool cube_terminal_canvas_clip_is_attached(void *host_ptr) {
     NSView *host = (__bridge NSView *)host_ptr;
-    ConTerminalCanvasClip *clip = objc_getAssociatedObject(host.superview, &kConTerminalCanvasKey);
-    ConTerminalCanvasClip *pane = objc_getAssociatedObject(host, &kConTerminalPaneClipKey);
+    CubeTerminalCanvasClip *clip = objc_getAssociatedObject(host.superview, &kConTerminalCanvasKey);
+    CubeTerminalCanvasClip *pane = objc_getAssociatedObject(host, &kConTerminalPaneClipKey);
     if (clip == nil || host.layer == nil) return false;
     NSRect rect = [host convertRect:clip.rect fromView:host.superview];
     NSRect paneRect = pane != nil ? [host convertRect:pane.rect fromView:host.superview] : NSZeroRect;
-    BOOL paneContainsHost = pane == nil || (con_terminal_max_radius(pane.radii) <= 0 && NSContainsRect(paneRect, host.bounds));
+    BOOL paneContainsHost = pane == nil || (cube_terminal_max_radius(pane.radii) <= 0 && NSContainsRect(paneRect, host.bounds));
     if (clip.radius <= 0.0 && NSContainsRect(rect, host.bounds) && paneContainsHost) {
         return host.layer.mask == nil;
     }
-    ConTerminalCanvasMask *mask = objc_getAssociatedObject(host, &kConTerminalCanvasMaskKey);
+    CubeTerminalCanvasMask *mask = objc_getAssociatedObject(host, &kConTerminalCanvasMaskKey);
     return mask != nil && mask.targetLayer == host.layer && host.layer.mask == mask.layer &&
         mask.layer.mask == (!paneContainsHost ? mask.paneLayer : nil);
 }
 
-bool con_terminal_canvas_set_safe_area(void *gpui_ptr, double height,
+bool cube_terminal_canvas_set_safe_area(void *gpui_ptr, double height,
                                       double red, double green, double blue, double alpha) {
     NSView *gpui = (__bridge NSView *)gpui_ptr;
-    NSView *parent = con_terminal_parent(gpui);
-    ConTerminalCanvasClip *clip = objc_getAssociatedObject(parent, &kConTerminalCanvasKey);
+    NSView *parent = cube_terminal_parent(gpui);
+    CubeTerminalCanvasClip *clip = objc_getAssociatedObject(parent, &kConTerminalCanvasKey);
     if (parent == nil || clip == nil || !isfinite(height) || !isfinite(red) ||
         !isfinite(green) || !isfinite(blue) || !isfinite(alpha)) return false;
     height = fmax(0, fmin(height, clip.rect.size.height));
-    ConTerminalCanvasSafeArea *view = objc_getAssociatedObject(parent, &kConTerminalCanvasSafeAreaKey);
+    CubeTerminalCanvasSafeArea *view = objc_getAssociatedObject(parent, &kConTerminalCanvasSafeAreaKey);
     if (height == 0) {
         if (view == nil || view.hidden) return false;
         view.hidden = YES;
@@ -468,7 +468,7 @@ bool con_terminal_canvas_set_safe_area(void *gpui_ptr, double height,
                             clip.rect.size.width, height);
     NSColor *color = [NSColor colorWithSRGBRed:red green:green blue:blue alpha:alpha];
     if (view == nil) {
-        view = [[ConTerminalCanvasSafeArea alloc] initWithFrame:rect];
+        view = [[CubeTerminalCanvasSafeArea alloc] initWithFrame:rect];
         view.wantsLayer = YES;
         [parent addSubview:view positioned:NSWindowBelow relativeTo:gpui];
         objc_setAssociatedObject(parent, &kConTerminalCanvasSafeAreaKey, view,
@@ -482,7 +482,7 @@ bool con_terminal_canvas_set_safe_area(void *gpui_ptr, double height,
     view.frame = rect;
     view.layer.backgroundColor = color.CGColor;
     view.hidden = NO;
-    con_terminal_canvas_apply_clip((__bridge void *)view);
+    cube_terminal_canvas_apply_clip((__bridge void *)view);
     [CATransaction commit];
     view.materialColor = color;
     view.clipGeneration = clip.generation;
@@ -492,7 +492,7 @@ bool con_terminal_canvas_set_safe_area(void *gpui_ptr, double height,
 // AppKit's window corner radius changes across macOS releases; workspace cards
 // beside a window corner derive concentric curves from it. Fullscreen and
 // unknown releases report no window corner.
-double con_window_corner_radius(void *gpui_ptr) {
+double cube_window_corner_radius(void *gpui_ptr) {
     NSWindow *window = ((__bridge NSView *)gpui_ptr).window;
     if (window == nil || (window.styleMask & NSWindowStyleMaskFullScreen) != 0) return 0.0;
     SEL selector = NSSelectorFromString(@"_cornerRadius");
@@ -501,10 +501,10 @@ double con_window_corner_radius(void *gpui_ptr) {
     return isfinite(radius) && radius > 0.0 ? radius : 0.0;
 }
 
-uint8_t con_terminal_canvas_header_corners(void *gpui_ptr, double x, double y,
+uint8_t cube_terminal_canvas_header_corners(void *gpui_ptr, double x, double y,
                                           double width) {
-    NSView *parent = con_terminal_parent((__bridge NSView *)gpui_ptr);
-    ConTerminalCanvasClip *clip = objc_getAssociatedObject(parent, &kConTerminalCanvasKey);
+    NSView *parent = cube_terminal_parent((__bridge NSView *)gpui_ptr);
+    CubeTerminalCanvasClip *clip = objc_getAssociatedObject(parent, &kConTerminalCanvasKey);
     if (clip == nil || clip.radius <= 0.0) return 0;
     CGFloat top = parent.bounds.size.height - y;
     if (fabs(top - NSMaxY(clip.rect)) > 0.25) return 0;
@@ -516,7 +516,7 @@ uint8_t con_terminal_canvas_header_corners(void *gpui_ptr, double x, double y,
 
 // Only read the native event while its terminal window is handling keyDown.
 // Remote text injection can carry Unicode unrelated to the virtual keycode.
-const char *con_ghostty_surface_current_key_text(void *view_ptr, size_t *text_length) {
+const char *cube_ghostty_surface_current_key_text(void *view_ptr, size_t *text_length) {
     NSView *view = (__bridge NSView *)view_ptr;
     NSEvent *event = NSApp.currentEvent;
     if (view.window == nil || event.window != view.window || event.type != NSEventTypeKeyDown) {
@@ -530,14 +530,14 @@ const char *con_ghostty_surface_current_key_text(void *view_ptr, size_t *text_le
     return text.UTF8String;
 }
 
-static double con_valid_scale(double scale, double fallback) {
+static double cube_valid_scale(double scale, double fallback) {
     if (!isfinite(scale) || scale <= 0.0) {
         return fallback > 0.0 ? fallback : 1.0;
     }
     return scale;
 }
 
-static uint32_t con_ghostty_display_id_for_window(NSWindow *window) {
+static uint32_t cube_ghostty_display_id_for_window(NSWindow *window) {
     NSScreen *screen = window.screen;
     if (screen == nil) {
         return 0;
@@ -547,7 +547,7 @@ static uint32_t con_ghostty_display_id_for_window(NSWindow *window) {
     return number == nil ? 0 : number.unsignedIntValue;
 }
 
-bool con_ghostty_surface_sync_backing(
+bool cube_ghostty_surface_sync_backing(
     void *view_ptr,
     void *surface_ptr,
     double logical_width,
@@ -563,19 +563,19 @@ bool con_ghostty_surface_sync_backing(
         return false;
     }
 
-    fallback_scale = con_valid_scale(fallback_scale, 1.0);
+    fallback_scale = cube_valid_scale(fallback_scale, 1.0);
 
     NSWindow *window = view.window;
     double window_scale = fallback_scale;
     uint32_t display_id = 0;
     if (window != nil) {
-        window_scale = con_valid_scale(window.backingScaleFactor, fallback_scale);
-        display_id = con_ghostty_display_id_for_window(window);
+        window_scale = cube_valid_scale(window.backingScaleFactor, fallback_scale);
+        display_id = cube_ghostty_display_id_for_window(window);
     }
 
     NSSize unit_backing = [view convertSizeToBacking:NSMakeSize(1.0, 1.0)];
-    double scale_x = con_valid_scale(unit_backing.width, window_scale);
-    double scale_y = con_valid_scale(unit_backing.height, window_scale);
+    double scale_x = cube_valid_scale(unit_backing.width, window_scale);
+    double scale_y = cube_valid_scale(unit_backing.height, window_scale);
 
     CALayer *layer = view.layer;
     if (layer != nil) {
@@ -612,7 +612,7 @@ bool con_ghostty_surface_sync_backing(
     return true;
 }
 
-@interface ConGhosttySurfaceBackingObserver : NSObject
+@interface CubeGhosttySurfaceBackingObserver : NSObject
 @property(nonatomic, weak) NSView *view;
 @property(nonatomic, assign) void *surface;
 @property(nonatomic, weak) NSWindow *window;
@@ -634,7 +634,7 @@ bool con_ghostty_surface_sync_backing(
 - (void)syncOcclusion;
 @end
 
-@implementation ConGhosttySurfaceBackingObserver
+@implementation CubeGhosttySurfaceBackingObserver
 
 - (void)dealloc {
     [self invalidate];
@@ -661,13 +661,13 @@ bool con_ghostty_surface_sync_backing(
         return;
     }
 
-    __weak ConGhosttySurfaceBackingObserver *weakSelf = self;
+    __weak CubeGhosttySurfaceBackingObserver *weakSelf = self;
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     _screenObserver = [center addObserverForName:NSWindowDidChangeScreenNotification
                                           object:window
                                            queue:NSOperationQueue.mainQueue
                                       usingBlock:^(__unused NSNotification *notification) {
-        ConGhosttySurfaceBackingObserver *observer = weakSelf;
+        CubeGhosttySurfaceBackingObserver *observer = weakSelf;
         if (observer.suspendedForSleep) {
             [observer scheduleWakeSettle];
             return;
@@ -681,7 +681,7 @@ bool con_ghostty_surface_sync_backing(
                                            object:window
                                             queue:NSOperationQueue.mainQueue
                                        usingBlock:^(__unused NSNotification *notification) {
-        ConGhosttySurfaceBackingObserver *observer = weakSelf;
+        CubeGhosttySurfaceBackingObserver *observer = weakSelf;
         if (observer.suspendedForSleep) {
             [observer scheduleWakeSettle];
         } else {
@@ -698,7 +698,7 @@ bool con_ghostty_surface_sync_backing(
                                            object:nil
                                             queue:NSOperationQueue.mainQueue
                                        usingBlock:^(__unused NSNotification *notification) {
-        ConGhosttySurfaceBackingObserver *observer = weakSelf;
+        CubeGhosttySurfaceBackingObserver *observer = weakSelf;
         if (observer.suspendedForSleep) {
             [observer scheduleWakeSettle];
         }
@@ -709,7 +709,7 @@ bool con_ghostty_surface_sync_backing(
                                                        object:nil
                                                         queue:NSOperationQueue.mainQueue
                                                    usingBlock:^(__unused NSNotification *notification) {
-        ConGhosttySurfaceBackingObserver *observer = weakSelf;
+        CubeGhosttySurfaceBackingObserver *observer = weakSelf;
         if (observer == nil || observer->_surface == NULL) {
             return;
         }
@@ -722,7 +722,7 @@ bool con_ghostty_surface_sync_backing(
                                                      object:nil
                                                       queue:NSOperationQueue.mainQueue
                                                  usingBlock:^(__unused NSNotification *notification) {
-        ConGhosttySurfaceBackingObserver *observer = weakSelf;
+        CubeGhosttySurfaceBackingObserver *observer = weakSelf;
         if (observer == nil) {
             return;
         }
@@ -774,7 +774,7 @@ bool con_ghostty_surface_sync_backing(
     }
 
     NSUInteger generation = ++_wakeGeneration;
-    __weak ConGhosttySurfaceBackingObserver *weakSelf = self;
+    __weak CubeGhosttySurfaceBackingObserver *weakSelf = self;
     // Screen and backing notifications can arrive in bursts while WindowServer
     // rebuilds the topology. Resume only after a quiet interval; every newer
     // notification invalidates this block through wakeGeneration.
@@ -785,7 +785,7 @@ bool con_ghostty_surface_sync_backing(
         ),
         dispatch_get_main_queue(),
         ^{
-            ConGhosttySurfaceBackingObserver *observer = weakSelf;
+            CubeGhosttySurfaceBackingObserver *observer = weakSelf;
             if (observer == nil || observer.wakeGeneration != generation ||
                 observer->_surface == NULL) {
                 return;
@@ -806,7 +806,7 @@ bool con_ghostty_surface_sync_backing(
 
     NSSize size = view.bounds.size;
     double fallback_scale = view.window == nil ? 1.0 : view.window.backingScaleFactor;
-    con_ghostty_surface_sync_backing(
+    cube_ghostty_surface_sync_backing(
         (__bridge void *)view,
         _surface,
         size.width,
@@ -843,16 +843,16 @@ bool con_ghostty_surface_sync_backing(
 
 @end
 
-void con_ghostty_surface_install_backing_observer(void *view_ptr, void *surface_ptr) {
+void cube_ghostty_surface_install_backing_observer(void *view_ptr, void *surface_ptr) {
     NSView *view = (__bridge NSView *)view_ptr;
     if (view == nil || surface_ptr == NULL) {
         return;
     }
 
-    ConGhosttySurfaceBackingObserver *observer =
+    CubeGhosttySurfaceBackingObserver *observer =
         objc_getAssociatedObject(view, &kConGhosttySurfaceBackingObserverKey);
     if (observer == nil) {
-        observer = [[ConGhosttySurfaceBackingObserver alloc] init];
+        observer = [[CubeGhosttySurfaceBackingObserver alloc] init];
         objc_setAssociatedObject(
             view,
             &kConGhosttySurfaceBackingObserverKey,
@@ -864,24 +864,24 @@ void con_ghostty_surface_install_backing_observer(void *view_ptr, void *surface_
     [observer installForView:view surface:surface_ptr];
 }
 
-void con_ghostty_surface_sync_occlusion(void *view_ptr) {
+void cube_ghostty_surface_sync_occlusion(void *view_ptr) {
     NSView *view = (__bridge NSView *)view_ptr;
     if (view == nil) {
         return;
     }
 
-    ConGhosttySurfaceBackingObserver *observer =
+    CubeGhosttySurfaceBackingObserver *observer =
         objc_getAssociatedObject(view, &kConGhosttySurfaceBackingObserverKey);
     [observer syncOcclusion];
 }
 
-void con_ghostty_surface_remove_backing_observer(void *view_ptr) {
+void cube_ghostty_surface_remove_backing_observer(void *view_ptr) {
     NSView *view = (__bridge NSView *)view_ptr;
     if (view == nil) {
         return;
     }
 
-    ConGhosttySurfaceBackingObserver *observer =
+    CubeGhosttySurfaceBackingObserver *observer =
         objc_getAssociatedObject(view, &kConGhosttySurfaceBackingObserverKey);
     [observer invalidate];
     objc_setAssociatedObject(

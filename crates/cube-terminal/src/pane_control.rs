@@ -7,13 +7,13 @@ use crate::pane_state::{
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PaneAddressSpace {
-    ConPane,
+    CubePane,
 }
 
 impl PaneAddressSpace {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::ConPane => "con_pane",
+            Self::CubePane => "cube_pane",
         }
     }
 }
@@ -317,11 +317,11 @@ impl PaneControlState {
             let session = tmux_session_hint(runtime).unwrap_or_else(|| "tmux".to_string());
             if runtime.screen_tmux_like {
                 notes.push(format!(
-                    "The current screen still looks like a prompt inside tmux session `{session}`, and recent con-caused tmux setup keeps a durable same-session tmux shell anchor alive."
+                    "The current screen still looks like a prompt inside tmux session `{session}`, and recent Cube-caused tmux setup keeps a durable same-session tmux shell anchor alive."
                 ));
             } else {
                 notes.push(format!(
-                    "The current screen still looks like a prompt on the shell that prepared tmux session `{session}`, and recent con-caused tmux setup keeps a durable same-session tmux control anchor alive."
+                    "The current screen still looks like a prompt on the shell that prepared tmux session `{session}`, and recent Cube-caused tmux setup keeps a durable same-session tmux control anchor alive."
                 ));
             }
             notes.push(
@@ -331,7 +331,7 @@ impl PaneControlState {
         } else if has_native_tmux_anchor {
             let session = tmux_session_hint(runtime).unwrap_or_else(|| "tmux".to_string());
             notes.push(format!(
-                "A recent con-executed tmux command targeted session `{session}` from the current fresh shell prompt."
+                "A recent Cube-executed tmux command targeted session `{session}` from the current fresh shell prompt."
             ));
             notes.push(
                 "This pane can use that fresh shell prompt as a tmux control anchor. Prefer tmux-native query/capture/run/send tools over raw outer-pane input while the prompt remains fresh."
@@ -356,12 +356,12 @@ impl PaneControlState {
             ));
         }
         if let Some(action) = runtime.recent_actions.last() {
-            notes.push(format!("Recent con action: {}.", action.summary));
+            notes.push(format!("Recent Cube action: {}.", action.summary));
         }
 
         match visible_target.kind {
             PaneVisibleTargetKind::TmuxSession => notes.push(
-                "This pane shows tmux. `pane_index` addresses the outer con pane only, not a tmux window or tmux pane."
+                "This pane shows tmux. `pane_index` addresses the outer Cube pane only, not a tmux window or tmux pane."
                     .to_string(),
             ),
             PaneVisibleTargetKind::AgentCli => {
@@ -371,11 +371,11 @@ impl PaneControlState {
                 ));
                 match label.to_ascii_lowercase().as_str() {
                     "codex" => notes.push(
-                        "Codex has a separate app-server mode, but con only has direct Codex-native control when an explicit app-server attachment is proven. Otherwise treat it as an interactive terminal target."
+                        "Codex has a separate app-server mode, but Cube only has direct Codex-native control when an explicit app-server attachment is proven. Otherwise treat it as an interactive terminal target."
                             .to_string(),
                     ),
                     "opencode" | "open-code" => notes.push(
-                        "OpenCode has a separate server mode, but con only has direct OpenCode-native control when an explicit server attachment is proven. Otherwise treat it as an interactive terminal target."
+                        "OpenCode has a separate server mode, but Cube only has direct OpenCode-native control when an explicit server attachment is proven. Otherwise treat it as an interactive terminal target."
                             .to_string(),
                     ),
                     _ => {}
@@ -385,13 +385,13 @@ impl PaneControlState {
                     .any(|target| target.kind == PaneVisibleTargetKind::TmuxSession)
                 {
                     notes.push(
-                        "That agent CLI is nested inside tmux. con still does not have tmux-native pane targeting here."
+                        "That agent CLI is nested inside tmux. Cube still does not have tmux-native pane targeting here."
                             .to_string(),
                     );
                 }
             }
             PaneVisibleTargetKind::InteractiveApp => notes.push(
-                "This pane shows a proven interactive app. con can inspect screen state and send raw input, but it does not have app-native control for this target yet."
+                "This pane shows a proven interactive app. Cube can inspect screen state and send raw input, but it does not have app-native control for this target yet."
                     .to_string(),
             ),
             PaneVisibleTargetKind::Unknown => notes.push(
@@ -402,7 +402,7 @@ impl PaneControlState {
         }
 
         Self {
-            address_space: PaneAddressSpace::ConPane,
+            address_space: PaneAddressSpace::CubePane,
             target_stack,
             visible_target,
             attachments,
@@ -499,19 +499,19 @@ fn attachments_from_runtime(
         {
             (
                     PaneAttachmentAuthority::ShellProbe,
-                    "A fresh shell probe confirmed a same-session tmux shell anchor. con can query tmux state, create tmux targets, and send tmux-native keys through that shell."
+                    "A fresh shell probe confirmed a same-session tmux shell anchor. Cube can query tmux state, create tmux targets, and send tmux-native keys through that shell."
                         .to_string(),
                 )
         } else if runtime.screen_prompt_like && runtime.screen_tmux_like {
             (
                     PaneAttachmentAuthority::ActionHistory,
-                    "A recent con-executed tmux command and the current prompt-like tmux screen keep a durable same-session tmux control anchor alive."
+                    "A recent Cube-executed tmux command and the current prompt-like tmux screen keep a durable same-session tmux control anchor alive."
                         .to_string(),
                 )
         } else {
             (
                     PaneAttachmentAuthority::ActionHistory,
-                    "A recent con-executed tmux command and the current prompt-like shell keep a durable same-session tmux control anchor alive."
+                    "A recent Cube-executed tmux command and the current prompt-like shell keep a durable same-session tmux control anchor alive."
                         .to_string(),
                 )
         };
@@ -578,17 +578,17 @@ fn tmux_control_from_runtime(
                 .and_then(|context| context.tmux.as_ref())
                 .is_some()
         {
-            "con has a typed same-session tmux shell anchor for this pane. Native tmux query, capture, run-command, and send-keys are available through that anchor.".to_string()
+            "Cube has a typed same-session tmux shell anchor for this pane. Native tmux query, capture, run-command, and send-keys are available through that anchor.".to_string()
         } else if has_native_tmux_anchor && runtime.screen_prompt_like {
             if runtime.screen_tmux_like {
-                "The current screen still looks like a prompt inside tmux, and recent Con-caused tmux setup from this pane keeps a durable same-session tmux shell anchor alive. Native tmux query, capture, run-command, and send-keys remain available through that prompt-like tmux shell.".to_string()
+                "The current screen still looks like a prompt inside tmux, and recent Cube-caused tmux setup from this pane keeps a durable same-session tmux shell anchor alive. Native tmux query, capture, run-command, and send-keys remain available through that prompt-like tmux shell.".to_string()
             } else {
-                "The current screen still looks like a prompt on the shell that prepared tmux, and recent Con-caused tmux setup from this pane keeps a durable same-session tmux control anchor alive. Native tmux query, capture, run-command, and send-keys remain available through that prompt-like shell.".to_string()
+                "The current screen still looks like a prompt on the shell that prepared tmux, and recent Cube-caused tmux setup from this pane keeps a durable same-session tmux control anchor alive. Native tmux query, capture, run-command, and send-keys remain available through that prompt-like shell.".to_string()
             }
         } else if has_native_tmux_anchor {
-            "A recent con-executed tmux command and the current fresh shell prompt give con a native tmux control anchor for this session, even though tmux is not yet the proven front-most target.".to_string()
+            "A recent Cube-executed tmux command and the current fresh shell prompt give Cube a native tmux control anchor for this session, even though tmux is not yet the proven front-most target.".to_string()
         } else if has_current_tmux {
-            "con can identify a current tmux layer in this pane, but it does not yet have a same-session tmux control channel. Native tmux pane/window targeting and tmux command execution are unavailable.".to_string()
+            "Cube can identify a current tmux layer in this pane, but it does not yet have a same-session tmux control channel. Native tmux pane/window targeting and tmux command execution are unavailable.".to_string()
         } else {
             "The last verified shell frame for this pane was inside tmux, but the current foreground target is not proven. Native tmux pane/window targeting and tmux command execution remain unavailable.".to_string()
         },
@@ -1050,7 +1050,7 @@ mod tests {
             recent_actions: vec![PaneActionRecord {
                 sequence: 1,
                 kind: PaneActionKind::VisibleShellExec,
-                summary: "con executed `tmux has-session -t con-bench 2>/dev/null || tmux new-session -d -s con-bench` in the visible shell".to_string(),
+                summary: "Cube executed `tmux has-session -t con-bench 2>/dev/null || tmux new-session -d -s con-bench` in the visible shell".to_string(),
                 command: Some(
                     "tmux has-session -t con-bench 2>/dev/null || tmux new-session -d -s con-bench"
                         .to_string(),
@@ -1112,7 +1112,7 @@ mod tests {
             recent_actions: vec![PaneActionRecord {
                 sequence: 1,
                 kind: PaneActionKind::VisibleShellExec,
-                summary: "con executed `tmux has-session -t con-bench 2>/dev/null || tmux new-session -d -s con-bench` in the visible shell".to_string(),
+                summary: "Cube executed `tmux has-session -t con-bench 2>/dev/null || tmux new-session -d -s con-bench` in the visible shell".to_string(),
                 command: Some(
                     "tmux has-session -t con-bench 2>/dev/null || tmux new-session -d -s con-bench"
                         .to_string(),
@@ -1167,7 +1167,7 @@ mod tests {
             recent_actions: vec![PaneActionRecord {
                 sequence: 1,
                 kind: PaneActionKind::VisibleShellExec,
-                summary: "con executed `tmux has-session -t con-bench 2>/dev/null || tmux new-session -d -s con-bench` in the visible shell".to_string(),
+                summary: "Cube executed `tmux has-session -t con-bench 2>/dev/null || tmux new-session -d -s con-bench` in the visible shell".to_string(),
                 command: Some(
                     "tmux has-session -t con-bench 2>/dev/null || tmux new-session -d -s con-bench"
                         .to_string(),

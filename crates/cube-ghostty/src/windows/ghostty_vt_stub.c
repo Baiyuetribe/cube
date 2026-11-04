@@ -1,6 +1,6 @@
 /*
  * Stub C implementations of the libghostty-vt symbols con-ghostty's
- * `src/windows/vt.rs` binds. Used when `CON_STUB_GHOSTTY_VT=1` so a
+ * `src/windows/vt.rs` binds. Used when `CUBE_STUB_GHOSTTY_VT=1` so a
  * cargo build can link without a working Zig/libghostty-vt toolchain.
  *
  * Signatures mirror `include/ghostty/vt/{terminal,render,allocator}.h`
@@ -9,7 +9,7 @@
  *
  * All calls return empty / false / zero so downstream code degrades
  * gracefully to "empty terminal grid, clear-color render". The rest
- * of the Windows backend (GPUI host view, ConPTY spawn, D3D11
+ * of the Windows backend (GPUI host view, CubePTY spawn, D3D11
  * swapchain, atlas setup) still exercises fully.
  */
 

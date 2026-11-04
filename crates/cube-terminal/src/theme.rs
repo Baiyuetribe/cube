@@ -33,7 +33,7 @@ impl Color {
     }
 }
 
-/// Terminal color theme used for con chrome and Ghostty palette generation.
+/// Terminal color theme used for Cube chrome and Ghostty palette generation.
 #[derive(Debug, Clone)]
 pub struct TerminalTheme {
     pub name: String,
@@ -43,7 +43,7 @@ pub struct TerminalTheme {
 }
 
 impl TerminalTheme {
-    /// Compatibility names authored by older Con versions, not Ghostty's
+    /// Compatibility names authored by older Cube versions, not Ghostty's
     /// case-sensitive native theme catalog (for example `Dracula`).
     pub fn legacy_builtin(name: &str) -> Option<Self> {
         if name != name.to_lowercase() {
@@ -627,7 +627,7 @@ impl TerminalTheme {
     }
 
     pub fn user_themes_dir() -> std::path::PathBuf {
-        con_paths::user_themes_dir()
+        cube_paths::user_themes_dir()
     }
 }
 

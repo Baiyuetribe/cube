@@ -1,6 +1,6 @@
 use super::*;
 
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) fn toggle_left_panel(
         &mut self,
         _: &ToggleLeftPanel,
@@ -172,9 +172,9 @@ impl ConWorkspace {
         cx: &mut Context<Self>,
     ) {
         let root = self.layout_profile_export_root(cx);
-        let export_dir = root.join(".con");
+        let export_dir = root.join(".cube");
         if let Err(err) = std::fs::create_dir_all(&export_dir) {
-            Self::show_layout_profile_error(window, cx, "Could not prepare .con directory", err);
+            Self::show_layout_profile_error(window, cx, "Could not prepare .cube directory", err);
             return;
         }
 
@@ -335,7 +335,7 @@ impl ConWorkspace {
             files: true,
             directories: true,
             multiple: false,
-            prompt: Some("Choose a project folder or Con workspace layout".into()),
+            prompt: Some("Choose a project folder or Cube workspace layout".into()),
         });
 
         cx.spawn_in(window, async move |this, window| {

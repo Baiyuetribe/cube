@@ -1,9 +1,9 @@
-use con_core::config::KeybindingConfig;
+use cube_core::config::KeybindingConfig;
 use gpui::{App, AsyncApp, Keystroke};
 use std::cell::RefCell;
 
 unsafe extern "C" {
-    fn con_register_global_hotkey(
+    fn cube_register_global_hotkey(
         key_code: u32,
         shift: bool,
         control: bool,
@@ -11,8 +11,8 @@ unsafe extern "C" {
         command: bool,
         callback: extern "C" fn(),
     ) -> bool;
-    fn con_unregister_global_hotkey();
-    fn con_register_quick_terminal_hotkey(
+    fn cube_unregister_global_hotkey();
+    fn cube_register_quick_terminal_hotkey(
         key_code: u32,
         shift: bool,
         control: bool,
@@ -20,8 +20,8 @@ unsafe extern "C" {
         command: bool,
         callback: extern "C" fn(),
     ) -> bool;
-    fn con_unregister_quick_terminal_hotkey();
-    fn con_app_is_active() -> bool;
+    fn cube_unregister_quick_terminal_hotkey();
+    fn cube_app_is_active() -> bool;
 }
 
 thread_local! {
@@ -45,9 +45,9 @@ pub fn update_from_keybindings(keybindings: &KeybindingConfig) {
         keybindings.global_summon_enabled,
         &keybindings.global_summon,
         "global hotkey",
-        || unsafe { con_unregister_global_hotkey() },
+        || unsafe { cube_unregister_global_hotkey() },
         |key_code, shift, control, alt, command, callback| unsafe {
-            con_register_global_hotkey(key_code, shift, control, alt, command, callback)
+            cube_register_global_hotkey(key_code, shift, control, alt, command, callback)
         },
         on_global_hotkey_pressed,
     );
@@ -55,9 +55,9 @@ pub fn update_from_keybindings(keybindings: &KeybindingConfig) {
         keybindings.quick_terminal_enabled,
         &keybindings.quick_terminal,
         "quick terminal",
-        || unsafe { con_unregister_quick_terminal_hotkey() },
+        || unsafe { cube_unregister_quick_terminal_hotkey() },
         |key_code, shift, control, alt, command, callback| unsafe {
-            con_register_quick_terminal_hotkey(key_code, shift, control, alt, command, callback)
+            cube_register_quick_terminal_hotkey(key_code, shift, control, alt, command, callback)
         },
         on_quick_terminal_pressed,
     );
@@ -156,13 +156,13 @@ extern "C" fn on_quick_terminal_pressed() {
 }
 
 pub fn is_app_active() -> bool {
-    unsafe { con_app_is_active() }
+    unsafe { cube_app_is_active() }
 }
 
 pub fn suspend_global_hotkeys(_keybindings: &KeybindingConfig) {
     unsafe {
-        con_unregister_global_hotkey();
-        con_unregister_quick_terminal_hotkey();
+        cube_unregister_global_hotkey();
+        cube_unregister_quick_terminal_hotkey();
     }
     HOTKEYS_SUSPENDED.with(|s| *s.borrow_mut() = true);
 }
@@ -264,7 +264,7 @@ fn gpui_key_to_keycode(key: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use con_core::config::KeybindingConfig;
+    use cube_core::config::KeybindingConfig;
 
     #[test]
     fn parses_default_summon_hotkey() {

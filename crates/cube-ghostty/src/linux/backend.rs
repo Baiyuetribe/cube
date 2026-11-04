@@ -226,7 +226,7 @@ fn clamp_opacity(value: f32) -> f32 {
 }
 
 fn default_linux_shell_program() -> Option<String> {
-    if let Some(shell) = std::env::var("CON_LINUX_SHELL")
+    if let Some(shell) = std::env::var("CUBE_LINUX_SHELL")
         .ok()
         .filter(|value| !value.trim().is_empty())
     {

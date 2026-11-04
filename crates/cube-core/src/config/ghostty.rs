@@ -1,8 +1,8 @@
-//! Lossless-enough editor for Con's Ghostty-compatible line configuration.
+//! Lossless-enough editor for Cube's Ghostty-compatible line configuration.
 //!
 //! Unknown native entries, comments, blank lines and their order are retained.
 //! `config-file` is deliberately not expanded here: native backends receive it via
-//! [`NativeEntry`], while Con settings are resolved only from this file.
+//! [`NativeEntry`], while Cube settings are resolved only from this file.
 
 use super::Config;
 use anyhow::{Result, anyhow, bail};
@@ -74,17 +74,26 @@ fn decode_string(raw: &str, key: &str) -> Result<String> {
     Ok(raw[1..raw.len() - 1].to_owned())
 }
 
-/// Con keys that were removed when the built-in agent and session handoff
+/// 旧版本用 `con.` 前缀写配置。读取时接受它并当作 `cube.` 处理，
+/// 这样从 con 升级过来的配置文件不需要手工改。
+fn normalize_legacy_prefix(key: &str) -> Option<String> {
+    key.strip_prefix("con.").map(|rest| format!("cube.{rest}"))
+}
+
+/// Cube keys that were removed when the built-in agent and session handoff
 /// were deleted. Older configuration files still carry them; they are
 /// accepted and dropped so an upgrade never fails to load settings.
-fn is_retired_con_key(key: &str) -> bool {
-    const RETIRED_PREFIXES: &[&str] = &["con.agent.", "con.skills."];
+fn is_retired_cube_key(key: &str) -> bool {
+    // 旧配置里这些键是 `con.` 前缀，先归一化再比对，避免升级后报「未知键」。
+    let normalized = normalize_legacy_prefix(key);
+    let key = normalized.as_deref().unwrap_or(key);
+    const RETIRED_PREFIXES: &[&str] = &["cube.agent.", "cube.skills."];
     const RETIRED_KEYS: &[&str] = &[
-        "con.appearance.agent_avatar",
-        "con.appearance.hide_pane_title_bar",
-        "con.keybindings.toggle_agent",
-        "con.keybindings.ask_ai",
-        "con.experimental.handoff",
+        "cube.appearance.agent_avatar",
+        "cube.appearance.hide_pane_title_bar",
+        "cube.keybindings.toggle_agent",
+        "cube.keybindings.ask_ai",
+        "cube.experimental.handoff",
     ];
     RETIRED_KEYS.contains(&key)
         || RETIRED_PREFIXES
@@ -92,17 +101,32 @@ fn is_retired_con_key(key: &str) -> bool {
             .any(|prefix| key.starts_with(prefix))
 }
 
+/// 判断一个键是否属于 Cube 自有命名空间（新 `cube.` 或旧 `con.`）。
+fn is_cube_key(key: &str) -> bool {
+    key.starts_with("cube.") || key.starts_with("con.")
+}
+
 fn path_for_key(key: &str) -> Option<String> {
-    if key == "con.version" {
+    // 旧的 `con.*` 键先翻译成新命名空间再继续解析。
+    let normalized;
+    let key = match normalize_legacy_prefix(key) {
+        Some(translated) => {
+            normalized = translated;
+            normalized.as_str()
+        }
+        None => key,
+    };
+
+    if key == "cube.version" {
         return None;
     }
     if let Some(path) = NATIVE.iter().find_map(|(k, p)| (*k == key).then_some(*p)) {
         return Some(path.into());
     }
-    let con = key.strip_prefix("con.")?;
-    (!NATIVE.iter().any(|(_, path)| *path == con)
-        && !matches!(con, "terminal.font_family" | "terminal.font_fallback"))
-    .then(|| con.to_owned())
+    let cube = key.strip_prefix("cube.")?;
+    (!NATIVE.iter().any(|(_, path)| *path == cube)
+        && !matches!(cube, "terminal.font_family" | "terminal.font_fallback"))
+    .then(|| cube.to_owned())
 }
 
 fn schema_value<'a>(schema: &'a Value, path: &str) -> Option<&'a Value> {
@@ -198,24 +222,24 @@ pub(crate) fn parse(source: &str, path: Option<PathBuf>) -> Result<Config> {
     for (index, line) in source.lines().enumerate() {
         let Some((key, raw)) = parse_line(line) else {
             let trimmed = line.trim();
-            if trimmed.starts_with("con.") && !trimmed.starts_with('#') {
-                bail!("malformed Con setting at line {}", index + 1);
+            if is_cube_key(trimmed) && !trimmed.starts_with('#') {
+                bail!("malformed Cube setting at line {}", index + 1);
             }
             continue;
         };
         if key.is_empty() {
-            bail!("malformed Con setting at line {}", index + 1);
+            bail!("malformed Cube setting at line {}", index + 1);
         }
-        if key == "con.version" {
+        if key == "cube.version" || key == "con.version" {
             if raw.parse::<u32>().ok() != Some(SCHEMA_VERSION) {
                 bail!(
-                    "unsupported con configuration version at line {}",
+                    "unsupported Cube configuration version at line {}",
                     index + 1
                 );
             }
             continue;
         }
-        if !key.starts_with("con.") {
+        if !is_cube_key(key) {
             native.push(NativeEntry {
                 key: key.into(),
                 value: raw.into(),
@@ -231,32 +255,32 @@ pub(crate) fn parse(source: &str, path: Option<PathBuf>) -> Result<Config> {
             continue;
         }
         let Some(field) = path_for_key(key) else {
-            if is_retired_con_key(key) {
+            if is_retired_cube_key(key) {
                 continue;
             }
-            if key.starts_with("con.") {
-                bail!("unknown Con key `{key}` at line {}", index + 1);
+            if is_cube_key(key) {
+                bail!("unknown Cube key `{key}` at line {}", index + 1);
             }
             continue;
         };
-        if key.starts_with("con.") && NATIVE.iter().any(|(_, path)| *path == field) {
+        if is_cube_key(key) && NATIVE.iter().any(|(_, path)| *path == field) {
             bail!(
                 "native-owned field must use its native key at line {}",
                 index + 1
             );
         }
         let Some(shape) = schema_value(&defaults, &field) else {
-            if is_retired_con_key(key) {
+            if is_retired_cube_key(key) {
                 continue;
             }
             if key.starts_with("con.") {
-                bail!("unknown Con key `{key}` at line {}", index + 1);
+                bail!("unknown Cube key `{key}` at line {}", index + 1);
             }
             continue;
         };
         if shape.is_object() {
             bail!(
-                "Con key `{key}` names a section, not a setting at line {}",
+                "Cube key `{key}` names a section, not a setting at line {}",
                 index + 1
             );
         }
@@ -266,7 +290,7 @@ pub(crate) fn parse(source: &str, path: Option<PathBuf>) -> Result<Config> {
         }
         let is_list = shape.is_array();
         if key.starts_with("con.") && raw.is_empty() && !is_list {
-            bail!("malformed Con setting at line {}", index + 1);
+            bail!("malformed Cube setting at line {}", index + 1);
         }
         if is_list && seen_lists.insert(field.clone()) {
             insert(&mut document, &field, Value::Array(Vec::new()), false);
@@ -277,8 +301,8 @@ pub(crate) fn parse(source: &str, path: Option<PathBuf>) -> Result<Config> {
         }
         let scalar_shape = shape.as_array().and_then(|a| a.first()).unwrap_or(shape);
         let kind = scalar_kind(&field, scalar_shape);
-        // These native settings have a richer Ghostty type than Con's portable
-        // representation. Retain valid native values without forcing them into Con.
+        // These native settings have a richer Ghostty type than Cube's portable
+        // representation. Retain valid native values without forcing them into Cube.
         if key == "clipboard-write" {
             let value = match decode_string(raw, key)?.as_str() {
                 "allow" => Value::Bool(true),
@@ -339,7 +363,7 @@ pub(crate) fn parse(source: &str, path: Option<PathBuf>) -> Result<Config> {
         );
     }
     let mut config: Config = serde_json::from_value(document)
-        .map_err(|_| anyhow!("invalid Con configuration value type"))?;
+        .map_err(|_| anyhow!("invalid Cube configuration value type"))?;
     config.normalize();
     // Snapshot resolved state, not defaults or pre-normalized input. This keeps
     // an unrelated settings edit from materializing implicit values.
@@ -442,7 +466,7 @@ pub(crate) fn render(config: &Config) -> Result<String> {
         out.push('\n');
     }
     if source.source.is_empty() {
-        out.push_str("# Con configuration\ncon.version = 1\n");
+        out.push_str("# Cube configuration\ncube.version = 1\n");
     }
     for (path, value) in changed {
         let key = key_for_path(&path);
@@ -498,7 +522,7 @@ pub(crate) fn native_text_from_str(source: &str) -> String {
         {
             out.push_str(line);
         }
-        // Keep source line numbers stable after removing Con-only settings.
+        // Keep source line numbers stable after removing Cube-only settings.
         out.push('\n');
     }
     out
@@ -587,7 +611,7 @@ mod tests {
             parse("con.no_such_field = secret", None)
                 .unwrap_err()
                 .to_string()
-                .contains("unknown Con key")
+                .contains("unknown Cube key")
         );
         let error = parse("con.appearance.ui_opacity = definitely-secret", None)
             .unwrap_err()

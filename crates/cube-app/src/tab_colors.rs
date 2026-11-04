@@ -1,4 +1,4 @@
-use con_core::session::TabAccentColor;
+use cube_core::session::TabAccentColor;
 use gpui::{App, Hsla};
 use gpui_component::ActiveTheme;
 

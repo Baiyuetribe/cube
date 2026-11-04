@@ -1,12 +1,12 @@
 [package]
-name = "con-test"
+name = "cube-test"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
 description = "Logic test framework for con-cli — drives a live con session via .test files"
 
 [[bin]]
-name = "con-test"
+name = "cube-test"
 path = "src/main.rs"
 
 [dependencies]

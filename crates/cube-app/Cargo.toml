@@ -1,40 +1,19 @@
 [package]
-name = "con"
+name = "cube"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
-default-run = "con"
-
-# Two binaries pointing at the same `main.rs`, gated by mutually-exclusive
-# features. `CON` is a reserved DOS device name on Windows so `con.exe` is
-# rejected by the Win32 file APIs; on that target we ship `con-app.exe`
-# instead. macOS / Linux keep the plain `con` binary so existing scripts
-# and the `.app` bundle structure are unchanged.
-#
-# Default feature set targets macOS / Linux. Windows users must build with
-# `--no-default-features --features bin-con-app`; the workspace
-# `.cargo/config.toml` exposes a `cargo wbuild` / `cargo wrun` alias for
-# this so the day-to-day command stays short.
-[[bin]]
-name = "con"
-path = "src/main.rs"
-required-features = ["bin-con"]
+default-run = "cube"
 
 [[bin]]
-name = "con-app"
+name = "cube"
 path = "src/main.rs"
-required-features = ["bin-con-app"]
-
-[features]
-default = ["bin-con"]
-bin-con = []
-bin-con-app = []
 
 [dependencies]
-con-core.workspace = true
-con-paths.workspace = true
-con-terminal.workspace = true
-con-ghostty.workspace = true
+cube-core.workspace = true
+cube-paths.workspace = true
+cube-terminal.workspace = true
+cube-ghostty.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
 # 逐语言启用语法高亮，而不是打开 `tree-sitter-languages`（那会静态链接
@@ -142,7 +121,7 @@ winresource = "0.1"
 image = { version = "0.25", default-features = false, features = ["png", "ico"] }
 
 [package.metadata.bundle]
-icon = ["../../assets/app-icons/con-raccoon-tail-A6.png"]
+icon = ["../../assets/app-icons/cube-raccoon-tail-A6.png"]
 identifier = "co.nowledge.con"
 name = "con"
 osx_minimum_system_version = "10.15.7"

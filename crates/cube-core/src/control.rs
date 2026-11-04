@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
-use con_terminal::{PaneCreateLocation, TmuxExecLocation};
+use cube_terminal::{PaneCreateLocation, TmuxExecLocation};
 
 /// Default control endpoint location.
 ///
@@ -18,23 +18,23 @@ use con_terminal::{PaneCreateLocation, TmuxExecLocation};
 /// Named Pipe — the host portion `\\.\pipe\` is required by the Win32
 /// `CreateNamedPipeW` API.
 ///
-/// Debug builds intentionally use a distinct endpoint so `cargo run -p con`
-/// can coexist with an installed production/beta Con without making startup
+/// Debug builds intentionally use a distinct endpoint so `cargo run -p cube`
+/// can coexist with an installed production/beta Cube without making startup
 /// believe the dev process is a second window for the installed app. The
-/// default can be overridden with the `CON_SOCKET_PATH` env var on every
+/// default can be overridden with the `CUBE_SOCKET_PATH` env var on every
 /// platform.
 #[cfg(all(unix, not(debug_assertions)))]
-pub const DEFAULT_SOCKET_PATH: &str = "/tmp/con.sock";
+pub const DEFAULT_SOCKET_PATH: &str = "/tmp/cube.sock";
 #[cfg(all(unix, debug_assertions))]
-pub const DEFAULT_SOCKET_PATH: &str = "/tmp/con-debug.sock";
+pub const DEFAULT_SOCKET_PATH: &str = "/tmp/cube-debug.sock";
 #[cfg(all(windows, not(debug_assertions)))]
-pub const DEFAULT_SOCKET_PATH: &str = r"\\.\pipe\con";
+pub const DEFAULT_SOCKET_PATH: &str = r"\\.\pipe\cube";
 #[cfg(all(windows, debug_assertions))]
-pub const DEFAULT_SOCKET_PATH: &str = r"\\.\pipe\con-debug";
+pub const DEFAULT_SOCKET_PATH: &str = r"\\.\pipe\cube-debug";
 #[cfg(all(not(any(unix, windows)), not(debug_assertions)))]
-pub const DEFAULT_SOCKET_PATH: &str = "con.sock";
+pub const DEFAULT_SOCKET_PATH: &str = "cube.sock";
 #[cfg(all(not(any(unix, windows)), debug_assertions))]
-pub const DEFAULT_SOCKET_PATH: &str = "con-debug.sock";
+pub const DEFAULT_SOCKET_PATH: &str = "cube-debug.sock";
 
 pub const JSON_RPC_VERSION: &str = "2.0";
 
@@ -602,7 +602,7 @@ impl Drop for ControlSocketHandle {
 }
 
 pub fn control_socket_path() -> PathBuf {
-    if let Ok(value) = env::var("CON_SOCKET_PATH")
+    if let Ok(value) = env::var("CUBE_SOCKET_PATH")
         && !value.trim().is_empty()
     {
         return PathBuf::from(value);
@@ -613,9 +613,9 @@ pub fn control_socket_path() -> PathBuf {
             && !runtime_dir.trim().is_empty()
         {
             let socket_name = if cfg!(debug_assertions) {
-                "con-debug.sock"
+                "cube-debug.sock"
             } else {
-                "con.sock"
+                "cube.sock"
             };
             return PathBuf::from(runtime_dir).join("con").join(socket_name);
         }
@@ -1150,7 +1150,7 @@ mod tests {
         let dir = unique_scratch_dir("existing-parent");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755))
             .expect("set scratch permissions");
-        let socket = dir.join("con.sock");
+        let socket = dir.join("cube.sock");
 
         prepare_socket_path(&socket).expect("prepare with existing parent");
 
@@ -1163,7 +1163,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// The Flatpak hardening this code was added for: a parent created by Con
+    /// The Flatpak hardening this code was added for: a parent created by Cube
     /// starts with private permissions.
     #[cfg(unix)]
     #[test]
@@ -1171,7 +1171,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let base = unique_scratch_dir("new-parent");
-        let socket = base.join("fresh").join("con.sock");
+        let socket = base.join("fresh").join("cube.sock");
 
         prepare_socket_path(&socket).expect("prepare with new parent");
 

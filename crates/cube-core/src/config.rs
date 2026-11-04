@@ -119,12 +119,12 @@ pub fn sanitize_terminal_font_fallback(fonts: &[String], primary: &str) -> Vec<S
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TerminalConfig {
-    /// Shell command used for newly created terminal panes. When unset, Con
+    /// Shell command used for newly created terminal panes. When unset, Cube
     /// follows the platform default (for example the Windows Terminal default
     /// profile or `$SHELL` on Unix).
     pub shell: Option<String>,
     pub font_family: String,
-    /// Ordered preferred fallback families. Con's bundled icon font and the
+    /// Ordered preferred fallback families. Cube's bundled icon font and the
     /// platform/system cascade are appended after this list.
     pub font_fallback: Vec<String>,
     pub font_size: f32,
@@ -181,7 +181,7 @@ pub struct AppearanceConfig {
     /// Selectable app icon id from [`APP_ICONS`]. Unknown values fall back to
     /// [`DEFAULT_APP_ICON`].
     pub app_icon: String,
-    /// Whether Con follows the OS light/dark preference or pins one scheme.
+    /// Whether Cube follows the OS light/dark preference or pins one scheme.
     /// The resolved scheme picks between [`Self::light_theme`] and
     /// [`Self::dark_theme`].
     pub color_scheme: ColorScheme,
@@ -217,7 +217,7 @@ impl Default for AppearanceConfig {
     }
 }
 
-/// How Con picks between the light and dark terminal palettes.
+/// How Cube picks between the light and dark terminal palettes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ColorScheme {
@@ -290,11 +290,11 @@ impl AppearanceConfig {
     }
 }
 
-/// Replace unknown or wrongly-lit palettes with the matching Con default so a
+/// Replace unknown or wrongly-lit palettes with the matching Cube default so a
 /// stale config can never pin the terminal to the opposite scheme.
 fn sanitize_scheme_theme(value: &str, wants_light: bool) -> String {
     let trimmed = value.trim();
-    let known = con_terminal::TerminalTheme::by_name(trimmed);
+    let known = cube_terminal::TerminalTheme::by_name(trimmed);
     match known {
         Some(theme) if theme.is_dark() != wants_light => trimmed.to_string(),
         _ => {
@@ -308,7 +308,7 @@ fn sanitize_scheme_theme(value: &str, wants_light: bool) -> String {
 }
 
 pub const DEFAULT_APP_ICON: &str = "raccoon-tail-a6";
-pub const DEFAULT_APP_ICON_ASSET: &str = "app-icons/con-raccoon-tail-A6.png";
+pub const DEFAULT_APP_ICON_ASSET: &str = "app-icons/cube-raccoon-tail-A6.png";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppIconChoice {
@@ -325,115 +325,115 @@ pub const APP_ICONS: &[AppIconChoice] = &[
         id: "default",
         label: "Classic",
         group: "Classic",
-        asset: "Con-macOS-Dark-256x256@2x.png",
+        asset: "Cube-macOS-Dark-256x256@2x.png",
     },
     AppIconChoice {
         id: "raccoon-a1",
         label: "A1",
         group: "Peek",
-        asset: "app-icons/con-raccoon-A1.png",
+        asset: "app-icons/cube-raccoon-A1.png",
     },
     AppIconChoice {
         id: "raccoon-a2",
         label: "A2",
         group: "Peek",
-        asset: "app-icons/con-raccoon-A2.png",
+        asset: "app-icons/cube-raccoon-A2.png",
     },
     AppIconChoice {
         id: "raccoon-b1",
         label: "B1",
         group: "Peek",
-        asset: "app-icons/con-raccoon-B1.png",
+        asset: "app-icons/cube-raccoon-B1.png",
     },
     AppIconChoice {
         id: "raccoon-b2",
         label: "B2",
         group: "Peek",
-        asset: "app-icons/con-raccoon-B2.png",
+        asset: "app-icons/cube-raccoon-B2.png",
     },
     AppIconChoice {
         id: "raccoon-c1",
         label: "C1",
         group: "Peek",
-        asset: "app-icons/con-raccoon-C1.png",
+        asset: "app-icons/cube-raccoon-C1.png",
     },
     AppIconChoice {
         id: "raccoon-c2",
         label: "C2",
         group: "Peek",
-        asset: "app-icons/con-raccoon-C2.png",
+        asset: "app-icons/cube-raccoon-C2.png",
     },
     AppIconChoice {
         id: "raccoon-suit-a1",
         label: "A1",
         group: "Suit",
-        asset: "app-icons/con-raccoon-suit-A1.png",
+        asset: "app-icons/cube-raccoon-suit-A1.png",
     },
     AppIconChoice {
         id: "raccoon-suit-a2",
         label: "A2",
         group: "Suit",
-        asset: "app-icons/con-raccoon-suit-A2.png",
+        asset: "app-icons/cube-raccoon-suit-A2.png",
     },
     AppIconChoice {
         id: "raccoon-suit-a3",
         label: "A3",
         group: "Suit",
-        asset: "app-icons/con-raccoon-suit-A3.png",
+        asset: "app-icons/cube-raccoon-suit-A3.png",
     },
     AppIconChoice {
         id: "raccoon-suit-a4",
         label: "A4",
         group: "Suit",
-        asset: "app-icons/con-raccoon-suit-A4.png",
+        asset: "app-icons/cube-raccoon-suit-A4.png",
     },
     AppIconChoice {
         id: "raccoon-suit-a5",
         label: "A5",
         group: "Suit",
-        asset: "app-icons/con-raccoon-suit-A5.png",
+        asset: "app-icons/cube-raccoon-suit-A5.png",
     },
     AppIconChoice {
         id: "raccoon-suit-a6",
         label: "A6",
         group: "Suit",
-        asset: "app-icons/con-raccoon-suit-A6.png",
+        asset: "app-icons/cube-raccoon-suit-A6.png",
     },
     AppIconChoice {
         id: "raccoon-tail-a1",
         label: "A1",
         group: "Tail",
-        asset: "app-icons/con-raccoon-tail-A1.png",
+        asset: "app-icons/cube-raccoon-tail-A1.png",
     },
     AppIconChoice {
         id: "raccoon-tail-a2",
         label: "A2",
         group: "Tail",
-        asset: "app-icons/con-raccoon-tail-A2.png",
+        asset: "app-icons/cube-raccoon-tail-A2.png",
     },
     AppIconChoice {
         id: "raccoon-tail-a3",
         label: "A3",
         group: "Tail",
-        asset: "app-icons/con-raccoon-tail-A3.png",
+        asset: "app-icons/cube-raccoon-tail-A3.png",
     },
     AppIconChoice {
         id: "raccoon-tail-a4",
         label: "A4",
         group: "Tail",
-        asset: "app-icons/con-raccoon-tail-A4.png",
+        asset: "app-icons/cube-raccoon-tail-A4.png",
     },
     AppIconChoice {
         id: "raccoon-tail-a5",
         label: "A5",
         group: "Tail",
-        asset: "app-icons/con-raccoon-tail-A5.png",
+        asset: "app-icons/cube-raccoon-tail-A5.png",
     },
     AppIconChoice {
         id: "raccoon-tail-a6",
         label: "A6",
         group: "Tail",
-        asset: "app-icons/con-raccoon-tail-A6.png",
+        asset: "app-icons/cube-raccoon-tail-A6.png",
     },
 ];
 
@@ -467,7 +467,7 @@ pub fn app_icon_asset(id: &str) -> &'static str {
 // (Ctrl+L = clear, Ctrl+C = SIGINT, Ctrl+I = Tab, ...), so most app
 // actions avoid that space. Pane-management shortcuts therefore stay in
 // app-level modifier space instead of borrowing terminal control
-// characters like Ctrl+D, which terminals consume as EOF before Con's
+// characters like Ctrl+D, which terminals consume as EOF before Cube's
 // keybindings ever see them.
 fn default_command_palette() -> String {
     // Ctrl+Shift+P on Windows / Linux, Cmd+Shift+P on macOS.
@@ -811,7 +811,7 @@ impl KeybindingConfig {
         ];
 
         if self.global_summon_enabled {
-            shortcuts.push(("唤起 / 隐藏 Con", self.global_summon.as_str()));
+            shortcuts.push(("唤起 / 隐藏 Cube", self.global_summon.as_str()));
         }
         if self.quick_terminal_enabled {
             shortcuts.push(("快速终端", self.quick_terminal.as_str()));
@@ -1097,7 +1097,7 @@ impl Config {
         if legacy.is_empty() {
             return;
         }
-        let Some(theme) = con_terminal::TerminalTheme::by_name(legacy) else {
+        let Some(theme) = cube_terminal::TerminalTheme::by_name(legacy) else {
             return;
         };
         if theme.is_dark() {
@@ -1110,7 +1110,7 @@ impl Config {
     }
 
     pub fn load() -> Result<Self> {
-        Self::load_from_paths(Self::config_path(), con_paths::legacy_config_file())
+        Self::load_from_paths(Self::config_path(), cube_paths::legacy_config_file())
     }
 
     /// Pure load/parse entry point. It never performs credential discovery.
@@ -1231,7 +1231,7 @@ impl Config {
     /// Best-effort: failures are logged, never fatal. Conservative: a user who
     /// configured Anthropic or picked another provider is never redirected
     pub fn config_path() -> PathBuf {
-        con_paths::config_file()
+        cube_paths::config_file()
     }
 
     pub fn save(&self) -> Result<()> {
@@ -1246,7 +1246,7 @@ impl Config {
         {
             anyhow::bail!(
                 "TOML configuration is read-only; save as {}",
-                con_paths::CONFIG_FILE_NAME
+                cube_paths::CONFIG_FILE_NAME
             );
         }
         let rendered = ghostty::render(self)?;
@@ -1413,10 +1413,14 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn dangling_config_links_never_trigger_defaults_or_legacy_fallback() {
-        for name in ["config.ghostty", con_paths::CONFIG_FILE_NAME, "config.toml"] {
+        for name in [
+            "config.ghostty",
+            cube_paths::CONFIG_FILE_NAME,
+            "config.toml",
+        ] {
             let root = std::env::temp_dir().join(format!("con-config-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir(&root).unwrap();
-            let target = root.join(con_paths::CONFIG_FILE_NAME);
+            let target = root.join(cube_paths::CONFIG_FILE_NAME);
             let legacy = root.join("config.toml");
             let link = root.join(name);
             let dotfile = root.join("dotfile");
@@ -1426,7 +1430,7 @@ mod tests {
             std::os::unix::fs::symlink(&dotfile, &link).unwrap();
             assert!(Config::load_from_paths(&target, &legacy).is_err(), "{name}");
             assert!(!target.exists(), "must not publish a fallback for {name}");
-            if name == con_paths::CONFIG_FILE_NAME {
+            if name == cube_paths::CONFIG_FILE_NAME {
                 assert!(Config::load_from_path(&target).is_err());
             }
             // Valid dotfile symlinks still load and migrate normally.
@@ -1462,7 +1466,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("con-config-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&root).unwrap();
         let dotfile = root.join("managed.conf");
-        let link = root.join(con_paths::CONFIG_FILE_NAME);
+        let link = root.join(cube_paths::CONFIG_FILE_NAME);
         std::fs::write(&dotfile, "font-size = 12\n").unwrap();
         std::os::unix::fs::symlink(&dotfile, &link).unwrap();
 
@@ -1488,7 +1492,7 @@ mod tests {
     fn migration_preserves_native_bytes_and_prefers_native_over_toml() {
         let root = std::env::temp_dir().join(format!("con-config-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&root).unwrap();
-        let target = root.join(con_paths::CONFIG_FILE_NAME);
+        let target = root.join(cube_paths::CONFIG_FILE_NAME);
         let previous = root.join("config.ghostty");
         let toml = root.join("config.toml");
         let source = "# keep comment\nfont-size = 19\nconfig-file = colors.conf\ncon.appearance.ui_opacity = 0.8\n";
@@ -1521,7 +1525,7 @@ mod tests {
     fn malformed_higher_priority_config_never_falls_back() {
         let root = std::env::temp_dir().join(format!("con-config-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&root).unwrap();
-        let target = root.join(con_paths::CONFIG_FILE_NAME);
+        let target = root.join(cube_paths::CONFIG_FILE_NAME);
         let previous = root.join("config.ghostty");
         let toml = root.join("config.toml");
         std::fs::write(&toml, "[terminal]\nfont_size = 11\n").unwrap();
@@ -2008,7 +2012,7 @@ app_icon = "raccoon-suit-a1"
         let mut config: Config = toml::from_str("[appearance]\napp_icon = \"default\"\n").unwrap();
         config.normalize();
         assert_eq!(config.appearance.app_icon, "default");
-        assert_eq!(app_icon_asset("default"), "Con-macOS-Dark-256x256@2x.png");
+        assert_eq!(app_icon_asset("default"), "Cube-macOS-Dark-256x256@2x.png");
         assert_ne!(app_icon_asset("default"), DEFAULT_APP_ICON_ASSET);
     }
 

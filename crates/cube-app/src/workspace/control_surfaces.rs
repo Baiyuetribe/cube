@@ -1,6 +1,6 @@
 use super::*;
 
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) fn flush_pending_window_control_requests(
         &mut self,
         window: &mut Window,
@@ -73,7 +73,7 @@ impl ConWorkspace {
             if req.tab_idx >= self.tabs.len() {
                 let _ = req
                     .response_tx
-                    .send(con_terminal::PaneResponse::Error(format!(
+                    .send(cube_terminal::PaneResponse::Error(format!(
                         "Tab {} is no longer available.",
                         req.tab_idx + 1
                     )));
@@ -82,8 +82,8 @@ impl ConWorkspace {
 
             let terminal = self.create_terminal(req.cwd.as_deref(), window, cx);
             let direction = match req.location {
-                con_terminal::PaneCreateLocation::Right => SplitDirection::Horizontal,
-                con_terminal::PaneCreateLocation::Down => SplitDirection::Vertical,
+                cube_terminal::PaneCreateLocation::Right => SplitDirection::Horizontal,
+                cube_terminal::PaneCreateLocation::Down => SplitDirection::Vertical,
             };
             let was_zoomed = self.tabs[req.tab_idx].pane_tree.zoomed_pane_id().is_some();
             self.tabs[req.tab_idx]
@@ -117,7 +117,7 @@ impl ConWorkspace {
             self.record_runtime_event_for_terminal(
                 req.tab_idx,
                 &terminal,
-                con_terminal::PaneRuntimeEvent::PaneCreated {
+                cube_terminal::PaneRuntimeEvent::PaneCreated {
                     startup_command: req.command.clone(),
                 },
             );
@@ -135,7 +135,7 @@ impl ConWorkspace {
                 .unwrap_or(pane_index);
             let _ = req
                 .response_tx
-                .send(con_terminal::PaneResponse::PaneCreated {
+                .send(cube_terminal::PaneResponse::PaneCreated {
                     pane_index,
                     pane_id,
                     surface_ready: terminal.surface_ready(cx),
@@ -179,8 +179,8 @@ impl ConWorkspace {
         recent_output_lines: usize,
         cx: &App,
     ) -> (
-        con_terminal::PaneObservationFrame,
-        con_terminal::PaneRuntimeState,
+        cube_terminal::PaneObservationFrame,
+        cube_terminal::PaneRuntimeState,
     ) {
         let pane_tree = &self.tabs[tab_idx].pane_tree;
         let pane_id = pane_tree
@@ -203,7 +203,7 @@ impl ConWorkspace {
         &self,
         tab_idx: usize,
         terminal: &TerminalPane,
-    ) -> Option<con_terminal::PaneRuntimeState> {
+    ) -> Option<cube_terminal::PaneRuntimeState> {
         let pane_id = self.tabs[tab_idx]
             .pane_tree
             .pane_id_for_terminal(terminal)?;
@@ -218,7 +218,7 @@ impl ConWorkspace {
         &self,
         tab_idx: usize,
         terminal: &TerminalPane,
-        event: con_terminal::PaneRuntimeEvent,
+        event: cube_terminal::PaneRuntimeEvent,
     ) {
         let pane_tree = &self.tabs[tab_idx].pane_tree;
         let pane_id = pane_tree
@@ -232,7 +232,7 @@ impl ConWorkspace {
     pub(super) fn resolve_pane_target_for_tab(
         &self,
         tab_idx: usize,
-        selector: con_terminal::PaneSelector,
+        selector: cube_terminal::PaneSelector,
     ) -> Result<ResolvedPaneTarget, String> {
         let pane_tree = &self.tabs[tab_idx].pane_tree;
         let all_terminals = pane_tree.all_terminals();
@@ -356,10 +356,10 @@ impl ConWorkspace {
         command: String,
         timeout_secs: u64,
         parse_response: F,
-        response_tx: crossbeam_channel::Sender<con_terminal::PaneResponse>,
+        response_tx: crossbeam_channel::Sender<cube_terminal::PaneResponse>,
         cx: &mut Context<Self>,
     ) where
-        F: Fn(Vec<String>) -> Result<con_terminal::PaneResponse, String> + Send + 'static,
+        F: Fn(Vec<String>) -> Result<cube_terminal::PaneResponse, String> + Send + 'static,
     {
         let _ = pane.take_command_finished(cx);
         pane.write(format!("{command}\n").as_bytes(), cx);
@@ -388,7 +388,7 @@ impl ConWorkspace {
                     let excerpt = this
                         .update(cx, |_, cx| pane.recent_lines(120, cx).join("\n"))
                         .unwrap_or_default();
-                    let _ = response_tx.send(con_terminal::PaneResponse::Error(format!(
+                    let _ = response_tx.send(cube_terminal::PaneResponse::Error(format!(
                         "Shell-anchor command timed out in pane {} after {}s.\nRecent output:\n{}",
                         pane_index, timeout_secs, excerpt
                     )));
@@ -410,7 +410,7 @@ impl ConWorkspace {
                 let parse_err = parse_response(lines).err().unwrap_or_else(|| {
                     "shell-anchor markers were not observed in pane output".to_string()
                 });
-                let _ = response_tx.send(con_terminal::PaneResponse::Error(format!(
+                let _ = response_tx.send(cube_terminal::PaneResponse::Error(format!(
                     "Shell-anchor command in pane {} could not be parsed: {}\nRecent output:\n{}",
                     pane_index, parse_err, excerpt
                 )));
@@ -429,7 +429,7 @@ impl ConWorkspace {
         let prompt_like = observation
             .screen_hints
             .iter()
-            .any(|hint| hint.kind == con_terminal::PaneObservationHintKind::PromptLikeInput);
+            .any(|hint| hint.kind == cube_terminal::PaneObservationHintKind::PromptLikeInput);
 
         if prompt_like {
             pane.recover_shell_prompt_state(cx);
@@ -476,9 +476,9 @@ impl ConWorkspace {
     }
 
     pub(super) fn pane_selector_from_target(
-        target: con_core::PaneTarget,
-    ) -> con_terminal::PaneSelector {
-        con_terminal::PaneSelector::new(target.pane_index, target.pane_id)
+        target: cube_core::PaneTarget,
+    ) -> cube_terminal::PaneSelector {
+        cube_terminal::PaneSelector::new(target.pane_index, target.pane_id)
     }
 
     pub(super) fn send_control_result(
@@ -490,39 +490,39 @@ impl ConWorkspace {
 
     pub(super) fn pane_response_to_control_result(
         tab_idx: usize,
-        response: con_terminal::PaneResponse,
+        response: cube_terminal::PaneResponse,
     ) -> ControlResult {
         match response {
-            con_terminal::PaneResponse::PaneList(panes) => Ok(json!({
+            cube_terminal::PaneResponse::PaneList(panes) => Ok(json!({
                 "tab_index": tab_idx + 1,
                 "panes": panes,
             })),
-            con_terminal::PaneResponse::Content(content) => Ok(json!({ "content": content })),
-            con_terminal::PaneResponse::KeysSent => Ok(json!({ "status": "sent" })),
-            con_terminal::PaneResponse::TmuxInfo(tmux) => Ok(json!({
+            cube_terminal::PaneResponse::Content(content) => Ok(json!({ "content": content })),
+            cube_terminal::PaneResponse::KeysSent => Ok(json!({ "status": "sent" })),
+            cube_terminal::PaneResponse::TmuxInfo(tmux) => Ok(json!({
                 "tab_index": tab_idx + 1,
                 "tmux": tmux,
             })),
-            con_terminal::PaneResponse::TmuxList(snapshot) => Ok(json!({
+            cube_terminal::PaneResponse::TmuxList(snapshot) => Ok(json!({
                 "tab_index": tab_idx + 1,
                 "snapshot": snapshot,
             })),
-            con_terminal::PaneResponse::TmuxCapture(capture) => Ok(json!({
+            cube_terminal::PaneResponse::TmuxCapture(capture) => Ok(json!({
                 "tab_index": tab_idx + 1,
                 "capture": capture,
             })),
-            con_terminal::PaneResponse::TmuxExec(exec) => Ok(json!({
+            cube_terminal::PaneResponse::TmuxExec(exec) => Ok(json!({
                 "tab_index": tab_idx + 1,
                 "exec": exec,
             })),
-            con_terminal::PaneResponse::ShellProbe(shell) => Ok(json!({
+            cube_terminal::PaneResponse::ShellProbe(shell) => Ok(json!({
                 "tab_index": tab_idx + 1,
                 "shell": shell,
             })),
-            con_terminal::PaneResponse::SearchResults(matches) => Ok(json!({
+            cube_terminal::PaneResponse::SearchResults(matches) => Ok(json!({
                 "matches": matches,
             })),
-            con_terminal::PaneResponse::BusyStatus {
+            cube_terminal::PaneResponse::BusyStatus {
                 surface_ready,
                 is_alive,
                 is_busy,
@@ -533,11 +533,11 @@ impl ConWorkspace {
                 "is_busy": is_busy,
                 "has_shell_integration": has_shell_integration,
             })),
-            con_terminal::PaneResponse::WaitComplete { status, output } => Ok(json!({
+            cube_terminal::PaneResponse::WaitComplete { status, output } => Ok(json!({
                 "status": status,
                 "output": output,
             })),
-            con_terminal::PaneResponse::PaneCreated {
+            cube_terminal::PaneResponse::PaneCreated {
                 pane_index,
                 pane_id,
                 surface_ready,
@@ -557,7 +557,7 @@ impl ConWorkspace {
                 "foreground_process_group_id": foreground_process_group_id,
                 "tty_name": tty_name,
             })),
-            con_terminal::PaneResponse::Error(err) => Err(ControlError::invalid_params(err)),
+            cube_terminal::PaneResponse::Error(err) => Err(ControlError::invalid_params(err)),
         }
     }
 
@@ -576,14 +576,14 @@ impl ConWorkspace {
     pub(super) fn spawn_control_pane_query(
         &mut self,
         tab_idx: usize,
-        query: con_terminal::PaneQuery,
+        query: cube_terminal::PaneQuery,
         response_tx: tokio::sync::oneshot::Sender<ControlResult>,
         cx: &mut Context<Self>,
     ) {
         let (pane_response_tx, pane_response_rx) = crossbeam_channel::bounded(1);
         self.handle_pane_request_for_tab(
             tab_idx,
-            con_terminal::PaneRequest {
+            cube_terminal::PaneRequest {
                 query,
                 response_tx: pane_response_tx,
             },

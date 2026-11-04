@@ -393,7 +393,7 @@ impl SessionShared {
 
 impl LinuxPtySession {
     pub fn spawn(options: LinuxPtyOptions) -> std::result::Result<Self, LinuxPtySpawnError> {
-        if con_paths::is_flatpak() {
+        if cube_paths::is_flatpak() {
             spawn_host_bridge(options)
         } else {
             spawn_local(options)
@@ -1080,7 +1080,7 @@ fn spawn_local(
 }
 
 fn resolve_host_socket_dir() -> PathBuf {
-    let runtime_dir = con_paths::runtime_dir().join("con");
+    let runtime_dir = cube_paths::runtime_dir().join("con");
     if std::fs::create_dir_all(&runtime_dir).is_ok() {
         #[cfg(unix)]
         {
@@ -1090,7 +1090,7 @@ fn resolve_host_socket_dir() -> PathBuf {
         return runtime_dir;
     }
 
-    let cache_dir = con_paths::app_cache_dir();
+    let cache_dir = cube_paths::app_cache_dir();
     let _ = std::fs::create_dir_all(&cache_dir);
     #[cfg(unix)]
     {
@@ -1211,18 +1211,18 @@ fn spawn_host_bridge(
     cmd.arg("--unset-env=FLATPAK_ID");
     cmd.arg("--unset-env=container");
 
-    let host_cli_probe = con_paths::host_command("con-cli")
+    let host_cli_probe = cube_paths::host_command("cube-cli")
         .args(["pty-bridge", "--help"])
         .output();
-    let (use_con_cli, con_cli_process_metadata) = host_cli_probe
+    let (use_con_cli, cube_cli_process_metadata) = host_cli_probe
         .map(|output| bridge_capabilities(output.status.success(), &output.stdout))
         .unwrap_or((false, false));
 
     if use_con_cli {
-        cmd.arg("con-cli");
+        cmd.arg("cube-cli");
         cmd.arg("pty-bridge");
         cmd.arg("--socket").arg(&socket_path);
-        if con_cli_process_metadata {
+        if cube_cli_process_metadata {
             cmd.arg("--process-metadata");
         }
         cmd.arg("--cols")
@@ -1384,7 +1384,7 @@ fn spawn_host_bridge(
             stream_shutdown: stream,
             socket_path,
             child: Mutex::new(child),
-            process_metadata: !use_con_cli || con_cli_process_metadata,
+            process_metadata: !use_con_cli || cube_cli_process_metadata,
         },
         input,
         input_worker,
@@ -1629,7 +1629,7 @@ def main():
         remaining = remaining[1:]
 
     # Validate the host working directory before connecting. Exiting before the
-    # handshake lets Con classify this as a permanent launch error instead of
+    # handshake lets Cube classify this as a permanent launch error instead of
     # attaching a shell in an unrelated inherited directory.
     if args.cwd:
         try:
@@ -1976,11 +1976,11 @@ mod tests {
     fn host_bridge_probe_requires_literal_command_capability() {
         assert!(bridge_help_supports_literal_commands(
             true,
-            b"Usage: con-cli pty-bridge [OPTIONS]\n    --literal-command"
+            b"Usage: cube-cli pty-bridge [OPTIONS]\n    --literal-command"
         ));
         assert!(!bridge_help_supports_literal_commands(
             true,
-            b"Usage: con-cli pty-bridge [OPTIONS]"
+            b"Usage: cube-cli pty-bridge [OPTIONS]"
         ));
         assert!(!bridge_help_supports_literal_commands(
             false,
@@ -1992,11 +1992,11 @@ mod tests {
     fn host_bridge_probe_requires_process_metadata_capability() {
         assert!(bridge_help_supports_process_metadata(
             true,
-            b"Usage: con-cli pty-bridge [OPTIONS]\n    --process-metadata"
+            b"Usage: cube-cli pty-bridge [OPTIONS]\n    --process-metadata"
         ));
         assert!(!bridge_help_supports_process_metadata(
             true,
-            b"Usage: con-cli pty-bridge [OPTIONS]"
+            b"Usage: cube-cli pty-bridge [OPTIONS]"
         ));
         assert!(!bridge_help_supports_process_metadata(
             false,
@@ -2009,7 +2009,7 @@ mod tests {
         assert_eq!(
             bridge_capabilities(
                 true,
-                b"Usage: con-cli pty-bridge [OPTIONS]\n    --literal-command"
+                b"Usage: cube-cli pty-bridge [OPTIONS]\n    --literal-command"
             ),
             (true, false)
         );

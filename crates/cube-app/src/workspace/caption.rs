@@ -29,7 +29,7 @@ mod tests {
 pub(super) fn perf_trace_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var_os("CON_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
+        std::env::var_os("CUBE_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
     })
 }
 
@@ -99,7 +99,7 @@ pub(super) fn caption_buttons(
     // hit-test that runs through the workspace cleanup; on Linux
     // GPUI's X11 backend doesn't fire that path so we have to
     // route it explicitly.
-    #[cfg(target_os = "linux")] workspace: gpui::WeakEntity<ConWorkspace>,
+    #[cfg(target_os = "linux")] workspace: gpui::WeakEntity<CubeWorkspace>,
 ) -> impl IntoElement {
     #[cfg(target_os = "linux")]
     use gpui::MouseButton;

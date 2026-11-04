@@ -31,8 +31,8 @@ use objc::{class, msg_send, sel, sel_impl};
 // FFI to the ObjC trampoline compiled by build.rs (macOS only).
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
-    fn con_sparkle_init_controller() -> *mut std::ffi::c_void;
-    fn con_sparkle_check_for_updates(controller: *mut std::ffi::c_void);
+    fn cube_sparkle_init_controller() -> *mut std::ffi::c_void;
+    fn cube_sparkle_check_for_updates(controller: *mut std::ffi::c_void);
 }
 
 /// Opaque handle to the Sparkle updater controller (macOS).
@@ -175,7 +175,7 @@ fn init_inner() -> bool {
         return true;
     }
 
-    let channel = con_core::release_channel::current();
+    let channel = cube_core::release_channel::current();
     if !channel.polls_for_updates() {
         log::info!(
             "updater: channel={} — skipping Sparkle init",
@@ -272,7 +272,7 @@ fn init_inner() -> bool {
             return false;
         }
 
-        let controller = con_sparkle_init_controller();
+        let controller = cube_sparkle_init_controller();
         if controller.is_null() {
             log::warn!(
                 "updater: SPUStandardUpdaterController init failed or threw — auto-update disabled"
@@ -296,7 +296,7 @@ fn init_inner() -> bool {
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 fn init_inner() -> bool {
-    let channel = con_core::release_channel::current();
+    let channel = cube_core::release_channel::current();
     if !channel.polls_for_updates() {
         log::info!(
             "updater: channel={} — notify-only updater idle",
@@ -341,13 +341,13 @@ pub fn check_for_updates() {
     };
 
     unsafe {
-        con_sparkle_check_for_updates(controller);
+        cube_sparkle_check_for_updates(controller);
     }
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub fn check_for_updates() {
-    let channel = con_core::release_channel::current();
+    let channel = cube_core::release_channel::current();
     if !channel.polls_for_updates() {
         log::info!(
             "updater: channel={} — skipping manual check",
@@ -430,11 +430,11 @@ pub fn apply_update_in_place() {
 
     const DEFAULT_INSTALL_URL: &str = "https://con-releases.nowledge.co/install.sh";
 
-    // `CON_INSTALL_URL` overrides the script source for offline /
+    // `CUBE_INSTALL_URL` overrides the script source for offline /
     // local-server verification. Same env-only opt-in as
-    // `CON_APPCAST_BASE` — release builds default to the public
+    // `CUBE_APPCAST_BASE` — release builds default to the public
     // gh-pages-served install.sh; tests can point at their own.
-    let install_url = std::env::var("CON_INSTALL_URL")
+    let install_url = std::env::var("CUBE_INSTALL_URL")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_INSTALL_URL.to_string());
@@ -471,7 +471,7 @@ pub fn apply_update_in_place() {
     // `mktemp && curl -o tmp && sh tmp` short-circuits cleanly via
     // `&&`: any failure aborts before the next command runs.
     //
-    // `export CON_INSTALL_VERSION=...` (rather than the
+    // `export CUBE_INSTALL_VERSION=...` (rather than the
     // `VAR=value <cmd>` env-prefix form) lifts the var onto the
     // outer shell so both `curl` and `sh tmp` inherit it.
     //
@@ -481,13 +481,13 @@ pub fn apply_update_in_place() {
     // doesn't inherit our terminal.
     //
     // Both `install_url` and `version` go through `shell_quote()`
-    // so user-supplied env (`CON_INSTALL_URL`) and appcast-supplied
+    // so user-supplied env (`CUBE_INSTALL_URL`) and appcast-supplied
     // version strings can't break out of the single-quoted argument
     // even if they contain `&`, `;`, `$`, etc.
     let url_arg = shell_quote(install_url.trim());
     let pipeline = match target_version.as_deref() {
         Some(version) => format!(
-            "export CON_INSTALL_VERSION={version}; \
+            "export CUBE_INSTALL_VERSION={version}; \
              tmp=$(mktemp) && curl -fsSL {url} -o \"$tmp\" && sh \"$tmp\"; \
              rc=$?; rm -f \"$tmp\"; exit $rc",
             // Strip any leading 'v' the appcast might carry;
@@ -615,7 +615,7 @@ pub fn status() -> UpdaterStatus {
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 mod notify_impl {
     use super::{CheckState, set_latest};
-    use con_core::release_channel::{self, ReleaseChannel};
+    use cube_core::release_channel::{self, ReleaseChannel};
 
     /// Spawn a one-shot check on a native thread. Uses a fresh tokio
     /// runtime for the HTTP fetch rather than relying on a shared

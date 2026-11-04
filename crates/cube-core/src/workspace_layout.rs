@@ -10,8 +10,12 @@ use crate::session::{
 mod ghostty;
 
 pub const WORKSPACE_LAYOUT_VERSION: u32 = 2;
-pub const WORKSPACE_LAYOUT_FORMAT: &str = "con.workspace.layout";
-pub const DEFAULT_WORKSPACE_LAYOUT_PATH: &str = ".con/workspace.ghostty";
+pub const WORKSPACE_LAYOUT_FORMAT: &str = "cube.workspace.layout";
+/// 旧版本写出的格式标识。读取时同等对待，保证已有工作区文件仍能加载。
+pub const LEGACY_WORKSPACE_LAYOUT_FORMAT: &str = "con.workspace.layout";
+pub const DEFAULT_WORKSPACE_LAYOUT_PATH: &str = ".cube/workspace.ghostty";
+/// 旧版本的工作区布局路径，只作为迁移来源。
+pub const LEGACY_WORKSPACE_LAYOUT_PATH: &str = ".con/workspace.ghostty";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkspaceLayout {
@@ -389,7 +393,7 @@ impl WorkspaceLayout {
 
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
-            self.format == WORKSPACE_LAYOUT_FORMAT,
+            self.format == WORKSPACE_LAYOUT_FORMAT || self.format == LEGACY_WORKSPACE_LAYOUT_FORMAT,
             "unsupported workspace layout format {:?}",
             self.format
         );
@@ -989,7 +993,7 @@ mod tests {
         };
 
         let config = layout.to_ghostty_string().unwrap();
-        assert!(config.contains("format = \"con.workspace.layout\""));
+        assert!(config.contains("format = \"cube.workspace.layout\""));
         assert!(config.contains("version = 2"));
         assert!(!config.contains("run ="));
         assert!(!config.contains("restore ="));

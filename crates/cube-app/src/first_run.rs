@@ -1,5 +1,5 @@
 //! One-time, opt-in Ghostty import before creating any terminal sessions.
-use con_core::{
+use cube_core::{
     Config,
     config::transfer::{ghostty_config_candidates, prepare_import},
     session::Session,
@@ -23,7 +23,7 @@ pub(crate) fn pending(cx: &App) -> bool {
 }
 
 fn marker_path() -> PathBuf {
-    con_paths::app_data_dir().join("first-run-complete")
+    cube_paths::app_data_dir().join("first-run-complete")
 }
 
 fn eligible(config: &Path, session: &Path, marker: &Path) -> bool {
@@ -77,7 +77,7 @@ pub(crate) fn start(config: Config, startup: StartupArgs, cx: &mut App) {
         window_bounds: Some(WindowBounds::centered(size(px(560.0), px(440.0)), cx)),
         window_min_size: Some(size(px(375.0), px(360.0))),
         titlebar: Some(TitlebarOptions {
-            title: Some("Welcome to Con".into()),
+            title: Some("Welcome to Cube".into()),
             ..Default::default()
         }),
         ..Default::default()
@@ -143,11 +143,11 @@ impl Welcome {
                 // A different on-disk profile needs a fresh app initialization,
                 // including when the user chooses not to import.
                 if !eligible(&Config::config_path(), &Session::session_path(), &marker_path()) {
-                    anyhow::bail!("Con configuration or session state changed while this prompt was open. Quit and reopen Con to load it.");
+                    anyhow::bail!("Cube configuration or session state changed while this prompt was open. Quit and reopen Cube to load it.");
                 }
                 let config = if let Some(source) = source {
                     let prepared = prepare_import(&source, &current, &Config::config_path())?;
-                    crate::workspace::ConWorkspace::validate_native_config_candidate(prepared.config())
+                    crate::workspace::CubeWorkspace::validate_native_config_candidate(prepared.config())
                         .map_err(anyhow::Error::msg)?;
                     let config = prepared.config().clone();
                     prepared.commit_new()?;
@@ -180,7 +180,7 @@ impl Render for Welcome {
         let mut content = div().flex().flex_col().gap_4().p(px(24.0)).w_full().min_w_0()
             .child(div().text_size(px(22.0)).font_weight(FontWeight::SEMIBOLD).child("Bring your Ghostty settings"))
             .child(div().text_sm().text_color(theme.muted_foreground)
-                .child("Import fonts, colors, and terminal settings. Your Ghostty files stay unchanged. Some settings may not apply to Con."))
+                .child("Import fonts, colors, and terminal settings. Your Ghostty files stay unchanged. Some settings may not apply to Cube."))
             .child(div().text_sm().child("Configured startup commands will run when the terminal opens."));
         for (index, source) in self.sources.iter().enumerate() {
             let source = source.clone();
@@ -234,7 +234,7 @@ impl Render for Welcome {
                         .label(if self.error.is_some() {
                             "Continue Without Import"
                         } else {
-                            "Use Con Defaults"
+                            "Use Cube Defaults"
                         })
                         .disabled(self.busy)
                         .on_click(

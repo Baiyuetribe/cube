@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use con_ghostty::{GhosttyApp, GhosttySplitDirection, GhosttyTerminal, TerminalProgress};
+use cube_ghostty::{GhosttyApp, GhosttySplitDirection, GhosttyTerminal, TerminalProgress};
 use gpui::*;
 use gpui_component::ActiveTheme;
 
@@ -45,7 +45,7 @@ pub struct GhosttyView {
     terminal: Option<Arc<GhosttyTerminal>>,
     focus_handle: FocusHandle,
     initial_cwd: Option<String>,
-    pub(crate) terminal_title: con_core::terminal_title::TerminalTitle,
+    pub(crate) terminal_title: cube_core::terminal_title::TerminalTitle,
     #[allow(dead_code)]
     initial_font_size: f32,
 }

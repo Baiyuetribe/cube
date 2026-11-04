@@ -2,7 +2,7 @@
 
 use super::Config;
 use anyhow::{Context, Result, bail};
-use con_terminal::TerminalTheme;
+use cube_terminal::TerminalTheme;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -112,7 +112,7 @@ fn resolve_theme(value: &str, parent: &Path, include_con: bool) -> Result<Option
     }
     let mut roots = Vec::new();
     if include_con {
-        roots.push(con_paths::user_themes_dir());
+        roots.push(cube_paths::user_themes_dir());
     }
     if let Some(config) = ghostty_xdg_dir() {
         roots.push(config.join("themes"));
@@ -426,7 +426,7 @@ fn transfer(from: &Path, to: &Path, strip_comments: bool) -> Result<()> {
         ..TransferState::default()
     };
     let rendered = transform(from, &resources, 0, false, &mut state)?;
-    Config::parse_ghostty(&rendered).context("transferred configuration failed Con validation")?;
+    Config::parse_ghostty(&rendered).context("transferred configuration failed Cube validation")?;
     let created_resources = if state.staged.is_empty() {
         false
     } else {
@@ -455,7 +455,7 @@ pub fn import_ghostty(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<()
     transfer(from.as_ref(), to.as_ref(), false)
 }
 
-/// Export an authored, self-contained Ghostty snapshot, recursively excluding comments and Con settings.
+/// Export an authored, self-contained Ghostty snapshot, recursively excluding comments and Cube settings.
 pub fn export_ghostty(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<()> {
     transfer(from.as_ref(), to.as_ref(), true)
 }
@@ -498,7 +498,7 @@ impl PreparedImport {
     /// First-run import must never replace even an empty existing file.
     pub fn commit_new(self) -> Result<()> {
         if self.previous.is_some() {
-            bail!("Con configuration already exists; use Settings to replace it");
+            bail!("Cube configuration already exists; use Settings to replace it");
         }
         self.commit().map(|_| ())
     }
@@ -510,7 +510,7 @@ impl PreparedImport {
             Err(error) => return Err(error.into()),
         };
         if actual != self.previous {
-            bail!("Con configuration changed on disk; cancel and prepare the import again");
+            bail!("Cube configuration changed on disk; cancel and prepare the import again");
         }
         let backup = if let Some(previous) = &self.previous {
             let backup = self.directory.join("previous.ghostty");
@@ -537,7 +537,7 @@ impl Drop for PreparedImport {
     }
 }
 
-/// Prepare a detached native snapshot while retaining Con-owned settings.
+/// Prepare a detached native snapshot while retaining Cube-owned settings.
 /// The caller must validate with its native backend before offering commit.
 pub fn prepare_import(from: &Path, current: &Config, destination: &Path) -> Result<PreparedImport> {
     let previous = match fs::read_to_string(destination) {
@@ -550,7 +550,7 @@ pub fn prepare_import(from: &Path, current: &Config, destination: &Path) -> Resu
         if source.path.as_deref() != Some(destination)
             || previous.as_deref().unwrap_or("") != source.source
         {
-            bail!("Con configuration changed on disk; restart Con before importing");
+            bail!("Cube configuration changed on disk; restart Cube before importing");
         }
     }
     let parent = destination
@@ -586,7 +586,7 @@ pub fn prepare_import(from: &Path, current: &Config, destination: &Path) -> Resu
     let mut rendered = fs::read_to_string(&snapshot)?;
     fs::remove_file(&snapshot)?;
     rendered.push('\n');
-    // Use the existing lossless renderer, not a second serializer. Only Con
+    // Use the existing lossless renderer, not a second serializer. Only Cube
     // assignments survive; all old native entries are replaced as one unit.
     for line in super::ghostty::render(current)?.lines() {
         if assignment(line).is_some_and(|(key, _)| key.starts_with("con.")) {
@@ -664,7 +664,7 @@ mod tests {
     #[test]
     fn first_run_import_never_replaces_an_existing_empty_file() {
         let d = dir();
-        let target = d.join(con_paths::CONFIG_FILE_NAME);
+        let target = d.join(cube_paths::CONFIG_FILE_NAME);
         let source = d.join("ghostty");
         fs::write(&source, "font-size = 19\n").unwrap();
         let config = Config::load_from_path(&target).unwrap();
@@ -882,7 +882,7 @@ mod tests {
     fn export_stages_legacy_themes_but_preserves_native_names_and_imports() {
         let d = dir();
         let source = d.join("source");
-        let native_theme = "ConNativeCatalogThemeNotPresentOnDisk";
+        let native_theme = "CubeNativeCatalogThemeNotPresentOnDisk";
         fs::write(
             &source,
             format!("theme = light:flexoki-light,dark:{native_theme}\n"),

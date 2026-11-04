@@ -8,7 +8,7 @@ fn sanitize_tab_accent_alpha(alpha: f32) -> f32 {
     }
 }
 
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) fn on_sidebar_select(
         &mut self,
         _sidebar: &Entity<SessionSidebar>,

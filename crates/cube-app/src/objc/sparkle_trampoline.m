@@ -16,7 +16,7 @@
 /// Returns the initialized controller, or NULL if an ObjC exception was thrown.
 /// Uses initWithStartingUpdater:YES so Sparkle begins polling immediately after
 /// successful controller creation.
-void *con_sparkle_init_controller(void) {
+void *cube_sparkle_init_controller(void) {
     @try {
         Class cls = NSClassFromString(@"SPUStandardUpdaterController");
         if (!cls) return NULL;
@@ -47,7 +47,7 @@ void *con_sparkle_init_controller(void) {
 /// Call -[SPUUpdater startUpdater:] with @try/@catch.
 ///
 /// Returns 1 on success, 0 on failure or exception.
-int con_sparkle_start_updater(void *controller) {
+int cube_sparkle_start_updater(void *controller) {
     @try {
         id ctrl = (__bridge id)controller;
 
@@ -75,7 +75,7 @@ int con_sparkle_start_updater(void *controller) {
 }
 
 /// Call -[SPUUpdater checkForUpdates] with @try/@catch.
-void con_sparkle_check_for_updates(void *controller) {
+void cube_sparkle_check_for_updates(void *controller) {
     @try {
         id ctrl = (__bridge id)controller;
         SEL checkSel = NSSelectorFromString(@"checkForUpdates:");

@@ -293,7 +293,7 @@ pub fn font_fallback(
         }
     }
 
-    // Prompt icons use Unicode private-use ranges. Append Con's bundled Nerd
+    // Prompt icons use Unicode private-use ranges. Append Cube's bundled Nerd
     // Font after the user's choices, but before the Windows system cascade.
     if let Some(collection) = bundled_collection {
         let ranges = [

@@ -17,7 +17,7 @@
 use crate::activity_bar::ActivitySlot;
 use crate::motion::SidebarMotion;
 use crate::ui_scale::{ui_icon_px, ui_px};
-use con_core::terminal_status::Status;
+use cube_core::terminal_status::Status;
 use gpui::{
     AnyElement, App, Bounds, Context, Div, Entity, EventEmitter, FontWeight, Hsla,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Point,
@@ -162,7 +162,7 @@ pub struct SessionEntry {
     /// panes" without expanding.
     pub pane_count: usize,
     /// Optional accent color set via the tab context menu.
-    pub color: Option<con_core::session::TabAccentColor>,
+    pub color: Option<cube_core::session::TabAccentColor>,
 }
 
 impl SessionEntry {
@@ -406,7 +406,7 @@ pub struct SidebarCloseOthers {
 
 pub struct SidebarSetColor {
     pub session_id: u64,
-    pub color: Option<con_core::session::TabAccentColor>,
+    pub color: Option<cube_core::session::TabAccentColor>,
 }
 
 pub struct SidebarOpenToolSlot {
@@ -1239,10 +1239,10 @@ impl SessionSidebar {
                 && !session.status.is_some_and(|status| {
                     matches!(
                         status.activity,
-                        con_core::terminal_status::Activity::Error
-                            | con_core::terminal_status::Activity::NeedsInput
-                            | con_core::terminal_status::Activity::Paused
-                            | con_core::terminal_status::Activity::Done
+                        cube_core::terminal_status::Activity::Error
+                            | cube_core::terminal_status::Activity::NeedsInput
+                            | cube_core::terminal_status::Activity::Paused
+                            | cube_core::terminal_status::Activity::Done
                     )
                 })
             {
@@ -1948,10 +1948,10 @@ impl SessionSidebar {
             && !session.status.is_some_and(|status| {
                 matches!(
                     status.activity,
-                    con_core::terminal_status::Activity::Error
-                        | con_core::terminal_status::Activity::NeedsInput
-                        | con_core::terminal_status::Activity::Paused
-                        | con_core::terminal_status::Activity::Done
+                    cube_core::terminal_status::Activity::Error
+                        | cube_core::terminal_status::Activity::NeedsInput
+                        | cube_core::terminal_status::Activity::Paused
+                        | cube_core::terminal_status::Activity::Done
                 )
             })
         {
@@ -2390,7 +2390,7 @@ fn build_row_context_menu(
     session_id: u64,
     total: usize,
     has_user_label: bool,
-    current_color: Option<con_core::session::TabAccentColor>,
+    current_color: Option<cube_core::session::TabAccentColor>,
 ) -> PopupMenu {
     use crate::tab_context_menu::{TabMenuOptions, build_tab_context_menu};
     build_tab_context_menu(
@@ -2964,10 +2964,10 @@ mod tests {
         let (view, cx) = cx.add_window_view(|_, cx| {
             let mut sidebar = SessionSidebar::new(cx);
             sidebar.sessions = vec![session(
-                Some(con_core::terminal_status::Status {
+                Some(cube_core::terminal_status::Status {
                     surface_id: 1,
-                    activity: con_core::terminal_status::Activity::NeedsInput,
-                    evidence: con_core::terminal_status::Evidence::ProgramStatus,
+                    activity: cube_core::terminal_status::Activity::NeedsInput,
+                    evidence: cube_core::terminal_status::Evidence::ProgramStatus,
                     percent: None,
                 }),
                 Some("Waiting for permission".into()),
@@ -3002,10 +3002,10 @@ mod tests {
         }
 
         view.update(cx, |sidebar, cx| {
-            sidebar.sessions[0].status = Some(con_core::terminal_status::Status {
+            sidebar.sessions[0].status = Some(cube_core::terminal_status::Status {
                 surface_id: 1,
-                activity: con_core::terminal_status::Activity::Busy,
-                evidence: con_core::terminal_status::Evidence::ProgramStatus,
+                activity: cube_core::terminal_status::Activity::Busy,
+                evidence: cube_core::terminal_status::Evidence::ProgramStatus,
                 percent: Some(40),
             });
             cx.notify();
@@ -3054,7 +3054,7 @@ mod tests {
     }
 
     fn session(
-        status: Option<con_core::terminal_status::Status>,
+        status: Option<cube_core::terminal_status::Status>,
         status_detail: Option<String>,
     ) -> super::SessionEntry {
         super::SessionEntry {
@@ -3198,10 +3198,10 @@ mod tests {
         let (view, cx) = cx.add_window_view(|_, cx| {
             let mut sidebar = SessionSidebar::new(cx);
             sidebar.sessions = vec![session(
-                Some(con_core::terminal_status::Status {
+                Some(cube_core::terminal_status::Status {
                     surface_id: 1,
-                    activity: con_core::terminal_status::Activity::Busy,
-                    evidence: con_core::terminal_status::Evidence::ProgramStatus,
+                    activity: cube_core::terminal_status::Activity::Busy,
+                    evidence: cube_core::terminal_status::Evidence::ProgramStatus,
                     percent: None,
                 }),
                 None,

@@ -102,7 +102,7 @@ fn is_tty_stdout() -> bool {
 #[derive(Parser)]
 #[command(
     name = "con-test",
-    about = "Logic test runner for con-cli — drives a live con session via .test files"
+    about = "Logic test runner for cube-cli — drives a live con session via .test files"
 )]
 struct Cli {
     /// Paths to .test files or directories containing .test files
@@ -113,9 +113,9 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     con: Option<PathBuf>,
 
-    /// Path to the con-cli binary (defaults to sibling in cargo target/)
+    /// Path to the cube-cli binary (defaults to sibling in cargo target/)
     #[arg(long, value_name = "PATH")]
-    con_cli: Option<PathBuf>,
+    cube_cli: Option<PathBuf>,
 
     /// Control endpoint path for the launched con process
     /// (default: temp Unix socket on Unix, named pipe on Windows)
@@ -168,7 +168,7 @@ fn main() -> ExitCode {
         Color::detect()
     };
 
-    let con_bin = match resolve_bin(cli.con.as_deref(), app_binary_name()) {
+    let cube_bin = match resolve_bin(cli.con.as_deref(), app_binary_name()) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{} {e}", color.red("error:"));
@@ -176,7 +176,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let con_cli = match resolve_bin(cli.con_cli.as_deref(), "con-cli") {
+    let cube_cli = match resolve_bin(cli.cube_cli.as_deref(), "cube-cli") {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{} {e}", color.red("error:"));
@@ -203,9 +203,9 @@ fn main() -> ExitCode {
     }
 
     // Launch a single con process for the entire test run.
-    println!("{} con ({})...", color.dim("launching"), con_bin.display());
-    let _con_process = match runner::ConProcess::launch(
-        &con_bin,
+    println!("{} con ({})...", color.dim("launching"), cube_bin.display());
+    let _con_process = match runner::CubeProcess::launch(
+        &cube_bin,
         &socket,
         Duration::from_secs(cli.startup_timeout),
     ) {
@@ -222,7 +222,7 @@ fn main() -> ExitCode {
     );
 
     let config = runner::RunConfig {
-        con_cli: con_cli.clone(),
+        cube_cli: cube_cli.clone(),
         socket: socket.clone(),
         rewrite: cli.rewrite,
         verbose: cli.verbose,
@@ -233,7 +233,7 @@ fn main() -> ExitCode {
     let mut skipped = 0usize;
 
     for path in &test_files {
-        if let Err(e) = runner::reset_state(&con_cli, &socket) {
+        if let Err(e) = runner::reset_state(&cube_cli, &socket) {
             eprintln!(
                 "  {} reset_state failed before {}: {e}",
                 color.red("error:"),
@@ -380,9 +380,9 @@ fn resolve_bin(flag: Option<&Path>, name: &str) -> Result<PathBuf> {
 
 fn env_key_for_bin(name: &str) -> &'static str {
     match name {
-        "con" | "con-app" => "CON",
-        "con-cli" => "CON_CLI",
-        _ => "CON_BIN",
+        "cube" => "CUBE",
+        "cube-cli" => "CUBE_CLI",
+        _ => "CUBE_BIN",
     }
 }
 
@@ -402,14 +402,9 @@ fn platform_exe_name(name: &str) -> String {
     }
 }
 
-#[cfg(windows)]
+/// `CUBE` 不是 DOS 保留名，Windows 与其它平台的二进制名相同。
 fn app_binary_name() -> &'static str {
-    "con-app"
-}
-
-#[cfg(not(windows))]
-fn app_binary_name() -> &'static str {
-    "con"
+    "cube"
 }
 
 #[cfg(windows)]
@@ -463,9 +458,8 @@ mod tests {
 
     #[test]
     fn env_keys_match_documented_overrides() {
-        assert_eq!(env_key_for_bin("con"), "CON");
-        assert_eq!(env_key_for_bin("con-app"), "CON");
-        assert_eq!(env_key_for_bin("con-cli"), "CON_CLI");
+        assert_eq!(env_key_for_bin("cube"), "CUBE");
+        assert_eq!(env_key_for_bin("cube-cli"), "CUBE_CLI");
     }
 
     #[test]
@@ -473,25 +467,22 @@ mod tests {
         let endpoint = default_control_endpoint();
         let endpoint = endpoint.to_string_lossy();
         #[cfg(windows)]
-        assert!(endpoint.starts_with(r"\\.\pipe\con-test-"));
+        assert!(endpoint.starts_with(r"\\.\pipe\cube-test-"));
         #[cfg(not(windows))]
         assert!(endpoint.ends_with(".sock"));
     }
 
     #[test]
     fn app_binary_name_is_platform_appropriate() {
-        #[cfg(windows)]
-        assert_eq!(app_binary_name(), "con-app");
-        #[cfg(not(windows))]
-        assert_eq!(app_binary_name(), "con");
+        assert_eq!(app_binary_name(), "cube");
     }
 
     #[test]
     fn sibling_lookup_uses_platform_exe_name() {
         #[cfg(windows)]
-        assert_eq!(platform_exe_name("con-cli"), "con-cli.exe");
+        assert_eq!(platform_exe_name("cube-cli"), "cube-cli.exe");
         #[cfg(not(windows))]
-        assert_eq!(platform_exe_name("con-cli"), "con-cli");
+        assert_eq!(platform_exe_name("cube-cli"), "cube-cli");
     }
 
     #[test]
@@ -503,9 +494,9 @@ mod tests {
 
     #[test]
     fn documented_env_override_is_used() {
-        let _guard = EnvGuard::set("CON_CLI", "/tmp/documented-con-cli");
-        let resolved = resolve_bin(None, "con-cli").unwrap();
-        assert_eq!(resolved, PathBuf::from("/tmp/documented-con-cli"));
+        let _guard = EnvGuard::set("CUBE_CLI", "/tmp/documented-cube-cli");
+        let resolved = resolve_bin(None, "cube-cli").unwrap();
+        assert_eq!(resolved, PathBuf::from("/tmp/documented-cube-cli"));
     }
 
     struct EnvGuard {

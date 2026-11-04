@@ -6,7 +6,7 @@
 //!   public types that mirror the macOS surface and slot into
 //!   `crate::stub` exports for cross-crate type parity.
 //! - [`host_view::RenderSession`] — owns the `Renderer`, VT parser, and
-//!   ConPTY for a single pane. No child HWND: the renderer draws into
+//!   CubePTY for a single pane. No child HWND: the renderer draws into
 //!   an offscreen D3D11 texture and `render_frame` returns BGRA bytes
 //!   the GPUI view paints as an `ImageSource::Render(Arc<RenderImage>)`.
 //! - [`render`] — D3D11 + DirectWrite renderer. Builds a glyph atlas,

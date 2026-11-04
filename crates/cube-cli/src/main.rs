@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use con_core::{
+use cube_core::{
     ControlCommand, JSON_RPC_VERSION, JsonRpcRequest, JsonRpcResponse, PaneTarget,
     control_socket_path,
 };
-use con_terminal::{PaneCreateLocation, TmuxExecLocation};
+use cube_terminal::{PaneCreateLocation, TmuxExecLocation};
 use serde_json::{Value, json};
 
 mod configuration;
@@ -17,7 +17,7 @@ mod ssh;
 mod ssh_cache;
 
 #[derive(Parser)]
-#[command(name = "con-cli", about = "CLI control surface for a running con app")]
+#[command(name = "cube-cli", about = "CLI control surface for a running con app")]
 struct Cli {
     #[arg(long, global = true, value_name = "PATH")]
     socket: Option<PathBuf>,
@@ -44,7 +44,7 @@ enum Command {
         #[command(subcommand)]
         command: TmuxCommand,
     },
-    /// Import or export configuration without connecting to a running Con app.
+    /// Import or export configuration without connecting to a running Cube app.
     Config {
         #[command(subcommand)]
         command: configuration::ConfigurationCommand,
@@ -512,14 +512,14 @@ fn connect_control_endpoint(path: &Path) -> std::io::Result<ControlStream> {
 fn connect_control_endpoint(_path: &Path) -> std::io::Result<ControlStream> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
-        "con-cli is not supported on this target",
+        "cube-cli is not supported on this target",
     ))
 }
 
 fn send_command(socket_path: &Path, command: ControlCommand) -> Result<Value> {
     let mut stream = connect_control_endpoint(socket_path).with_context(|| {
         format!(
-            "failed to connect to con at {}. Launch con first or pass --socket/CON_SOCKET_PATH.",
+            "failed to connect to con at {}. Launch con first or pass --socket/CUBE_SOCKET_PATH.",
             socket_path.display()
         )
     })?;
@@ -844,7 +844,7 @@ mod tests {
     #[test]
     fn pty_bridge_literal_command_keeps_leading_dash_arguments() {
         let cli = Cli::try_parse_from([
-            "con-cli",
+            "cube-cli",
             "pty-bridge",
             "--socket",
             "/tmp/con bridge.sock",
@@ -877,7 +877,7 @@ mod tests {
     #[test]
     fn pty_bridge_accepts_hyphen_prefixed_cwd_and_program() {
         let cli = Cli::try_parse_from([
-            "con-cli",
+            "cube-cli",
             "pty-bridge",
             "--socket",
             "/tmp/con.sock",

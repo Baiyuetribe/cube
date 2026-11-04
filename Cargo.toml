@@ -1,15 +1,15 @@
 [workspace]
 members = [
-    "crates/con-app",
-    "crates/con-core",
-    "crates/con-paths",
-    "crates/con-terminal",
-    "crates/con-ghostty",
-    "crates/con-cli",
-    "crates/con-process",
-    "crates/con-test",
+    "crates/cube-app",
+    "crates/cube-core",
+    "crates/cube-paths",
+    "crates/cube-terminal",
+    "crates/cube-ghostty",
+    "crates/cube-cli",
+    "crates/cube-process",
+    "crates/cube-test",
 ]
-default-members = ["crates/con-app"]
+default-members = ["crates/cube-app"]
 resolver = "2"
 
 [workspace.package]
@@ -19,11 +19,11 @@ version = "0.1.0"
 
 [workspace.dependencies]
 # Internal crates
-con-core = { path = "crates/con-core" }
-con-paths = { path = "crates/con-paths" }
-con-terminal = { path = "crates/con-terminal" }
-con-ghostty = { path = "crates/con-ghostty" }
-con-process = { path = "crates/con-process" }
+cube-core = { path = "crates/cube-core" }
+cube-paths = { path = "crates/cube-paths" }
+cube-terminal = { path = "crates/cube-terminal" }
+cube-ghostty = { path = "crates/cube-ghostty" }
+cube-process = { path = "crates/cube-process" }
 
 # UI — Zed's GPUI via the `gpui-pre-*` crates.io snapshots (0.3.7 = zed@1a28cff).
 # Pin them exactly to the snapshot gpui-component was released against and bump

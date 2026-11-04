@@ -1,5 +1,5 @@
 #[cfg(any(target_os = "windows", target_os = "linux"))]
-use con_ghostty::vt::{VtKeyAction, VtKeyEvent, VtKeyModifiers, is_supported_functional_key};
+use cube_ghostty::vt::{VtKeyAction, VtKeyEvent, VtKeyModifiers, is_supported_functional_key};
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use gpui::{KeyDownEvent, Keystroke, Modifiers};
 
@@ -271,7 +271,7 @@ mod tests {
 #[cfg(all(test, any(target_os = "windows", target_os = "linux")))]
 mod vt_tests {
     use super::vt_key_event;
-    use con_ghostty::vt::VtKeyAction;
+    use cube_ghostty::vt::VtKeyAction;
     use gpui::{Keystroke, Modifiers};
 
     #[test]

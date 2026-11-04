@@ -23,9 +23,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
-use con_ghostty::GhosttyScrollbar;
-use con_ghostty::ffi;
-use con_ghostty::{
+use cube_ghostty::GhosttyScrollbar;
+use cube_ghostty::ffi;
+use cube_ghostty::{
     GhosttyApp, GhosttySplitDirection, GhosttySurfaceEvent, GhosttyTerminal, MouseButton,
     TerminalProgress,
 };
@@ -121,10 +121,10 @@ struct NativeBackingSync {
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
-    fn con_terminal_canvas_generation(view: *mut c_void) -> u64;
-    fn con_terminal_canvas_apply_clip(view: *mut c_void);
-    fn con_terminal_canvas_clip_is_attached(view: *mut c_void) -> bool;
-    fn con_terminal_pane_set_header(
+    fn cube_terminal_canvas_generation(view: *mut c_void) -> u64;
+    fn cube_terminal_canvas_apply_clip(view: *mut c_void);
+    fn cube_terminal_canvas_clip_is_attached(view: *mut c_void) -> bool;
+    fn cube_terminal_pane_set_header(
         host: *mut c_void,
         x: f64,
         y: f64,
@@ -137,14 +137,14 @@ unsafe extern "C" {
         blue: f64,
         alpha: f64,
     ) -> bool;
-    fn con_terminal_pane_header_set_visible(host: *mut c_void, visible: bool);
-    fn con_terminal_pane_remove_header(host: *mut c_void);
-    fn con_terminal_pane_set_coverage(
+    fn cube_terminal_pane_header_set_visible(host: *mut c_void, visible: bool);
+    fn cube_terminal_pane_remove_header(host: *mut c_void);
+    fn cube_terminal_pane_set_coverage(
         view: *mut c_void,
         tiles: *const NativeCornerTile,
         count: usize,
     ) -> bool;
-    fn con_terminal_pane_set_clip_corners(
+    fn cube_terminal_pane_set_clip_corners(
         view: *mut c_void,
         x: f64,
         y: f64,
@@ -157,14 +157,14 @@ unsafe extern "C" {
     ) -> bool;
     fn objc_getAssociatedObject(object: id, key: *const c_void) -> id;
     fn objc_setAssociatedObject(object: id, key: *const c_void, value: id, policy: usize);
-    fn con_ghostty_surface_install_backing_observer(view: *mut c_void, surface: *mut c_void);
-    fn con_ghostty_surface_remove_backing_observer(view: *mut c_void);
-    fn con_ghostty_surface_sync_occlusion(view: *mut c_void);
-    fn con_ghostty_surface_current_key_text(
+    fn cube_ghostty_surface_install_backing_observer(view: *mut c_void, surface: *mut c_void);
+    fn cube_ghostty_surface_remove_backing_observer(view: *mut c_void);
+    fn cube_ghostty_surface_sync_occlusion(view: *mut c_void);
+    fn cube_ghostty_surface_current_key_text(
         view: *mut c_void,
         text_length: *mut usize,
     ) -> *const std::ffi::c_char;
-    fn con_ghostty_surface_sync_backing(
+    fn cube_ghostty_surface_sync_backing(
         view: *mut c_void,
         surface: *mut c_void,
         logical_width: f64,
@@ -183,7 +183,7 @@ const OBJC_ASSOCIATION_RETAIN_NONATOMIC: usize = 1;
 fn perf_trace_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var_os("CON_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
+        std::env::var_os("CUBE_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
     })
 }
 
@@ -415,7 +415,7 @@ pub struct GhosttyView {
     initialized: bool,
     last_bounds: Option<Bounds<Pixels>>,
     scale_factor: f32,
-    pub(crate) terminal_title: con_core::terminal_title::TerminalTitle,
+    pub(crate) terminal_title: cube_core::terminal_title::TerminalTitle,
     last_cwd: Option<String>,
     last_progress: Option<TerminalProgress>,
     /// Data queued for the PTY before the surface was created.
@@ -1215,12 +1215,12 @@ impl GhosttyView {
         self.native_underlay_view = None;
         if let Some(nsview) = self.nsview {
             unsafe {
-                con_ghostty_surface_remove_backing_observer(nsview as *mut c_void);
+                cube_ghostty_surface_remove_backing_observer(nsview as *mut c_void);
             }
         }
         if let Some(host_view) = self.host_view.take() {
             unsafe {
-                con_terminal_pane_remove_header(host_view.cast());
+                cube_terminal_pane_remove_header(host_view.cast());
                 let superview: id = msg_send![host_view, superview];
                 if !superview.is_null() {
                     let _: () = msg_send![host_view, removeFromSuperview];
@@ -1445,7 +1445,7 @@ impl GhosttyView {
             let _: () = msg_send![host, setAutohidesScrollers:NO];
             let _: () = msg_send![host, setUsesPredominantAxisScrolling:YES];
             // GPUI owns pane geometry. The host must not follow the entire
-            // window's autoresizing before or after Con commits a pane layout.
+            // window's autoresizing before or after Cube commits a pane layout.
             let _: () = msg_send![host, setAutoresizingMask:0usize];
             let _: () = msg_send![host, setAutoresizesSubviews:YES];
             let _: () = msg_send![
@@ -1506,7 +1506,7 @@ impl GhosttyView {
                 self.initialized = true;
                 self.next_surface_init_retry_at = None;
                 unsafe {
-                    con_ghostty_surface_install_backing_observer(
+                    cube_ghostty_surface_install_backing_observer(
                         nsview as *mut c_void,
                         terminal.raw_surface() as *mut c_void,
                     );
@@ -1801,11 +1801,11 @@ impl GhosttyView {
             Self::view_backing_scale(nsview, f64::from(window.scale_factor().max(f32::EPSILON)));
 
         let ok = unsafe {
-            con_ghostty_surface_install_backing_observer(
+            cube_ghostty_surface_install_backing_observer(
                 nsview as *mut c_void,
                 terminal.raw_surface() as *mut c_void,
             );
-            con_ghostty_surface_sync_backing(
+            cube_ghostty_surface_sync_backing(
                 nsview as *mut c_void,
                 terminal.raw_surface() as *mut c_void,
                 f64::from(bounds.size.width.as_f32().max(1.0)),
@@ -1891,7 +1891,7 @@ impl GhosttyView {
         if let Some(view) = self.host_view {
             let radii = crate::workspace::frame::window_concentric_corners(bounds, radius, window);
             let mut changed = unsafe {
-                con_terminal_pane_set_clip_corners(
+                cube_terminal_pane_set_clip_corners(
                     view as *mut c_void,
                     f64::from(bounds.left()),
                     f64::from(bounds.top()),
@@ -1925,13 +1925,17 @@ impl GhosttyView {
                             })
                             .collect::<Vec<_>>();
                         changed |= unsafe {
-                            con_terminal_pane_set_coverage(view.cast(), tiles.as_ptr(), tiles.len())
+                            cube_terminal_pane_set_coverage(
+                                view.cast(),
+                                tiles.as_ptr(),
+                                tiles.len(),
+                            )
                         };
                     }
                     Err(error) => {
                         log::error!("failed to prepare shared pane coverage: {error}");
                         changed |= unsafe {
-                            con_terminal_pane_set_coverage(view.cast(), std::ptr::null(), 0)
+                            cube_terminal_pane_set_coverage(view.cast(), std::ptr::null(), 0)
                         };
                     }
                 }
@@ -1939,7 +1943,7 @@ impl GhosttyView {
             if changed {
                 window.request_native_surface_presentation_sync();
                 unsafe {
-                    con_terminal_canvas_apply_clip(view as *mut c_void);
+                    cube_terminal_canvas_apply_clip(view as *mut c_void);
                 }
             }
             if let Some(color) = self.native_pane_header_color {
@@ -1952,7 +1956,7 @@ impl GhosttyView {
                 });
                 let color: gpui::Rgba = color.into();
                 if unsafe {
-                    con_terminal_pane_set_header(
+                    cube_terminal_pane_set_header(
                         view.cast(),
                         f64::from(bounds.left()),
                         f64::from(bounds.top()),
@@ -1976,9 +1980,9 @@ impl GhosttyView {
     fn update_frame(&mut self, bounds: Bounds<Pixels>, window: &Window) {
         let bounds = crate::terminal_geometry::snap_terminal_bounds(bounds, window.scale_factor());
         let canvas_generation = self.host_view.map_or(0, |host| unsafe {
-            con_terminal_canvas_generation(host as *mut c_void)
+            cube_terminal_canvas_generation(host as *mut c_void)
         });
-        // `last_bounds` is Con's layout cache, not Ghostty's protocol state.
+        // `last_bounds` is Cube's layout cache, not Ghostty's protocol state.
         // Pane-local surfaces can be hidden, focused, and resized without
         // repainting every sibling; always verify the embedded surface still
         // reports the pixel size that maps to these bounds before skipping.
@@ -2035,10 +2039,10 @@ impl GhosttyView {
         self.sync_native_scroll_view();
         self.apply_pane_clip(window);
         if let Some(host) = self.host_view {
-            unsafe { con_terminal_canvas_apply_clip(host as *mut c_void) };
+            unsafe { cube_terminal_canvas_apply_clip(host as *mut c_void) };
         }
         if let Some(underlay) = self.native_underlay_view {
-            unsafe { con_terminal_canvas_apply_clip(underlay as *mut c_void) };
+            unsafe { cube_terminal_canvas_apply_clip(underlay as *mut c_void) };
         }
 
         if let Some(started) = started {
@@ -2095,7 +2099,7 @@ impl GhosttyView {
                 && (actual.origin.y - expected.1).abs() < 0.01
                 && (actual.size.width - expected.2).abs() < 0.01
                 && (actual.size.height - expected.3).abs() < 0.01
-                && con_terminal_canvas_clip_is_attached(host as *mut c_void)
+                && cube_terminal_canvas_clip_is_attached(host as *mut c_void)
         }
     }
 
@@ -2171,11 +2175,11 @@ impl GhosttyView {
             let _: () = msg_send![scroll_view, reflectScrolledClipView:content_view];
 
             // Do not read `documentVisibleRect` here and do not skip this frame
-            // mutation through a local tuple cache. Con drives this AppKit
+            // mutation through a local tuple cache. Cube drives this AppKit
             // hierarchy from GPUI layout callbacks, so split/zoom topology
             // changes can leave AppKit's computed geometry or an old host
             // placement stale until the next layout pass. The terminal surface
-            // frame must be deterministically reapplied from Con-owned pane
+            // frame must be deterministically reapplied from Cube-owned pane
             // bounds plus Ghostty's scrollbar state.
             let surface_frame = NSRect::new(
                 cocoa::foundation::NSPoint::new(overdraw, scroll_y + overdraw),
@@ -2280,7 +2284,7 @@ impl GhosttyView {
         self.apply_native_visibility();
         if let Some(nsview) = self.nsview {
             unsafe {
-                con_ghostty_surface_sync_occlusion(nsview as *mut c_void);
+                cube_ghostty_surface_sync_occlusion(nsview as *mut c_void);
             }
         }
     }
@@ -2306,7 +2310,7 @@ impl GhosttyView {
                     self.native_view_visible.get() && !self.awaiting_first_layout_visibility;
                 let hidden = if effective_visible { NO } else { YES };
                 let _: () = msg_send![host_view, setHidden:hidden];
-                con_terminal_pane_header_set_visible(host_view.cast(), effective_visible);
+                cube_terminal_pane_header_set_visible(host_view.cast(), effective_visible);
                 if effective_visible {
                     let _: () = msg_send![host_view, setNeedsDisplay:YES];
                 }
@@ -2686,7 +2690,7 @@ impl GhosttyView {
         // UTF-8 before returning; no pointer escapes this synchronous callback.
         let text = unsafe {
             let mut len = 0;
-            let ptr = con_ghostty_surface_current_key_text(view as *mut c_void, &mut len);
+            let ptr = cube_ghostty_surface_current_key_text(view as *mut c_void, &mut len);
             if ptr.is_null() {
                 return None;
             }
@@ -3495,7 +3499,7 @@ mod tests {
         native_text_overrides_key_event, osc8_link_preview_card,
         should_send_ime_insert_as_key_event,
     };
-    use con_ghostty::ffi;
+    use cube_ghostty::ffi;
     use gpui::{
         KeyDownEvent, Keystroke, Modifiers, Pixels, Render, SharedString, TextRun, Window, div,
         font, prelude::*, px,
@@ -3511,7 +3515,7 @@ mod tests {
         use std::ffi::c_void;
 
         unsafe extern "C" {
-            fn con_terminal_canvas_set_clip(
+            fn cube_terminal_canvas_set_clip(
                 view: *mut c_void,
                 x: f64,
                 y: f64,
@@ -3546,9 +3550,9 @@ mod tests {
             let host: cocoa::base::id = msg_send![host, initWithFrame:rect];
             let _: () = msg_send![parent, addSubview:gpui];
             let _: () = msg_send![parent, addSubview:host];
-            con_terminal_canvas_set_clip(gpui.cast(), 0.0, 0.0, 200.0, 120.0, 0.0);
+            cube_terminal_canvas_set_clip(gpui.cast(), 0.0, 0.0, 200.0, 120.0, 0.0);
             let app = std::sync::Arc::new(
-                con_ghostty::GhosttyApp::new(
+                cube_ghostty::GhosttyApp::new(
                     None, None, None, None, None, None, None, None, None, None, None, None, None,
                     false,
                 )
@@ -3587,7 +3591,7 @@ mod tests {
                 let cached_path: *const c_void = msg_send![pane_mask, path];
                 assert_eq!(path, cached_path, "idle clipping rebuilt its path");
 
-                assert!(super::con_terminal_pane_set_clip_corners(
+                assert!(super::cube_terminal_pane_set_clip_corners(
                     host.cast(),
                     0.0,
                     0.0,
@@ -3598,7 +3602,7 @@ mod tests {
                     14.0,
                     2.0,
                 ));
-                super::con_terminal_canvas_apply_clip(host.cast());
+                super::cube_terminal_canvas_apply_clip(host.cast());
                 let asymmetric: *const c_void = msg_send![pane_mask, path];
                 for (x, y, inside) in [
                     (4.0, 116.0, false),
@@ -3617,7 +3621,7 @@ mod tests {
                         "native clipping lost a per-corner radius at {x},{y}"
                     );
                 }
-                assert!(!super::con_terminal_pane_set_clip_corners(
+                assert!(!super::cube_terminal_pane_set_clip_corners(
                     host.cast(),
                     0.0,
                     0.0,
@@ -3628,7 +3632,7 @@ mod tests {
                     14.0,
                     2.0,
                 ));
-                super::con_terminal_canvas_apply_clip(host.cast());
+                super::cube_terminal_canvas_apply_clip(host.cast());
                 let reused: *const c_void = msg_send![pane_mask, path];
                 assert_eq!(
                     asymmetric, reused,
@@ -3671,7 +3675,7 @@ mod tests {
                 let hit: cocoa::base::id = msg_send![header, hitTest:NSPoint::new(10.0, 10.0)];
                 assert!(hit.is_null(), "material intercepted a pane control");
                 assert!(
-                    !super::con_terminal_pane_set_header(
+                    !super::cube_terminal_pane_set_header(
                         host.cast(),
                         0.0,
                         0.0,
@@ -3686,7 +3690,7 @@ mod tests {
                     ),
                     "idle prepaint mutated the material"
                 );
-                assert!(super::con_terminal_pane_set_header(
+                assert!(super::cube_terminal_pane_set_header(
                     host.cast(),
                     0.0,
                     0.0,
@@ -3760,7 +3764,7 @@ mod tests {
                 view.apply_native_visibility();
                 let hidden: bool = msg_send![header, isHidden];
                 assert!(hidden, "clean mode revealed a cached pane header");
-                super::con_terminal_pane_remove_header(host.cast());
+                super::cube_terminal_pane_remove_header(host.cast());
                 let children: cocoa::base::id = msg_send![parent, subviews];
                 let count: usize = msg_send![children, count];
                 assert_eq!(count, 2, "detached terminal leaked header material");
@@ -3779,7 +3783,7 @@ mod tests {
         use cocoa::foundation::{NSPoint, NSRect, NSSize};
         use objc::{class, msg_send, sel, sel_impl};
         unsafe extern "C" {
-            fn con_terminal_canvas_set_clip(
+            fn cube_terminal_canvas_set_clip(
                 view: *mut std::ffi::c_void,
                 x: f64,
                 y: f64,
@@ -3797,7 +3801,7 @@ mod tests {
             let _: () = msg_send![host, setAutoresizingMask:0usize];
             let _: () = msg_send![host, setWantsLayer:true];
             let _: () = msg_send![parent, addSubview:host];
-            con_terminal_canvas_set_clip(parent.cast(), 0.0, 0.0, 600.0, 400.0, 0.0);
+            cube_terminal_canvas_set_clip(parent.cast(), 0.0, 0.0, 600.0, 400.0, 0.0);
             let bounds = gpui::Bounds::new(
                 gpui::point(px(10.0), px(20.0)),
                 gpui::size(px(100.0), px(80.0)),
@@ -3817,13 +3821,13 @@ mod tests {
                 "parent-space changes cannot reuse the old native frame"
             );
             let _: () = msg_send![host, setFrame:frame(498.0)];
-            con_terminal_canvas_set_clip(parent.cast(), 0.0, 0.0, 800.0, 600.0, 0.0);
+            cube_terminal_canvas_set_clip(parent.cast(), 0.0, 0.0, 800.0, 600.0, 0.0);
             assert!(super::GhosttyView::native_host_matches_bounds(
                 Some(host),
                 bounds
             ));
-            con_terminal_canvas_set_clip(parent.cast(), 0.0, 0.0, 800.0, 600.0, 8.0);
-            super::con_terminal_canvas_apply_clip(host.cast());
+            cube_terminal_canvas_set_clip(parent.cast(), 0.0, 0.0, 800.0, 600.0, 8.0);
+            super::cube_terminal_canvas_apply_clip(host.cast());
             assert!(super::GhosttyView::native_host_matches_bounds(
                 Some(host),
                 bounds
@@ -3834,7 +3838,7 @@ mod tests {
                 !super::GhosttyView::native_host_matches_bounds(Some(host), bounds),
                 "a detached mask invalidates an otherwise unchanged layout"
             );
-            super::con_terminal_canvas_apply_clip(host.cast());
+            super::cube_terminal_canvas_apply_clip(host.cast());
             assert!(super::GhosttyView::native_host_matches_bounds(
                 Some(host),
                 bounds
@@ -4058,7 +4062,7 @@ mod tests {
         assert!(captured_command.platform && captured_command.shift);
         assert_eq!(
             super::gpui_mods_to_ghostty(&captured_command),
-            con_ghostty::ffi::GHOSTTY_MODS_SUPER | con_ghostty::ffi::GHOSTTY_MODS_SHIFT
+            cube_ghostty::ffi::GHOSTTY_MODS_SUPER | cube_ghostty::ffi::GHOSTTY_MODS_SHIFT
         );
         assert_eq!(
             super::changed_modifier_key(command, captured_command),
@@ -4079,7 +4083,7 @@ mod tests {
         gesture.finish(false);
         assert!(
             !gesture.take_pending(false),
-            "ordinary shell drag stays in Con"
+            "ordinary shell drag stays in Cube"
         );
 
         gesture.begin(10.0, 10.0, true);
@@ -4087,7 +4091,7 @@ mod tests {
         gesture.finish(true);
         assert!(
             !gesture.take_pending(true),
-            "Ghostty-owned selection stays in Con"
+            "Ghostty-owned selection stays in Cube"
         );
 
         gesture.begin(10.0, 10.0, true);

@@ -1,12 +1,12 @@
 [package]
-name = "con-core"
+name = "cube-core"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
 
 [dependencies]
-con-paths.workspace = true
-con-terminal.workspace = true
+cube-paths.workspace = true
+cube-terminal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

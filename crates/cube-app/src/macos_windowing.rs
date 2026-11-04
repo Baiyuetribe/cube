@@ -1,14 +1,14 @@
 unsafe extern "C" {
-    fn con_install_window_cycle_shortcuts();
-    fn con_cycle_app_window(reverse: bool);
+    fn cube_install_window_cycle_shortcuts();
+    fn cube_cycle_app_window(reverse: bool);
 }
 
 pub fn install_window_cycle_shortcuts() {
-    unsafe { con_install_window_cycle_shortcuts() };
+    unsafe { cube_install_window_cycle_shortcuts() };
 }
 
 pub fn cycle_app_window(reverse: bool) {
-    unsafe { con_cycle_app_window(reverse) };
+    unsafe { cube_cycle_app_window(reverse) };
 }
 
 /// AppKit can leave a window mostly off-screen after a display swap when it
@@ -154,7 +154,8 @@ mod recovery {
     fn observer_class() -> &'static Class {
         static CLASS: std::sync::OnceLock<&'static Class> = std::sync::OnceLock::new();
         CLASS.get_or_init(|| {
-            let mut decl = ClassDecl::new("ConScreenParametersObserver", class!(NSObject)).unwrap();
+            let mut decl =
+                ClassDecl::new("CubeScreenParametersObserver", class!(NSObject)).unwrap();
             decl.add_ivar::<*mut c_void>("sender");
             unsafe {
                 decl.add_method(

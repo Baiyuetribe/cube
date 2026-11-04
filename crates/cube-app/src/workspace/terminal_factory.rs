@@ -1,11 +1,11 @@
 use super::*;
 
-pub(super) fn theme_to_ghostty_colors(theme: &TerminalTheme) -> con_ghostty::TerminalColors {
+pub(super) fn theme_to_ghostty_colors(theme: &TerminalTheme) -> cube_ghostty::TerminalColors {
     let mut palette = [[0u8; 3]; 16];
     for (i, c) in theme.ansi.iter().enumerate() {
         palette[i] = [c.r, c.g, c.b];
     }
-    con_ghostty::TerminalColors {
+    cube_ghostty::TerminalColors {
         foreground: [theme.foreground.r, theme.foreground.g, theme.foreground.b],
         background: [theme.background.r, theme.background.g, theme.background.b],
         palette,
@@ -19,7 +19,7 @@ pub(super) fn native_appearance_theme(
     background: [u8; 3],
     palette: &[[u8; 3]; 256],
 ) -> TerminalTheme {
-    let color = |rgb: [u8; 3]| con_terminal::Color::rgb(rgb[0], rgb[1], rgb[2]);
+    let color = |rgb: [u8; 3]| cube_terminal::Color::rgb(rgb[0], rgb[1], rgb[2]);
     TerminalTheme {
         name: name.into(),
         foreground: color(foreground),
@@ -28,7 +28,7 @@ pub(super) fn native_appearance_theme(
     }
 }
 
-/// Expand legacy lowercase Con theme names to palette defaults. Preserve
+/// Expand legacy lowercase Cube theme names to palette defaults. Preserve
 /// Ghostty's case-sensitive catalog names and explicit native color overrides.
 ///
 /// Windowless callers (validation, CLI, tests) cannot see the OS appearance, so
@@ -75,7 +75,7 @@ pub(crate) fn native_config_for_theme(
         TerminalTheme::by_name(selected).filter(|_| selected == selected.to_lowercase())
     else {
         // An unknown name belongs to Ghostty's native theme lookup and must
-        // not be shadowed by Con's fallback palette.
+        // not be shadowed by Cube's fallback palette.
         return Ok(source);
     };
     let mut seeded = theme.to_ghostty_format();
@@ -93,7 +93,7 @@ pub(crate) fn native_config_for_theme(
 
 #[cfg(target_os = "macos")]
 pub(crate) fn native_config_base_dir(config: &Config) -> Result<std::path::PathBuf, String> {
-    let app_dir = con_paths::app_config_dir();
+    let app_dir = cube_paths::app_config_dir();
     let base_dir = config
         .base_path()
         .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
@@ -118,11 +118,11 @@ pub(crate) fn native_config_base_dir(config: &Config) -> Result<std::path::PathB
 }
 
 #[cfg(target_os = "macos")]
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(crate) fn validate_native_config_candidate(config: &Config) -> Result<(), String> {
         let text = native_config_for_app(config)?;
         let base_dir = native_config_base_dir(config)?;
-        con_ghostty::GhosttyApp::validate_native_config(text, base_dir).map(|_| ())
+        cube_ghostty::GhosttyApp::validate_native_config(text, base_dir).map(|_| ())
     }
 }
 
@@ -132,7 +132,7 @@ impl ConWorkspace {
 /// The NSApp override is applied by the callers that know the config changed
 /// (startup, settings preview); this function must not touch it, or setting
 /// the appearance from inside the appearance observer would loop.
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) fn sync_color_scheme_appearance(
         &mut self,
         window: &mut Window,
@@ -177,12 +177,12 @@ impl ConWorkspace {
 
 // ── Terminal factory functions ────────────────────────────────
 //
-// Standalone so they can be called both during ConWorkspace::new()
+// Standalone so they can be called both during CubeWorkspace::new()
 // (before `self` exists) and from create_terminal() (after).
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_ghostty_terminal(
-    app: &std::sync::Arc<con_ghostty::GhosttyApp>,
+    app: &std::sync::Arc<cube_ghostty::GhosttyApp>,
     cwd: Option<&str>,
     restored_screen_text: Option<&[String]>,
     initial_working_directory: Option<std::path::PathBuf>,
@@ -190,7 +190,7 @@ pub(super) fn make_ghostty_terminal(
     font_size: f32,
     handoff_menu_entry_enabled: bool,
     window: &mut Window,
-    cx: &mut Context<ConWorkspace>,
+    cx: &mut Context<CubeWorkspace>,
 ) -> TerminalPane {
     let app = app.clone();
     let cwd = cwd.filter(|cwd| !cwd.is_empty()).map(str::to_string);
@@ -244,7 +244,7 @@ pub(super) fn find_git_worktree_root(start: &std::path::Path) -> Option<std::pat
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::native_config_for_app;
-    use con_core::Config;
+    use cube_core::Config;
 
     #[test]
     fn native_theme_names_and_include_only_sources_are_not_replaced() {

@@ -18,15 +18,15 @@ const GHOSTTY_REPO: &str = "https://github.com/wey-gu/ghostty.git";
 ///
 /// 2026-08-26 bump: from `8867c37c55...` to `5f5b988c52...`. The 27 upstream
 /// commits were audited with unchanged public C headers and revalidated
-/// against Con's private embedding patch and portable VT bindings.
+/// against Cube's private embedding patch and portable VT bindings.
 ///
 /// 2026-09-06 bump: from `5f5b988c52...` to `492300cad1...` (186 upstream
 /// commits). `include/ghostty.h` unchanged, vt headers additive only, patch
 /// anchors intact. Ghostty 1.4 redefined `copy-on-select` /
-/// `middle-click-action`; Con pins both in `src/terminal.rs`.
+/// `middle-click-action`; Cube pins both in `src/terminal.rs`.
 ///
 /// 2026-09-20 bump: first merged revision with RESIZE_PULL_SCROLLBACK,
-/// required to keep the Windows VT active area aligned with ConPTY.
+/// required to keep the Windows VT active area aligned with CubePTY.
 /// `include/ghostty.h` unchanged; VT adds option 40 and clarifies empty output.
 ///
 /// 2026-09-22 bump: minimal revision with the render-hold callback needed
@@ -50,11 +50,11 @@ const GHOSTTY_REPO: &str = "https://github.com/wey-gu/ghostty.git";
 // replacement with official upstream. This revision includes IO-thread
 // ingress and close/shutdown/incarnation fixes, not just the initial bridge.
 const GHOSTTY_REV: &str = "8b0ac6c4bc2b0977ef81f80d0c189b2e540f4077";
-const GHOSTTY_ENV: &str = "CON_GHOSTTY_SOURCE_DIR";
-const GHOSTTY_MIRROR_ENV: &str = "CON_GHOSTTY_MIRROR";
-const GHOSTTY_INITIAL_OUTPUT_REQUIRE_ENV: &str = "CON_REQUIRE_GHOSTTY_INITIAL_OUTPUT";
-const GHOSTTY_PREFETCH_DEPS_ENV: &str = "CON_GHOSTTY_PREFETCH_DEPS";
-const GHOSTTY_VT_TARGET_ENV: &str = "CON_GHOSTTY_VT_TARGET";
+const GHOSTTY_ENV: &str = "CUBE_GHOSTTY_SOURCE_DIR";
+const GHOSTTY_MIRROR_ENV: &str = "CUBE_GHOSTTY_MIRROR";
+const GHOSTTY_INITIAL_OUTPUT_REQUIRE_ENV: &str = "CUBE_REQUIRE_GHOSTTY_INITIAL_OUTPUT";
+const GHOSTTY_PREFETCH_DEPS_ENV: &str = "CUBE_GHOSTTY_PREFETCH_DEPS";
+const GHOSTTY_VT_TARGET_ENV: &str = "CUBE_GHOSTTY_VT_TARGET";
 const REQUIRED_ZIG_VERSION: &str = "0.16.0";
 const MAX_PREFETCH_PACKAGES: usize = 256;
 const MAX_PREFETCH_ARCHIVE_BYTES: &str = "134217728";
@@ -62,20 +62,20 @@ const MAX_PREFETCH_ARCHIVE_BYTES: &str = "134217728";
 fn main() {
     // Rerun the build script when any of our own env vars flip — cargo
     // otherwise caches the last build.rs output across env changes, so
-    // toggling CON_STUB_GHOSTTY_VT off wouldn't re-build libghostty-vt
+    // toggling CUBE_STUB_GHOSTTY_VT off wouldn't re-build libghostty-vt
     // until something unrelated invalidated the cache.
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS");
     println!("cargo:rerun-if-env-changed={GHOSTTY_ENV}");
     println!("cargo:rerun-if-env-changed={GHOSTTY_MIRROR_ENV}");
     println!("cargo:rerun-if-env-changed={GHOSTTY_INITIAL_OUTPUT_REQUIRE_ENV}");
     println!("cargo:rerun-if-env-changed={GHOSTTY_PREFETCH_DEPS_ENV}");
-    println!("cargo:rerun-if-env-changed=CON_STUB_GHOSTTY_VT");
-    println!("cargo:rerun-if-env-changed=CON_SKIP_GHOSTTY_VT");
-    println!("cargo:rerun-if-env-changed=CON_GHOSTTY_VT_SIMD");
-    println!("cargo:rerun-if-env-changed=CON_GHOSTTY_VT_STEP");
+    println!("cargo:rerun-if-env-changed=CUBE_STUB_GHOSTTY_VT");
+    println!("cargo:rerun-if-env-changed=CUBE_SKIP_GHOSTTY_VT");
+    println!("cargo:rerun-if-env-changed=CUBE_GHOSTTY_VT_SIMD");
+    println!("cargo:rerun-if-env-changed=CUBE_GHOSTTY_VT_STEP");
     println!("cargo:rerun-if-env-changed={GHOSTTY_VT_TARGET_ENV}");
-    println!("cargo:rerun-if-env-changed=CON_ZIG_BIN");
-    println!("cargo:rerun-if-env-changed=CON_GHOSTTY_OPTIMIZE");
+    println!("cargo:rerun-if-env-changed=CUBE_ZIG_BIN");
+    println!("cargo:rerun-if-env-changed=CUBE_GHOSTTY_OPTIMIZE");
     println!("cargo:rerun-if-env-changed=TARGET");
     println!("cargo:rerun-if-env-changed=ZIG_GLOBAL_CACHE_DIR");
 
@@ -96,7 +96,7 @@ fn main() {
 // ── macOS ─────────────────────────────────────────────────────────────
 
 fn build_macos() {
-    let zig_bin = env::var_os("CON_ZIG_BIN").unwrap_or_else(|| std::ffi::OsString::from("zig"));
+    let zig_bin = env::var_os("CUBE_ZIG_BIN").unwrap_or_else(|| std::ffi::OsString::from("zig"));
     let zig_global_cache_dir = zig_global_cache_dir("macos");
     require_zig_version(&zig_bin, zig_global_cache_dir.as_deref(), "macos");
 
@@ -112,7 +112,7 @@ fn build_macos() {
         .include(&include_dir)
         .flag("-std=c11");
     if initial_output_restore_enabled {
-        ffi_abi.define("CON_GHOSTTY_EMBEDDED_INITIAL_OUTPUT", None);
+        ffi_abi.define("CUBE_GHOSTTY_EMBEDDED_INITIAL_OUTPUT", None);
     }
     // This translation unit only contains compile-time assertions. Archiving
     // its empty object produces ranlib warnings and serves no link purpose.
@@ -124,7 +124,7 @@ fn build_macos() {
         .flag("-fobjc-arc")
         .flag("-fblocks")
         .flag("-fmodules")
-        .compile("con_ghostty_objc_trampolines");
+        .compile("cube_ghostty_objc_trampolines");
     println!("cargo:rerun-if-changed=src/objc/desktop_notification.m");
 
     let build_args = vec![
@@ -231,13 +231,13 @@ fn build_macos() {
 
     println!("cargo:include={}", include_dir.display());
     println!(
-        "cargo:rustc-env=CON_GHOSTTY_RESOURCES_DIR={}",
+        "cargo:rustc-env=CUBE_GHOSTTY_RESOURCES_DIR={}",
         ghostty_dir.join("zig-out/share/ghostty").display()
     );
 }
 
 fn ghostty_optimize() -> String {
-    env::var("CON_GHOSTTY_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".to_string())
+    env::var("CUBE_GHOSTTY_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".to_string())
 }
 
 fn env_flag_enabled(name: &str) -> bool {
@@ -253,18 +253,18 @@ fn build_vt_backend(target_os: &str) {
     // libghostty-vt is the cross-platform VT parser carved out of
     // Ghostty (PR ghostty-org/ghostty#8840). Both the Windows backend
     // and the Linux backend consume it now: Windows feeds it from
-    // ConPTY and Linux feeds it from a local Unix PTY.
+    // CubePTY and Linux feeds it from a local Unix PTY.
 
-    if target_os == "windows" && env::var_os("CON_STUB_GHOSTTY_VT").is_some() {
+    if target_os == "windows" && env::var_os("CUBE_STUB_GHOSTTY_VT").is_some() {
         // Fallback path: compile the C stub in `src/windows/ghostty_vt_stub.c`
         // and link it instead of libghostty-vt. The resulting binary
         // launches fully — GPUI window, HWND host view, D3D11 swapchain,
-        // ConPTY spawn — but the terminal pane paints an empty grid
+        // CubePTY spawn — but the terminal pane paints an empty grid
         // because the stub returns no rows. Useful for iterating the
         // non-VT parts of the backend while Zig / Ghostty build issues
         // are resolved separately. See docs/impl/windows-port.md.
         println!(
-            "cargo:warning=CON_STUB_GHOSTTY_VT set — linking stub C implementations \
+            "cargo:warning=CUBE_STUB_GHOSTTY_VT set — linking stub C implementations \
                   instead of libghostty-vt. Terminal output will be empty."
         );
         cc::Build::new()
@@ -277,17 +277,17 @@ fn build_vt_backend(target_os: &str) {
         return;
     }
 
-    if env::var_os("CON_SKIP_GHOSTTY_VT").is_some() {
+    if env::var_os("CUBE_SKIP_GHOSTTY_VT").is_some() {
         // Escape hatch: skip both upstream and stub. The vt.rs symbols
         // become unresolved at link time; intended for `cargo check`
         // flows that don't link, or when you plan to supply a static
         // library via other means.
         println!(
-            "cargo:warning=CON_SKIP_GHOSTTY_VT set — skipping libghostty-vt build. \
+            "cargo:warning=CUBE_SKIP_GHOSTTY_VT set — skipping libghostty-vt build. \
              A subsequent `cargo build` will fail to link unless a static \
              library is provided manually.{}",
             if target_os == "windows" {
-                " Consider CON_STUB_GHOSTTY_VT=1 if you want a linkable placeholder."
+                " Consider CUBE_STUB_GHOSTTY_VT=1 if you want a linkable placeholder."
             } else {
                 ""
             }
@@ -298,7 +298,7 @@ fn build_vt_backend(target_os: &str) {
     // Detect Zig. Surface the actual error (not-found, permission-denied,
     // etc.) and the PATH we searched so the user can diagnose — previous
     // silent warnings led to confusing link-time failures.
-    let zig_bin = env::var_os("CON_ZIG_BIN").unwrap_or_else(|| std::ffi::OsString::from("zig"));
+    let zig_bin = env::var_os("CUBE_ZIG_BIN").unwrap_or_else(|| std::ffi::OsString::from("zig"));
     let zig_global_cache_dir = zig_global_cache_dir(target_os);
     if let Some(dir) = &zig_global_cache_dir {
         println!("cargo:warning=using zig global cache dir {}", dir.display());
@@ -315,8 +315,8 @@ fn build_vt_backend(target_os: &str) {
     //       and leaves libghostty-vt as the produced artifact.
     //   (b) Older revisions: a named step like `ghostty-vt-static`.
     // We probe `zig build -h` to pick the right invocation. Override
-    // the probe via `CON_GHOSTTY_VT_STEP` (step name) or
-    // `CON_GHOSTTY_VT_EMIT_OPTION=1` (force the option-based path).
+    // the probe via `CUBE_GHOSTTY_VT_STEP` (step name) or
+    // `CUBE_GHOSTTY_VT_EMIT_OPTION=1` (force the option-based path).
     let invocation = pick_vt_invocation(&zig_bin, &ghostty_dir, zig_global_cache_dir.as_deref());
 
     // `-Doptimize=ReleaseFast` for terminal-class throughput. Default
@@ -325,7 +325,7 @@ fn build_vt_backend(target_os: &str) {
     // traced to building libghostty *without* an explicit optimize
     // flag, which left it at zig's `-ODebug`. Same risk applies on
     // Windows, so default it on regardless of cargo profile and let
-    // `CON_GHOSTTY_OPTIMIZE=Debug` opt back in for VT-debugging.
+    // `CUBE_GHOSTTY_OPTIMIZE=Debug` opt back in for VT-debugging.
     //
     // `-Dsimd`: Linux libghostty-vt must be built with libc enabled. Ghostty's
     // non-libc Wuffs module (`pkg/wuffs/src/main.zig`) exports hidden weak
@@ -342,7 +342,7 @@ fn build_vt_backend(target_os: &str) {
     // there for targeted toolchain experiments; Linux always takes the only
     // runtime-safe path.
     let simd_on = target_os == "linux"
-        || env::var("CON_GHOSTTY_VT_SIMD")
+        || env::var("CUBE_GHOSTTY_VT_SIMD")
             .map(|s| matches!(s.as_str(), "1" | "true" | "yes" | "on"))
             .unwrap_or(false);
     let simd_flag = if simd_on {
@@ -402,7 +402,7 @@ fn build_vt_backend(target_os: &str) {
                 "zig build {:?} failed after package-cache prefetch; see output above.\n\
                  If this Ghostty revision doesn't expose libghostty-vt,\n\
                  bump GHOSTTY_REV in crates/con-ghostty/build.rs or set\n\
-                 CON_GHOSTTY_VT_STEP to the correct step name.",
+                 CUBE_GHOSTTY_VT_STEP to the correct step name.",
                 invocation
             );
         }
@@ -459,7 +459,7 @@ fn build_vt_backend(target_os: &str) {
 /// Returns a list of extra arguments to append after `zig build`.
 ///
 /// Priority:
-///   1. `CON_GHOSTTY_VT_STEP` env var -> single named step.
+///   1. `CUBE_GHOSTTY_VT_STEP` env var -> single named step.
 ///   2. `-Demit-lib-vt=` option in help -> `["-Demit-lib-vt=true"]`.
 ///   3. Named step matching one of the known candidates.
 fn pick_vt_invocation(
@@ -467,7 +467,7 @@ fn pick_vt_invocation(
     ghostty_dir: &Path,
     zig_global_cache_dir: Option<&Path>,
 ) -> Vec<String> {
-    if let Some(val) = env::var_os("CON_GHOSTTY_VT_STEP")
+    if let Some(val) = env::var_os("CUBE_GHOSTTY_VT_STEP")
         && let Some(s) = val.to_str()
     {
         return vec![s.to_string()];
@@ -507,7 +507,7 @@ fn pick_vt_invocation(
          surface changed again.\n\n\
          `zig build -h` output:\n{help}\n\n\
          To work around: bump GHOSTTY_REV in crates/con-ghostty/build.rs,\n\
-         or set CON_GHOSTTY_VT_STEP to an exact step name from the list\n\
+         or set CUBE_GHOSTTY_VT_STEP to an exact step name from the list\n\
          above.\n\
          ========================================================\n",
         help = help_text,
@@ -609,7 +609,7 @@ fn resolve_ghostty_source() -> PathBuf {
     if let Some(source_dir) = env::var_os(GHOSTTY_ENV) {
         return PathBuf::from(source_dir)
             .canonicalize()
-            .expect("CON_GHOSTTY_SOURCE_DIR points to a missing directory");
+            .expect("CUBE_GHOSTTY_SOURCE_DIR points to a missing directory");
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR missing"));
@@ -642,7 +642,7 @@ fn resolve_ghostty_source() -> PathBuf {
     if !clone_ghostty_tree(GHOSTTY_REPO, &vendor_root) {
         panic!(
             "failed to clone Ghostty source from {GHOSTTY_REPO}\n\
-             Set CON_GHOSTTY_SOURCE_DIR to an existing Ghostty checkout of {GHOSTTY_REV} \
+             Set CUBE_GHOSTTY_SOURCE_DIR to an existing Ghostty checkout of {GHOSTTY_REV} \
              to build without network access.{}",
             mirror
                 .as_deref()
@@ -716,8 +716,8 @@ fn patchable_ghostty_source(source: PathBuf) -> PathBuf {
         return source;
     }
 
-    // Never patch a caller-provided checkout in place. `CON_GHOSTTY_SOURCE_DIR`
-    // is for local upstream study; Con's embedding extension is applied to a
+    // Never patch a caller-provided checkout in place. `CUBE_GHOSTTY_SOURCE_DIR`
+    // is for local upstream study; Cube's embedding extension is applied to a
     // throwaway copy under OUT_DIR so `3pp/` and user checkouts stay read-only.
     println!("cargo:rerun-if-changed={}", source.join("src").display());
     println!(
@@ -732,7 +732,7 @@ fn patchable_ghostty_source(source: PathBuf) -> PathBuf {
     }
     copy_dir_filtered(&source, &patched).unwrap_or_else(|err| {
         panic!(
-            "failed to copy CON_GHOSTTY_SOURCE_DIR from {} to {}: {err}",
+            "failed to copy CUBE_GHOSTTY_SOURCE_DIR from {} to {}: {err}",
             source.display(),
             patched.display()
         )
@@ -779,7 +779,7 @@ fn apply_embedded_initial_output_patch(ghostty_dir: &Path) -> bool {
         if env_flag_enabled(GHOSTTY_INITIAL_OUTPUT_REQUIRE_ENV) {
             panic!(
                 "con-ghostty: embedded initial_output restore hook is required but could not be applied: {err}\n\
-                 Rebase Con's Ghostty embedding patch against GHOSTTY_REV={GHOSTTY_REV}, or unset \
+                 Rebase Cube's Ghostty embedding patch against GHOSTTY_REV={GHOSTTY_REV}, or unset \
                  {GHOSTTY_INITIAL_OUTPUT_REQUIRE_ENV} for a local best-effort build."
             );
         }
@@ -830,10 +830,10 @@ fn try_apply_embedded_initial_output_patch(ghostty_dir: &Path) -> Result<(), Str
     patch_text_once(
         &embedded,
         &mut embedded_text,
-        "Con: macOS may deny directory open/stat preflight for privacy-protected cwd",
+        "Cube: macOS may deny directory open/stat preflight for privacy-protected cwd",
         &[(
             "            const wd = std.mem.sliceTo(c_wd, 0);\n            if (wd.len > 0) wd: {\n",
-            "            const wd = std.mem.sliceTo(c_wd, 0);\n            if (wd.len > 0) wd: {\n                if (comptime builtin.os.tag.isDarwin()) {\n                    // Con: macOS may deny directory open/stat preflight for privacy-protected cwd\n                    // (Documents, Downloads) even though chdir in the spawned shell succeeds. The\n                    // embedder already passes an absolute cwd captured from shell integration, so\n                    // trust it here and let process spawn be the authoritative failure boundary.\n                    var wd_val: configpkg.WorkingDirectory = .{ .path = wd };\n                    if (wd_val.finalize(config.arenaAlloc())) |_| {\n                        config.@\"working-directory\" = wd_val;\n                    } else |err| {\n                        log.warn(\n                            \"error finalizing working directory config dir={s} err={}\",\n                            .{ wd_val.path, err },\n                        );\n                    }\n                    break :wd;\n                }\n\n",
+            "            const wd = std.mem.sliceTo(c_wd, 0);\n            if (wd.len > 0) wd: {\n                if (comptime builtin.os.tag.isDarwin()) {\n                    // Cube: macOS may deny directory open/stat preflight for privacy-protected cwd\n                    // (Documents, Downloads) even though chdir in the spawned shell succeeds. The\n                    // embedder already passes an absolute cwd captured from shell integration, so\n                    // trust it here and let process spawn be the authoritative failure boundary.\n                    var wd_val: configpkg.WorkingDirectory = .{ .path = wd };\n                    if (wd_val.finalize(config.arenaAlloc())) |_| {\n                        config.@\"working-directory\" = wd_val;\n                    } else |err| {\n                        log.warn(\n                            \"error finalizing working directory config dir={s} err={}\",\n                            .{ wd_val.path, err },\n                        );\n                    }\n                    break :wd;\n                }\n\n",
         )],
     )?;
     patch_text_once(
@@ -848,10 +848,10 @@ fn try_apply_embedded_initial_output_patch(ghostty_dir: &Path) -> Result<(), Str
     patch_text_once(
         &exec,
         &mut exec_text,
-        "Con: trust macOS cwd after embedded surface validation",
+        "Cube: trust macOS cwd after embedded surface validation",
         &[(
             "            if (std.Io.Dir.cwd().access(global.io(), proposed, .{})) {\n                break :cwd proposed;\n            } else |err| {\n                log.warn(\"cannot access cwd, ignoring: {}\", .{err});\n                break :cwd null;\n            }\n",
-            "            if (comptime builtin.os.tag.isDarwin()) {\n                // Con: trust macOS cwd after embedded surface validation. Privacy-protected\n                // directories can fail access/open preflight while the child shell can still\n                // chdir there and preserve the user's restored working directory.\n                break :cwd proposed;\n            }\n\n            if (std.Io.Dir.cwd().access(global.io(), proposed, .{})) {\n                break :cwd proposed;\n            } else |err| {\n                log.warn(\"cannot access cwd, ignoring: {}\", .{err});\n                break :cwd null;\n            }\n",
+            "            if (comptime builtin.os.tag.isDarwin()) {\n                // Cube: trust macOS cwd after embedded surface validation. Privacy-protected\n                // directories can fail access/open preflight while the child shell can still\n                // chdir there and preserve the user's restored working directory.\n                break :cwd proposed;\n            }\n\n            if (std.Io.Dir.cwd().access(global.io(), proposed, .{})) {\n                break :cwd proposed;\n            } else |err| {\n                log.warn(\"cannot access cwd, ignoring: {}\", .{err});\n                break :cwd null;\n            }\n",
         )],
     )?;
     patch_text_once(
@@ -890,7 +890,7 @@ fn try_apply_embedded_initial_output_patch(ghostty_dir: &Path) -> Result<(), Str
         (&header, header_original.as_str(), header_text.as_str()),
     ])?;
 
-    println!("cargo:rustc-cfg=con_ghostty_embedded_initial_output");
+    println!("cargo:rustc-cfg=cube_ghostty_embedded_initial_output");
     // 不要为这些路径声明 rerun-if-changed：本脚本每次运行都会重写它们，
     // 声明后会让 cargo 在每次构建时都判定 con-ghostty 过期，形成
     // “build script → 重写文件 → 触发自身重跑”的自反馈循环。
@@ -915,7 +915,7 @@ fn patch_text_once(
     for (from, to) in replacements {
         if !text.contains(from) {
             return Err(format!(
-                "failed to patch {}: expected anchor not found while applying Con embedding extension",
+                "failed to patch {}: expected anchor not found while applying Cube embedding extension",
                 path.display()
             ));
         }
@@ -973,7 +973,7 @@ fn require_zig_version(zig_bin: &OsStr, zig_global_cache_dir: Option<&Path>, tar
              con-ghostty: could not spawn `{bin} version`: {err}\n\n\
              Zig {required} exactly is required to build Ghostty for {target_os}.\n\
              Install it from https://ziglang.org/download/ and ensure the `zig`\n\
-             executable is on PATH, or set CON_ZIG_BIN to its absolute path.\n\n\
+             executable is on PATH, or set CUBE_ZIG_BIN to its absolute path.\n\n\
              Current PATH: {path}\n\n\
              ========================================================\n",
             bin = zig_bin.to_string_lossy(),
@@ -993,7 +993,7 @@ fn require_zig_version(zig_bin: &OsStr, zig_global_cache_dir: Option<&Path>, tar
     if version != REQUIRED_ZIG_VERSION {
         panic!(
             "con-ghostty: Zig {REQUIRED_ZIG_VERSION} exactly is required for {target_os}, \
-             but `{}` reports {version}. Set CON_ZIG_BIN to the validated Zig executable.",
+             but `{}` reports {version}. Set CUBE_ZIG_BIN to the validated Zig executable.",
             zig_bin.to_string_lossy()
         );
     }
@@ -1033,7 +1033,7 @@ fn zig_global_cache_dir(target_os: &str) -> Option<PathBuf> {
 }
 
 fn writable_dir(path: &Path) -> bool {
-    let probe = path.join(".con_ghostty_write_test");
+    let probe = path.join(".cube_ghostty_write_test");
     let file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

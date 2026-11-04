@@ -55,14 +55,14 @@ pub use search::SearchProgress;
 fn perf_trace_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var_os("CON_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
+        std::env::var_os("CUBE_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
     })
 }
 
 fn perf_trace_verbose() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var_os("CON_GHOSTTY_PROFILE_VERBOSE").is_some_and(|v| !v.is_empty() && v != "0")
+        std::env::var_os("CUBE_GHOSTTY_PROFILE_VERBOSE").is_some_and(|v| !v.is_empty() && v != "0")
     })
 }
 
@@ -124,7 +124,7 @@ const GHOSTTY_KITTY_KEY_REPORT_EVENTS: u8 = 1 << 1;
 const TEXT_PLAIN_MIME: &[u8] = b"text/plain";
 const METADATA_DIRTY_TITLE: u8 = 1 << 0;
 const METADATA_DIRTY_PWD: u8 = 1 << 1;
-const UNKNOWN_SEQUENCE_LOG_TARGET: &str = "con_ghostty::vt::unknown_sequence";
+const UNKNOWN_SEQUENCE_LOG_TARGET: &str = "cube_ghostty::vt::unknown_sequence";
 const UNKNOWN_SEQUENCE_MAX_BYTES: usize = 256;
 const UNKNOWN_SEQUENCE_LOG_LIMIT: u8 = 16;
 
@@ -2395,7 +2395,7 @@ fn ghostty_key(key: &str) -> c_int {
     }) as c_int
 }
 
-/// Whether Con's GPUI bridge can identify this logical name as a physical
+/// Whether Cube's GPUI bridge can identify this logical name as a physical
 /// functional key without guessing a keyboard layout or key location.
 pub fn is_supported_functional_key(key: &str) -> bool {
     ghostty_key(key) != GhosttyKey::Unidentified as c_int
@@ -2525,7 +2525,7 @@ impl VtScreen {
 
         #[cfg(target_os = "windows")]
         {
-            // ConPTY owns an active screen but cannot pull our scrollback.
+            // CubePTY owns an active screen but cannot pull our scrollback.
             // Keep resize/reflow aligned with it; Unix PTYs retain the default.
             let pull_scrollback = false;
             // SAFETY: terminal is live and the option synchronously copies a bool.
@@ -2760,7 +2760,7 @@ impl VtScreen {
         let mut row_iter: GhosttyRowIterator = std::ptr::null_mut();
         let mut row_cells: GhosttyRowCells = std::ptr::null_mut();
 
-        let enable_render_state = std::env::var("CON_GHOSTTY_VT_RENDER_STATE")
+        let enable_render_state = std::env::var("CUBE_GHOSTTY_VT_RENDER_STATE")
             .map(|s| matches!(s.as_str(), "0" | "false" | "no" | "off"))
             .map(|disabled| !disabled)
             .unwrap_or(true);
@@ -2795,7 +2795,7 @@ impl VtScreen {
         } else {
             log::warn!(
                 "VtScreen::new: render_state disabled via \
-                 CON_GHOSTTY_VT_RENDER_STATE=0 — terminal output will \
+                 CUBE_GHOSTTY_VT_RENDER_STATE=0 — terminal output will \
                  parse but cells won't render."
             );
         }
@@ -8951,7 +8951,7 @@ mod tests {
         screen.feed(b"\x1b]7501;state=working:progress=10:id=build\x07");
         assert_eq!(
             activity(&screen),
-            Some(con_terminal::program_status::State::Working)
+            Some(cube_terminal::program_status::State::Working)
         );
 
         screen.feed(b"\x1b]7501;state=blocked:kind=permission:progress=40:id=build\x07");
@@ -8962,23 +8962,23 @@ mod tests {
         assert_eq!(status.records().len(), 1);
         assert_eq!(
             status.records()[0].state,
-            con_terminal::program_status::State::Blocked
+            cube_terminal::program_status::State::Blocked
         );
         assert_eq!(
             status.records()[0].kind,
-            Some(con_terminal::program_status::BlockedKind::Permission)
+            Some(cube_terminal::program_status::BlockedKind::Permission)
         );
 
         screen.feed(b"\x1b]7501;garbage:=x:state=working:progress=80:id=build\x07");
         assert_eq!(
             activity(&screen),
-            Some(con_terminal::program_status::State::Working)
+            Some(cube_terminal::program_status::State::Working)
         );
 
         screen.feed(b"\x1b]7501;state=done:id=build\x07");
         assert_eq!(
             activity(&screen),
-            Some(con_terminal::program_status::State::Done)
+            Some(cube_terminal::program_status::State::Done)
         );
         screen.write_user_input("ok".as_bytes()).unwrap();
         let events = screen.take_program_events();
@@ -8990,7 +8990,7 @@ mod tests {
         screen.feed(b"\x1b]7501;state=error:id=build\x07");
         assert_eq!(
             activity(&screen),
-            Some(con_terminal::program_status::State::Error)
+            Some(cube_terminal::program_status::State::Error)
         );
 
         let mut oversized = Vec::from(&b"\x1b]7501;state=working:id=build/test:msg="[..]);
@@ -9018,13 +9018,13 @@ mod tests {
             status
                 .records()
                 .iter()
-                .any(|record| record.state == con_terminal::program_status::State::Error)
+                .any(|record| record.state == cube_terminal::program_status::State::Error)
         );
         assert!(
             status
                 .records()
                 .iter()
-                .all(|record| record.state != con_terminal::program_status::State::Working)
+                .all(|record| record.state != cube_terminal::program_status::State::Working)
         );
     }
 

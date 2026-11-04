@@ -29,7 +29,7 @@ fn valid_pid(pid: i32) -> Option<i32> {
 
 fn capture_return_pid() -> Option<i32> {
     let current_pid = std::process::id() as i32;
-    let frontmost_pid = unsafe { con_quick_terminal_frontmost_app_pid() };
+    let frontmost_pid = unsafe { cube_quick_terminal_frontmost_app_pid() };
     let captured = valid_pid(frontmost_pid).filter(|pid| *pid != current_pid);
     if captured.is_some() {
         QUICK_TERMINAL_STATE.with(|state| state.borrow_mut().last_active_pid = captured);
@@ -73,22 +73,22 @@ fn prepare_force_hide(state: &mut QuickTerminalState) -> Option<i32> {
 }
 
 unsafe extern "C" {
-    fn con_quick_terminal_configure(window_ptr: *mut std::ffi::c_void);
-    fn con_quick_terminal_init();
-    fn con_quick_terminal_prepare_destroy(window_ptr: *mut std::ffi::c_void);
-    fn con_quick_terminal_slide_in(window_ptr: *mut std::ffi::c_void);
-    fn con_quick_terminal_slide_out(window_ptr: *mut std::ffi::c_void, return_pid: i32);
-    fn con_quick_terminal_window_from_view(
+    fn cube_quick_terminal_configure(window_ptr: *mut std::ffi::c_void);
+    fn cube_quick_terminal_init();
+    fn cube_quick_terminal_prepare_destroy(window_ptr: *mut std::ffi::c_void);
+    fn cube_quick_terminal_slide_in(window_ptr: *mut std::ffi::c_void);
+    fn cube_quick_terminal_slide_out(window_ptr: *mut std::ffi::c_void, return_pid: i32);
+    fn cube_quick_terminal_window_from_view(
         view_ptr: *mut std::ffi::c_void,
     ) -> *mut std::ffi::c_void;
-    fn con_quick_terminal_active_display_visible_frame(
+    fn cube_quick_terminal_active_display_visible_frame(
         x: *mut f64,
         y: *mut f64,
         width: *mut f64,
         height: *mut f64,
     ) -> bool;
-    fn con_quick_terminal_frontmost_app_pid() -> i32;
-    fn con_quick_terminal_is_main_thread() -> bool;
+    fn cube_quick_terminal_frontmost_app_pid() -> i32;
+    fn cube_quick_terminal_is_main_thread() -> bool;
 }
 
 thread_local! {
@@ -98,7 +98,7 @@ thread_local! {
 
 /// Install the native observer; Quick Terminal window creation stays lazy.
 pub fn init(_cx: &App) {
-    unsafe { con_quick_terminal_init() };
+    unsafe { cube_quick_terminal_init() };
 }
 
 pub fn store_window_ptr(window_ptr: *mut std::ffi::c_void) {
@@ -112,12 +112,12 @@ pub fn store_window_ptr(window_ptr: *mut std::ffi::c_void) {
         }
         state.visible = true;
     });
-    unsafe { con_quick_terminal_configure(window_ptr) };
-    unsafe { con_quick_terminal_slide_in(window_ptr) };
+    unsafe { cube_quick_terminal_configure(window_ptr) };
+    unsafe { cube_quick_terminal_slide_in(window_ptr) };
 }
 
 pub fn window_from_view_ptr(view_ptr: *mut std::ffi::c_void) -> Option<*mut std::ffi::c_void> {
-    let window_ptr = unsafe { con_quick_terminal_window_from_view(view_ptr) };
+    let window_ptr = unsafe { cube_quick_terminal_window_from_view(view_ptr) };
     (!window_ptr.is_null()).then_some(window_ptr)
 }
 
@@ -146,14 +146,14 @@ fn toggle_inner(pre_captured_pid: Option<i32>, cx: &mut App) {
             if state.visible {
                 let return_pid = state.return_pid.take();
                 unsafe {
-                    con_quick_terminal_slide_out(raw, return_pid.unwrap_or(0));
+                    cube_quick_terminal_slide_out(raw, return_pid.unwrap_or(0));
                 }
                 state.visible = false;
             } else {
                 // Use the pre-captured pid (taken before con was activated).
                 state.return_pid = pre_captured_pid;
                 unsafe {
-                    con_quick_terminal_slide_in(raw);
+                    cube_quick_terminal_slide_in(raw);
                 }
                 state.visible = true;
             }
@@ -203,7 +203,7 @@ pub fn active_display_visible_bounds() -> Option<Bounds<Pixels>> {
     let mut width = 0.0;
     let mut height = 0.0;
     let ok = unsafe {
-        con_quick_terminal_active_display_visible_frame(&mut x, &mut y, &mut width, &mut height)
+        cube_quick_terminal_active_display_visible_frame(&mut x, &mut y, &mut width, &mut height)
     };
     if !ok || width <= 0.0 || height <= 0.0 {
         return None;
@@ -223,7 +223,7 @@ pub fn force_hide() {
         let return_pid = prepare_force_hide(&mut state);
         if let Some(window_ptr) = state.raw_ptr {
             unsafe {
-                con_quick_terminal_slide_out(
+                cube_quick_terminal_slide_out(
                     window_ptr as *mut std::ffi::c_void,
                     return_pid.unwrap_or(0),
                 );
@@ -245,7 +245,7 @@ pub fn hide() {
         state.visible = false;
         if let Some(window_ptr) = state.raw_ptr {
             unsafe {
-                con_quick_terminal_slide_out(window_ptr as *mut std::ffi::c_void, 0);
+                cube_quick_terminal_slide_out(window_ptr as *mut std::ffi::c_void, 0);
             }
         }
     });
@@ -253,20 +253,20 @@ pub fn hide() {
 
 /// Called from ObjC when NSWorkspace reports an active app change.
 #[unsafe(no_mangle)]
-extern "C" fn con_quick_terminal_remember_active_app(pid: i32) {
+extern "C" fn cube_quick_terminal_remember_active_app(pid: i32) {
     remember_active_app_pid(pid);
 }
 
 /// Called from ObjC when the quick terminal window resigns key (user clicked
 /// elsewhere). Hides the window automatically like iTerm2's hotkey window.
 #[unsafe(no_mangle)]
-extern "C" fn con_quick_terminal_handle_resign_key() {
-    debug_assert!(unsafe { con_quick_terminal_is_main_thread() });
+extern "C" fn cube_quick_terminal_handle_resign_key() {
+    debug_assert!(unsafe { cube_quick_terminal_is_main_thread() });
     hide();
 }
 
 pub fn reset_destroyed_window() {
-    debug_assert!(unsafe { con_quick_terminal_is_main_thread() });
+    debug_assert!(unsafe { cube_quick_terminal_is_main_thread() });
     let window_ptr = QUICK_TERMINAL_STATE.with(|state| {
         let mut state = state.borrow_mut();
         let window_ptr = state.raw_ptr;
@@ -275,7 +275,7 @@ pub fn reset_destroyed_window() {
     });
     if let Some(window_ptr) = window_ptr {
         unsafe {
-            con_quick_terminal_prepare_destroy(window_ptr as *mut std::ffi::c_void);
+            cube_quick_terminal_prepare_destroy(window_ptr as *mut std::ffi::c_void);
         }
     }
 }
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn quick_terminal_binding_default_is_non_empty() {
         assert!(
-            !con_core::config::KeybindingConfig::default()
+            !cube_core::config::KeybindingConfig::default()
                 .quick_terminal
                 .trim()
                 .is_empty()

@@ -32,14 +32,14 @@ use crate::{
 /// 不能拿来渲染正文；这里指向系统等宽字体，其余字符由 Ghostty 的
 /// 字体回退链处理。
 const DEFAULT_GHOSTTY_FONT_FAMILY: &str = "Menlo";
-// Con does not ship Ghostty's `+ssh-cache` CLI helper, so `ssh-terminfo` stays off.
+// Cube does not ship Ghostty's `+ssh-cache` CLI helper, so `ssh-terminfo` stays off.
 // `ssh-env` must stay off too: Ghostty's zsh/bash integration installs its ssh
 // wrapper whenever the feature string contains `ssh-`, and that wrapper runs
-// `$GHOSTTY_BIN_DIR/ghostty +ssh` — a binary Con never ships. Leaving it on makes
-// every `ssh` in a Con shell die with "no such file or directory … /ghostty".
-// Con's own `con-cli +ssh` helper is invoked explicitly by the SSH connections
+// `$GHOSTTY_BIN_DIR/ghostty +ssh` — a binary Cube never ships. Leaving it on makes
+// every `ssh` in a Cube shell die with "no such file or directory … /ghostty".
+// Cube's own `cube-cli +ssh` helper is invoked explicitly by the SSH connections
 // feature instead of by hijacking the user's `ssh`.
-const CON_SHELL_INTEGRATION_FEATURES: &str = "no-cursor";
+const CUBE_SHELL_INTEGRATION_FEATURES: &str = "no-cursor";
 
 fn sanitize_font_family_for_ghostty(font_family: &str) -> &str {
     let trimmed = font_family.trim();
@@ -239,9 +239,9 @@ impl GhosttyConfigPatch {
             // Disable ghostty shell-integration cursor override so con's
             // cursor-style setting is respected. Ghostty's integration
             // unconditionally forces a bar cursor at prompts otherwise.
-            // Both ssh features are off — see CON_SHELL_INTEGRATION_FEATURES.
+            // Both ssh features are off — see CUBE_SHELL_INTEGRATION_FEATURES.
             s.push_str("shell-integration-features = ");
-            s.push_str(CON_SHELL_INTEGRATION_FEATURES);
+            s.push_str(CUBE_SHELL_INTEGRATION_FEATURES);
             s.push('\n');
             // Plain links already display their target as terminal text. Restrict
             // host-side previews to OSC 8, whose visible label can differ from the
@@ -415,7 +415,7 @@ fn build_ghostty_config(
     let runtime_dir = source
         .map(|s| s.base_dir.as_path())
         .unwrap_or_else(|| Path::new("/tmp"));
-    // Con's constructor values are fallbacks. Native source is then replayed,
+    // Cube's constructor values are fallbacks. Native source is then replayed,
     // explicit runtime overrides follow it, and immutable host policy is last.
     // Let alternate-screen programs carry their edge colors into fractional
     // grid padding. Load as a default, never override an explicit native choice.
@@ -441,7 +441,7 @@ fn build_ghostty_config(
     let mut policy = GhosttyConfigPatch::default().to_config_string(true)?;
     if source.is_some() && overrides.font_family.is_none() {
         // Native font choices do not pass through the portable patch builder,
-        // which otherwise appends Con's bundled Nerd Font itself.
+        // which otherwise appends Cube's bundled Nerd Font itself.
         policy.push_str(&format!("font-family = {DEFAULT_GHOSTTY_FONT_FAMILY}\n"));
     }
     load(&policy, runtime_dir, false, "generated host policy")?;
@@ -677,7 +677,7 @@ static mut GHOSTTY_INIT_RESULT: i32 = -1;
 fn perf_trace_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var_os("CON_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
+        std::env::var_os("CUBE_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
     })
 }
 
@@ -702,7 +702,7 @@ fn ensure_resources_dir_env() {
     }
 
     let resources_dir = installed_app_ghostty_resources_dir().or_else(|| {
-        let resources_dir = option_env!("CON_GHOSTTY_RESOURCES_DIR")?;
+        let resources_dir = option_env!("CUBE_GHOSTTY_RESOURCES_DIR")?;
         Path::new(resources_dir)
             .is_dir()
             .then(|| PathBuf::from(resources_dir))
@@ -1035,7 +1035,7 @@ impl GhosttyApp {
                 .is_none_or(|previous| previous.background_blur != effective.background_blur)
         {
             log::warn!(
-                "Liquid Glass background-blur is not supported by Con; using unblurred \
+                "Liquid Glass background-blur is not supported by Cube; using unblurred \
                  transparency. Use a numeric background-blur for window blur."
             );
         }
@@ -1113,13 +1113,13 @@ impl GhosttyApp {
             config.working_directory = s.as_ptr();
         }
 
-        #[cfg(con_ghostty_embedded_initial_output)]
+        #[cfg(cube_ghostty_embedded_initial_output)]
         let restored_output = restored_screen_text.and_then(restored_terminal_output);
-        #[cfg(con_ghostty_embedded_initial_output)]
+        #[cfg(cube_ghostty_embedded_initial_output)]
         if let Some(ref output) = restored_output {
             config.initial_output = output.as_ptr();
         }
-        #[cfg(not(con_ghostty_embedded_initial_output))]
+        #[cfg(not(cube_ghostty_embedded_initial_output))]
         let _ = restored_screen_text;
 
         let surface = unsafe { ffi::ghostty_surface_new(self.app, &config as *const _) };
@@ -1146,7 +1146,7 @@ impl GhosttyApp {
     }
 }
 
-#[cfg(con_ghostty_embedded_initial_output)]
+#[cfg(cube_ghostty_embedded_initial_output)]
 fn restored_terminal_output(lines: &[String]) -> Option<CString> {
     CString::new(crate::restored_terminal_output_text(lines)?).ok()
 }
@@ -1937,7 +1937,7 @@ unsafe extern "C" fn wakeup_callback(userdata: *mut c_void) {
         let tick_elapsed = tick_started.elapsed();
         if perf_trace_enabled() {
             log::info!(
-                target: "con_ghostty::perf",
+                target: "cube_ghostty::perf",
                 "ghostty wake tick queue_delay_ms={:.3} tick_ms={:.3}",
                 queue_delay.as_secs_f64() * 1000.0,
                 tick_elapsed.as_secs_f64() * 1000.0
@@ -2107,7 +2107,7 @@ unsafe fn handle_surface_action(
             }
             ffi::ghostty_action_tag_e::GHOSTTY_ACTION_DESKTOP_NOTIFICATION => {
                 let notification = action.action.desktop_notification;
-                con_ghostty_show_desktop_notification(notification.title, notification.body)
+                cube_ghostty_show_desktop_notification(notification.title, notification.body)
             }
             ffi::ghostty_action_tag_e::GHOSTTY_ACTION_NEW_SPLIT => {
                 let direction = match action.action.new_split {
@@ -2305,7 +2305,7 @@ unsafe fn handle_surface_action(
 }
 
 unsafe extern "C" {
-    fn con_ghostty_show_desktop_notification(
+    fn cube_ghostty_show_desktop_notification(
         title: *const std::os::raw::c_char,
         body: *const std::os::raw::c_char,
     ) -> bool;
@@ -2813,7 +2813,7 @@ mod tests {
         };
 
         let config = patch.to_config_string(true).unwrap();
-        assert!(config.contains("font-family = \"Ioskeley Mono\""));
+        assert!(config.contains("font-family = \"Menlo\""));
         assert!(!config.contains(".ZedMono"));
     }
 
@@ -2833,12 +2833,12 @@ mod tests {
     }
 
     #[test]
-    fn ghostty_config_preserves_fallback_order_and_appends_bundled_font() {
+    fn ghostty_config_preserves_fallback_order_and_appends_default_font() {
         let patch = GhosttyConfigPatch {
             font_family: Some("JetBrains Mono".to_string()),
             font_fallback: Some(vec![
                 "Sarasa Mono SC".to_string(),
-                "Ioskeley Mono".to_string(),
+                "Menlo".to_string(),
                 "Segoe UI Emoji".to_string(),
             ]),
             ..Default::default()
@@ -2858,7 +2858,7 @@ mod tests {
                 "font-family = \"JetBrains Mono\"",
                 "font-family = \"Sarasa Mono SC\"",
                 "font-family = \"Segoe UI Emoji\"",
-                "font-family = \"Ioskeley Mono\"",
+                "font-family = \"Menlo\"",
             ]
         );
     }
@@ -2884,7 +2884,7 @@ mod tests {
 
         assert!(config.contains("shell-integration-features = no-cursor\n"));
         // `ssh-env` would make Ghostty's shell integration shadow `ssh` with a
-        // wrapper that execs `$GHOSTTY_BIN_DIR/ghostty`, which Con never ships.
+        // wrapper that execs `$GHOSTTY_BIN_DIR/ghostty`, which Cube never ships.
         assert!(!config.contains("ssh-env"));
         assert!(!config.contains("ssh-terminfo"));
     }
@@ -3151,7 +3151,7 @@ mod tests {
     #[test]
     fn native_clipboard_policy_overrides_defaults_and_runtime_patch_overrides_native() {
         ensure_ghostty_init().unwrap();
-        let (_cleanup, root) = temp_test_dir("con-clipboard-policy-test");
+        let (_cleanup, root) = temp_test_dir("cube-clipboard-policy-test");
         std::fs::create_dir_all(&root).unwrap();
         for (default, native, runtime, expected) in [
             (false, "allow", None, "allow"),
@@ -3195,7 +3195,7 @@ mod tests {
     #[test]
     fn finds_ghostty_resources_inside_installed_app_bundle() {
         let (_cleanup, root) = temp_test_dir("con-ghostty-resources-test");
-        let app_root = root.join("con Beta.app");
+        let app_root = root.join("cube Beta.app");
         let macos_dir = app_root.join("Contents/MacOS");
         let resources_dir = app_root.join("Contents/Resources/ghostty");
         let terminfo_file = app_root.join("Contents/Resources/terminfo/78/xterm-ghostty");
@@ -3212,7 +3212,7 @@ mod tests {
     #[test]
     fn finds_ghostty_resources_when_terminfo_uses_letter_bucket() {
         let (_cleanup, root) = temp_test_dir("con-ghostty-letter-terminfo-test");
-        let app_root = root.join("con Beta.app");
+        let app_root = root.join("cube Beta.app");
         let macos_dir = app_root.join("Contents/MacOS");
         let resources_dir = app_root.join("Contents/Resources/ghostty");
         let terminfo_file = app_root.join("Contents/Resources/terminfo/x/xterm-ghostty");
@@ -3229,7 +3229,7 @@ mod tests {
     #[test]
     fn ignores_installed_app_resources_when_bundled_terminfo_is_missing() {
         let (_cleanup, root) = temp_test_dir("con-ghostty-missing-terminfo-test");
-        let app_root = root.join("con.app");
+        let app_root = root.join("cube.app");
         let macos_dir = app_root.join("Contents/MacOS");
         let resources_dir = app_root.join("Contents/Resources/ghostty");
         std::fs::create_dir_all(&macos_dir).unwrap();

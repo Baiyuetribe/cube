@@ -13,48 +13,48 @@ use crate::parser::{MatchMode, Step, parse_file};
 // ---------------------------------------------------------------------------
 
 pub struct RunConfig {
-    pub con_cli: PathBuf,
+    pub cube_cli: PathBuf,
     pub socket: PathBuf,
     pub rewrite: bool,
     pub verbose: bool,
 }
 
 // ---------------------------------------------------------------------------
-// Con process lifecycle
+// Cube process lifecycle
 // ---------------------------------------------------------------------------
 
 /// RAII guard for a running con process.
 /// Kills the process and removes the socket file on drop.
-pub struct ConProcess {
+pub struct CubeProcess {
     child: std::process::Child,
     socket: PathBuf,
 }
 
-impl ConProcess {
+impl CubeProcess {
     /// Launch con with a dedicated socket path and wait until the socket is ready.
-    pub fn launch(con_bin: &Path, socket: &Path, startup_timeout: Duration) -> Result<Self> {
+    pub fn launch(cube_bin: &Path, socket: &Path, startup_timeout: Duration) -> Result<Self> {
         // Remove any stale socket from a previous run.
         let _ = std::fs::remove_file(socket);
 
-        let child = Command::new(con_bin)
-            .env("CON_SOCKET_PATH", socket)
+        let child = Command::new(cube_bin)
+            .env("CUBE_SOCKET_PATH", socket)
             // Suppress con's own log output so it doesn't pollute test output.
             // Tests that need to inspect logs can override this.
             .env("RUST_LOG", "error")
             .spawn()
-            .with_context(|| format!("failed to launch con from {}", con_bin.display()))?;
+            .with_context(|| format!("failed to launch con from {}", cube_bin.display()))?;
 
-        let mut process = ConProcess {
+        let mut process = CubeProcess {
             child,
             socket: socket.to_path_buf(),
         };
 
-        process.wait_for_control_endpoint(con_bin, startup_timeout)?;
+        process.wait_for_control_endpoint(cube_bin, startup_timeout)?;
         Ok(process)
     }
 
     /// Block until the control endpoint is ready or the timeout expires.
-    fn wait_for_control_endpoint(&mut self, con_bin: &Path, timeout: Duration) -> Result<()> {
+    fn wait_for_control_endpoint(&mut self, cube_bin: &Path, timeout: Duration) -> Result<()> {
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline {
             if let Some(status) = self.child_status()? {
@@ -71,7 +71,7 @@ impl ConProcess {
         }
         bail!(
             "con ({}) did not expose control endpoint at {} within {:?}",
-            con_bin.display(),
+            cube_bin.display(),
             self.socket.display(),
             timeout
         )
@@ -106,7 +106,7 @@ fn control_endpoint_ready(socket: &Path) -> bool {
     false
 }
 
-impl Drop for ConProcess {
+impl Drop for CubeProcess {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait(); // reap the zombie
@@ -124,16 +124,16 @@ impl Drop for ConProcess {
 ///   3. Close extra pane-local surfaces in the surviving pane.
 ///
 /// We re-query after each close because indices shift on removal.
-pub fn reset_state(con_cli: &Path, socket: &Path) -> Result<()> {
-    reset_tabs(con_cli, socket)?;
-    reset_panes(con_cli, socket)?;
-    reset_surfaces(con_cli, socket)?;
+pub fn reset_state(cube_cli: &Path, socket: &Path) -> Result<()> {
+    reset_tabs(cube_cli, socket)?;
+    reset_panes(cube_cli, socket)?;
+    reset_surfaces(cube_cli, socket)?;
     Ok(())
 }
 
-fn reset_tabs(con_cli: &Path, socket: &Path) -> Result<()> {
+fn reset_tabs(cube_cli: &Path, socket: &Path) -> Result<()> {
     loop {
-        let json = cli_json(con_cli, socket, &["tabs", "list"])?;
+        let json = cli_json(cube_cli, socket, &["tabs", "list"])?;
         let tabs = json["tabs"]
             .as_array()
             .context("reset_tabs: missing tabs array")?;
@@ -146,7 +146,7 @@ fn reset_tabs(con_cli: &Path, socket: &Path) -> Result<()> {
         match extra {
             Some(idx) => {
                 cli_run(
-                    con_cli,
+                    cube_cli,
                     socket,
                     &["tabs", "close", "--tab", &idx.to_string()],
                 )
@@ -159,10 +159,10 @@ fn reset_tabs(con_cli: &Path, socket: &Path) -> Result<()> {
     Ok(())
 }
 
-fn reset_panes(con_cli: &Path, socket: &Path) -> Result<()> {
+fn reset_panes(cube_cli: &Path, socket: &Path) -> Result<()> {
     let mut attempts = 0usize;
     loop {
-        let json = cli_json(con_cli, socket, &["panes", "list", "--tab", "1"])?;
+        let json = cli_json(cube_cli, socket, &["panes", "list", "--tab", "1"])?;
         let panes = json["panes"]
             .as_array()
             .context("reset_panes: missing panes array")?;
@@ -194,7 +194,7 @@ fn reset_panes(con_cli: &Path, socket: &Path) -> Result<()> {
             Some(id) => {
                 // Send Ctrl-D (EOF) to close the shell in the extra pane.
                 let _ = cli_run(
-                    con_cli,
+                    cube_cli,
                     socket,
                     &[
                         "panes",
@@ -214,11 +214,11 @@ fn reset_panes(con_cli: &Path, socket: &Path) -> Result<()> {
     Ok(())
 }
 
-fn reset_surfaces(con_cli: &Path, socket: &Path) -> Result<()> {
+fn reset_surfaces(cube_cli: &Path, socket: &Path) -> Result<()> {
     let mut attempts = 0usize;
     loop {
         let json = cli_json(
-            con_cli,
+            cube_cli,
             socket,
             &["surfaces", "list", "--tab", "1", "--pane-index", "1"],
         )?;
@@ -252,7 +252,7 @@ fn reset_surfaces(con_cli: &Path, socket: &Path) -> Result<()> {
         match extra_id {
             Some(id) => {
                 cli_run(
-                    con_cli,
+                    cube_cli,
                     socket,
                     &[
                         "surfaces",
@@ -276,38 +276,38 @@ fn reset_surfaces(con_cli: &Path, socket: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Run a con-cli command and return its stdout parsed as JSON.
-fn cli_json(con_cli: &Path, socket: &Path, args: &[&str]) -> Result<Value> {
+/// Run a cube-cli command and return its stdout parsed as JSON.
+fn cli_json(cube_cli: &Path, socket: &Path, args: &[&str]) -> Result<Value> {
     let socket_str = socket.to_string_lossy().into_owned();
     let mut full_args = vec!["--socket", &*socket_str, "--json"];
     full_args.extend_from_slice(args);
-    let output = Command::new(con_cli)
+    let output = Command::new(cube_cli)
         .args(&full_args)
         .output()
-        .with_context(|| format!("cli_json: failed to run con-cli {:?}", args))?;
+        .with_context(|| format!("cli_json: failed to run cube-cli {:?}", args))?;
     if !output.status.success() {
         bail!(
-            "cli_json: con-cli {:?} failed: {}",
+            "cli_json: cube-cli {:?} failed: {}",
             args,
             String::from_utf8_lossy(&output.stderr)
         );
     }
     serde_json::from_slice(&output.stdout)
-        .with_context(|| format!("cli_json: invalid JSON from con-cli {:?}", args))
+        .with_context(|| format!("cli_json: invalid JSON from cube-cli {:?}", args))
 }
 
-/// Run a con-cli command, return error if exit code != 0.
-fn cli_run(con_cli: &Path, socket: &Path, args: &[&str]) -> Result<()> {
+/// Run a cube-cli command, return error if exit code != 0.
+fn cli_run(cube_cli: &Path, socket: &Path, args: &[&str]) -> Result<()> {
     let socket_str = socket.to_string_lossy().into_owned();
     let mut full_args = vec!["--socket", &*socket_str];
     full_args.extend_from_slice(args);
-    let output = Command::new(con_cli)
+    let output = Command::new(cube_cli)
         .args(&full_args)
         .output()
-        .with_context(|| format!("cli_run: failed to run con-cli {:?}", args))?;
+        .with_context(|| format!("cli_run: failed to run cube-cli {:?}", args))?;
     if !output.status.success() {
         bail!(
-            "cli_run: con-cli {:?} failed: {}",
+            "cli_run: cube-cli {:?} failed: {}",
             args,
             String::from_utf8_lossy(&output.stderr)
         );
@@ -387,20 +387,20 @@ enum StepOutcome {
 }
 
 fn run_step(step: &Step, config: &RunConfig) -> Result<StepOutcome> {
-    let mut cmd = Command::new(&config.con_cli);
+    let mut cmd = Command::new(&config.cube_cli);
     cmd.arg("--socket").arg(&config.socket);
     cmd.args(&step.args);
 
     let output = cmd
         .output()
-        .with_context(|| format!("failed to run con-cli for step {:?}", step.label))?;
+        .with_context(|| format!("failed to run cube-cli for step {:?}", step.label))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let exit_ok = output.status.success();
 
     let cmd_display = format!(
-        "con-cli {}",
+        "cube-cli {}",
         step.args
             .iter()
             .map(|a| shell_quote(a))
@@ -545,7 +545,7 @@ fn exit_failure(step: &Step, cmd_display: &str, stderr: &str) -> StepFailure {
         step_label: format!("{} (line {})", step.label, step.line),
         cmd: cmd_display.to_string(),
         expected: step.expected.clone(),
-        actual: format!("con-cli exited with error\nstderr: {stderr}"),
+        actual: format!("cube-cli exited with error\nstderr: {stderr}"),
         diff: String::new(),
     }
 }
@@ -631,8 +631,8 @@ fn rewrite_file(path: &Path, _steps: &[Step], rewrites: &[(usize, String)]) -> R
     while i < lines.len() {
         let trimmed = lines[i].trim();
 
-        if trimmed.starts_with("con-cli ")
-            || trimmed == "con-cli"
+        if trimmed.starts_with("cube-cli ")
+            || trimmed == "cube-cli"
             || trimmed.starts_with("cmd ")
             || trimmed == "cmd"
         {
@@ -657,8 +657,8 @@ fn rewrite_file(path: &Path, _steps: &[Step], rewrites: &[(usize, String)]) -> R
             // Skip old expected block
             while i < lines.len() {
                 let t = lines[i].trim();
-                if t.starts_with("con-cli ")
-                    || t == "con-cli"
+                if t.starts_with("cube-cli ")
+                    || t == "cube-cli"
                     || t.starts_with("cmd ")
                     || t == "cmd"
                 {

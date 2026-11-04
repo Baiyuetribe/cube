@@ -13,7 +13,7 @@ fn workspace_focus_container(focus: &FocusHandle) -> Div {
 #[cfg(target_os = "linux")]
 const LINUX_WINDOW_CORNER_RADIUS: Pixels = px(14.0);
 
-impl ConWorkspace {
+impl CubeWorkspace {
     fn has_active_resize_drag(&self) -> bool {
         self.sidebar_drag.is_some()
             || self.agent_panel_drag.is_some()
@@ -185,7 +185,7 @@ impl ConWorkspace {
     }
 }
 
-impl Render for ConWorkspace {
+impl Render for CubeWorkspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.flush_pending_create_pane_requests(window, cx);
 
@@ -990,7 +990,7 @@ impl Render for ConWorkspace {
             .font_family(theme.mono_font_family.clone());
 
         root = root
-            .key_context("ConWorkspace")
+            .key_context("CubeWorkspace")
             .on_drag_move::<DraggedTab>(cx.listener(
                 |this, event: &gpui::DragMoveEvent<DraggedTab>, win, cx| {
                     if event.drag(cx).origin != DraggedTabOrigin::HorizontalTabStrip {

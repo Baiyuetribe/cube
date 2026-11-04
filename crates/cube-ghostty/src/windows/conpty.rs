@@ -1,6 +1,6 @@
-//! ConPTY wrapper.
+//! CubePTY wrapper.
 //!
-//! ConPTY (Windows 10 1809+) is the modern pseudo-console API. The
+//! CubePTY (Windows 10 1809+) is the modern pseudo-console API. The
 //! host:
 //!
 //! 1. Creates two anonymous pipe pairs via `CreatePipe`.
@@ -52,13 +52,13 @@ use crate::vt::PtyWriteClass;
 fn perf_trace_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var_os("CON_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
+        std::env::var_os("CUBE_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
     })
 }
 
 /// Close the pseudo-console if it hasn't been closed yet, clearing the
 /// slot so a second caller becomes a no-op. Called from two places —
-/// `ConPty::drop` (teardown triggered by the UI) and the exit-watcher
+/// `CubePty::drop` (teardown triggered by the UI) and the exit-watcher
 /// thread (teardown triggered by the child shell exiting on its own,
 /// e.g. the user typing `exit`). Whichever runs first closes; the
 /// other finds `None` and returns immediately.
@@ -68,7 +68,7 @@ fn close_hpcon_slot(slot: &Mutex<Option<HPCON>>) {
         // else can close it. `ClosePseudoConsole` blocks until
         // conhost drains the output pipe, which is why the caller
         // force-kills the shell first when needed (see
-        // `ConPty::drop`).
+        // `CubePty::drop`).
         unsafe { ClosePseudoConsole(hpcon) }
     }
 }
@@ -126,24 +126,24 @@ impl Drop for PendingPseudoConsole {
     fn drop(&mut self) {
         if let Some(handle) = self.0.take() {
             // SAFETY: this guard exclusively owns the HPCON until a
-            // successfully-created ConPty takes it.
+            // successfully-created CubePty takes it.
             unsafe { ClosePseudoConsole(handle) }
         }
     }
 }
 
-/// Cloneable write-only view of the host side of ConPTY's input pipe.
+/// Cloneable write-only view of the host side of CubePTY's input pipe.
 ///
-/// libghostty-vt callbacks receive this instead of the full `ConPty` so
+/// libghostty-vt callbacks receive this instead of the full `CubePty` so
 /// terminal replies cannot re-enter `RenderSession` while the VT lock is
 /// held. One bounded writer queue preserves ordering with user input without
 /// allowing a blocked child pipe to stall parser output or rendering.
 #[derive(Clone)]
-pub(crate) struct ConPtyWriter {
+pub(crate) struct CubePtyWriter {
     queue: PtyWriteQueue,
 }
 
-impl ConPtyWriter {
+impl CubePtyWriter {
     pub(crate) fn write_all(&self, bytes: &[u8], class: PtyWriteClass) -> io::Result<()> {
         match class {
             PtyWriteClass::Regular => self.queue.enqueue(bytes),
@@ -163,7 +163,7 @@ fn write_conpty_input(handle: &OwnedHandle, mut bytes: &[u8]) -> io::Result<()> 
         if written == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::WriteZero,
-                "ConPTY input pipe accepted zero bytes",
+                "CubePTY input pipe accepted zero bytes",
             ));
         }
         bytes = &bytes[written as usize..];
@@ -173,18 +173,18 @@ fn write_conpty_input(handle: &OwnedHandle, mut bytes: &[u8]) -> io::Result<()> 
 
 /// Pipe endpoints created before the child process starts.
 ///
-/// This two-phase construction lets the VT capture a `ConPtyWriter` before
+/// This two-phase construction lets the VT capture a `CubePtyWriter` before
 /// the shell can emit its first query or output byte.
 pub(crate) struct PreparedConPty {
     input_read: OwnedHandle,
-    input_writer: ConPtyWriter,
+    input_writer: CubePtyWriter,
     input_worker: PtyWriteWorker,
     output_read: OwnedHandle,
     output_write: OwnedHandle,
 }
 
 impl PreparedConPty {
-    pub(crate) fn writer(&self) -> ConPtyWriter {
+    pub(crate) fn writer(&self) -> CubePtyWriter {
         self.input_writer.clone()
     }
 
@@ -195,24 +195,24 @@ impl PreparedConPty {
         size: PtySize,
         on_output: F,
         on_eof: E,
-    ) -> Result<ConPty>
+    ) -> Result<CubePty>
     where
         F: FnMut(&[u8]) + Send + 'static,
         E: FnOnce() + Send + 'static,
     {
-        ConPty::spawn_prepared(self, command_line, cwd, size, on_output, on_eof)
+        CubePty::spawn_prepared(self, command_line, cwd, size, on_output, on_eof)
     }
 }
 
-/// A live ConPTY session.
-pub struct ConPty {
+/// A live CubePTY session.
+pub struct CubePty {
     /// Pseudo-console handle, shared with the exit-watcher thread.
-    /// Either `ConPty::drop` or the watcher takes the `Option<HPCON>`
+    /// Either `CubePty::drop` or the watcher takes the `Option<HPCON>`
     /// out and calls `ClosePseudoConsole`; the loser finds `None` and
     /// skips. See `close_hpcon_slot`.
     pcon: Arc<Mutex<Option<HPCON>>>,
     /// Host end of the pipe the child reads from.
-    _input_writer: ConPtyWriter,
+    _input_writer: CubePtyWriter,
     /// Sole owner of the blocking pipe handle. Joined only after the child and
     /// pseudo-console have been terminated so a pending write cannot hang Drop.
     input_worker: PtyWriteWorker,
@@ -238,24 +238,24 @@ pub struct PtySize {
     pub rows: u16,
 }
 
-impl ConPty {
+impl CubePty {
     pub(crate) fn prepare() -> Result<PreparedConPty> {
         let (input_read, input_write) = create_pipe().context("input pipe")?;
         let (output_read, output_write) = create_pipe().context("output pipe")?;
         let (input_queue, input_worker) = PtyWriteQueue::spawn("con-conpty-writer", move |bytes| {
             write_conpty_input(&input_write, bytes)
         })
-        .context("spawn ConPTY writer")?;
+        .context("spawn CubePTY writer")?;
         Ok(PreparedConPty {
             input_read,
-            input_writer: ConPtyWriter { queue: input_queue },
+            input_writer: CubePtyWriter { queue: input_queue },
             input_worker,
             output_read,
             output_write,
         })
     }
 
-    /// Spawn a child shell, wire up ConPTY, and start a background reader
+    /// Spawn a child shell, wire up CubePTY, and start a background reader
     /// that calls `on_output` for each chunk of bytes the shell writes.
     pub fn spawn<F, E>(
         command_line: &str,
@@ -297,7 +297,7 @@ impl ConPty {
         };
 
         // SAFETY: input_read and output_write are valid owned handles
-        // captured by ConPTY. `0` flags = no special behavior.
+        // captured by CubePTY. `0` flags = no special behavior.
         let hpcon: HPCON = unsafe {
             CreatePseudoConsole(coord, input_read.as_handle(), output_write.as_handle(), 0)
         }
@@ -320,7 +320,7 @@ impl ConPty {
 
         // Only two flags are safe with `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`:
         // CREATE_NO_WINDOW, DETACHED_PROCESS, and CREATE_NEW_CONSOLE are
-        // all INCOMPATIBLE with ConPTY — they prevent the conhost.exe
+        // all INCOMPATIBLE with CubePTY — they prevent the conhost.exe
         // helper (which the pty attribute launches internally) from
         // starting, so the child never writes anything to the pipe.
         // Seen by the user: powershell spawned successfully but zero
@@ -337,7 +337,7 @@ impl ConPty {
         // handles. This matters when con itself is launched with
         // redirected logs (`*> con-profile.log`): inheriting those
         // handles lets PowerShell write its banner/prompt to the log
-        // instead of through ConPTY, leaving the pane blank.
+        // instead of through CubePTY, leaving the pane blank.
         let cwd_w: Option<Vec<u16>> = cwd.map(|path| {
             path.as_os_str()
                 .encode_wide()
@@ -350,7 +350,7 @@ impl ConPty {
             .unwrap_or(windows::core::PCWSTR::null());
 
         log::info!(
-            "ConPTY CreateProcess: inherit_handles=false shell={command_line} cwd={:?}",
+            "CubePTY CreateProcess: inherit_handles=false shell={command_line} cwd={:?}",
             cwd
         );
         let create_result = unsafe {
@@ -375,7 +375,7 @@ impl ConPty {
         // Keep the buffer alive until after DeleteProcThreadAttributeList.
         drop(attribute_buffer);
 
-        create_result.context("CreateProcessW failed for ConPTY child")?;
+        create_result.context("CreateProcessW failed for CubePTY child")?;
 
         let process = OwnedHandle::from_handle(process_info.hProcess);
         let thread = OwnedHandle::from_handle(process_info.hThread);
@@ -386,7 +386,7 @@ impl ConPty {
         // Duplicate the process handle so the watcher thread can wait
         // on it independently of the `OwnedHandle` stored on `Self`.
         // The original is still needed for `process_handle()` and gets
-        // closed by `OwnedHandle::drop` when `ConPty` is dropped; the
+        // closed by `OwnedHandle::drop` when `CubePty` is dropped; the
         // duplicate is closed by the watcher thread when it finishes.
         // SAFETY: GetCurrentProcess returns a pseudo-handle that does
         // not need closing; process_info.hProcess is a valid handle we
@@ -421,7 +421,7 @@ impl ConPty {
                     // Close the pseudo-console so conhost releases
                     // the pipe write-end; the output reader's
                     // `ReadFile` will then see EOF and the reader
-                    // thread exits. If `ConPty::drop` raced us and
+                    // thread exits. If `CubePty::drop` raced us and
                     // already closed the HPCON, `close_hpcon_slot`
                     // finds `None` and returns immediately.
                     close_hpcon_slot(&pcon_for_watcher);
@@ -461,7 +461,7 @@ impl ConPty {
         let Some(hpcon) = *guard else {
             return Ok(());
         };
-        // SAFETY: hpcon is a valid HPCON owned by this ConPty; the
+        // SAFETY: hpcon is a valid HPCON owned by this CubePty; the
         // lock guards against a concurrent close.
         unsafe { ResizePseudoConsole(hpcon, coord) }
             .map_err(|e| anyhow!("ResizePseudoConsole failed: {}", e.message()))
@@ -486,7 +486,7 @@ impl ConPty {
     }
 }
 
-impl Drop for ConPty {
+impl Drop for CubePty {
     fn drop(&mut self) {
         // Teardown order matters here. The reader thread reads the
         // host side of the output pipe; the pipe's write-end lives
@@ -578,7 +578,7 @@ fn build_startup_info(hpcon: HPCON) -> Result<(STARTUPINFOEXW, Vec<u8>)> {
     // SAFETY: for PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE the kernel
     // stores `lpValue` directly as the pseudo-console handle — NOT a
     // pointer to a value to copy. Match the canonical Microsoft
-    // sample (github.com/microsoft/terminal ConPTY sample): pass the
+    // sample (github.com/microsoft/terminal CubePTY sample): pass the
     // HPCON (which is itself a pointer/void*) as lpValue.
     //
     // The previous `&hpcon` form had two bugs: (1) it pointed at a
@@ -678,7 +678,7 @@ where
 /// Discover a sensible default shell.
 ///
 /// Without an explicit `[terminal].shell`, users can still force a shell via
-/// `CON_SHELL`. Otherwise we honor Windows Terminal's configured default
+/// `CUBE_SHELL`. Otherwise we honor Windows Terminal's configured default
 /// profile before falling back to a simple executable search. Matching the
 /// user's Windows Terminal shell matters because PowerShell profiles, prompt
 /// frameworks, and WSL startup can dominate initial latency.
@@ -695,7 +695,7 @@ pub fn shell_command(configured: Option<&str>) -> String {
         .map(ToOwned::to_owned)
     {
         cmd
-    } else if let Some(cmd) = std::env::var("CON_SHELL")
+    } else if let Some(cmd) = std::env::var("CUBE_SHELL")
         .ok()
         .filter(|s| !s.trim().is_empty())
     {
@@ -1229,14 +1229,14 @@ mod tests {
 
     #[test]
     fn wraps_powershell_shells_with_cwd_integration() {
-        let script = Path::new(r"C:\Users\me\AppData\Local\Temp\Con Terminal\con-cwd.ps1");
+        let script = Path::new(r"C:\Users\me\AppData\Local\Temp\Cube Terminal\con-cwd.ps1");
 
         let wrapped = with_powershell_cwd_integration_script("pwsh.exe -NoLogo", script)
             .expect("pwsh should be integrated");
 
         assert!(wrapped.starts_with("pwsh.exe -NoLogo -NoExit "));
         assert!(wrapped.contains("-ExecutionPolicy Bypass -File "));
-        assert!(wrapped.contains(r#""C:\Users\me\AppData\Local\Temp\Con Terminal\con-cwd.ps1""#));
+        assert!(wrapped.contains(r#""C:\Users\me\AppData\Local\Temp\Cube Terminal\con-cwd.ps1""#));
     }
 
     #[test]

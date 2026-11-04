@@ -2,7 +2,7 @@
 #import <UserNotifications/UserNotifications.h>
 #include <stdbool.h>
 
-bool con_ghostty_show_desktop_notification(const char *title, const char *body) {
+bool cube_ghostty_show_desktop_notification(const char *title, const char *body) {
     if (title == NULL || body == NULL) {
         return false;
     }

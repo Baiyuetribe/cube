@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use con_core::config::{DEFAULT_APP_ICON, app_icon_asset, sanitize_app_icon};
+use cube_core::config::{DEFAULT_APP_ICON, app_icon_asset, sanitize_app_icon};
 
 static APPLIED_APP_ICON: Mutex<String> = Mutex::new(String::new());
 static SAVED_APP_ICON: Mutex<String> = Mutex::new(String::new());
@@ -52,11 +52,11 @@ pub fn sync_saved_file_icon(_cx: &gpui::App) {
         .spawn(async { sync_file_icon(set_bundle_icon) })
         .detach();
     #[cfg(target_os = "linux")]
-    if !con_paths::is_flatpak() {
+    if !cube_paths::is_flatpak() {
         _cx.background_executor()
             .spawn(async {
                 sync_file_icon(|id| {
-                    let path = con_paths::launcher_icon_path()
+                    let path = cube_paths::launcher_icon_path()
                         .ok_or_else(|| anyhow::anyhow!("user icon directory is unavailable"))?;
                     write_launcher_icon(&path, id)?;
                     native::refresh_launcher_cache(&path);
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn distribution_sources_match_the_default_catalog_asset() {
         for source in [include_str!("../build.rs"), include_str!("../Cargo.toml")] {
-            assert!(source.contains(con_core::config::DEFAULT_APP_ICON_ASSET));
+            assert!(source.contains(cube_core::config::DEFAULT_APP_ICON_ASSET));
         }
     }
 
@@ -418,12 +418,12 @@ mod tests {
 
     #[test]
     fn native_icon_assets_and_packaging_preserve_alpha() {
-        for choice in con_core::config::APP_ICONS {
+        for choice in cube_core::config::APP_ICONS {
             let image = window_icon_image(choice.id).unwrap();
             assert_eq!(image.dimensions(), (256, 256));
             assert!(image.pixels().any(|pixel| pixel[3] > 0));
         }
-        let png = crate::assets::png_bytes(con_core::config::DEFAULT_APP_ICON_ASSET).unwrap();
+        let png = crate::assets::png_bytes(cube_core::config::DEFAULT_APP_ICON_ASSET).unwrap();
         let bytes = ico::encode(&png).unwrap();
         assert_eq!(&bytes[..6], &[0, 0, 1, 0, 7, 0]);
         for (entry, size) in bytes[6..118]

@@ -1,5 +1,5 @@
-use con_core::config::{MAX_UI_FONT_SIZE, MIN_UI_FONT_SIZE, sanitize_terminal_font_family};
-use con_terminal::{Color, TerminalTheme};
+use cube_core::config::{MAX_UI_FONT_SIZE, MIN_UI_FONT_SIZE, sanitize_terminal_font_family};
+use cube_terminal::{Color, TerminalTheme};
 use gpui::App;
 use gpui_component::highlighter::LanguageRegistry;
 use gpui_component::scroll::ScrollbarMode;
@@ -7,11 +7,11 @@ use gpui_component::{Theme, ThemeConfig, ThemeMode, ThemeRegistry};
 use std::borrow::Cow;
 use std::rc::Rc;
 
-const CON_DARK_THEME: &str = include_str!("../../../assets/themes/con-dark.json");
-const CON_LIGHT_THEME: &str = include_str!("../../../assets/themes/con-light.json");
+const CUBE_DARK_THEME: &str = include_str!("../../../assets/themes/cube-dark.json");
+const CUBE_LIGHT_THEME: &str = include_str!("../../../assets/themes/cube-light.json");
 const CATPPUCCIN_THEME: &str = include_str!("../../../assets/themes/catppuccin-mocha.json");
 const TOKYONIGHT_THEME: &str = include_str!("../../../assets/themes/tokyonight.json");
-const CON_SHELL_HIGHLIGHTS: &str = r####"
+const CUBE_SHELL_HIGHLIGHTS: &str = r####"
 [
   (string)
   (raw_string)
@@ -171,8 +171,8 @@ pub fn init_theme(
         .expect("Failed to register file icon font");
 
     for theme_json in [
-        CON_DARK_THEME,
-        CON_LIGHT_THEME,
+        CUBE_DARK_THEME,
+        CUBE_LIGHT_THEME,
         CATPPUCCIN_THEME,
         TOKYONIGHT_THEME,
     ] {
@@ -214,7 +214,7 @@ fn register_command_prompt_language() {
     };
 
     bash.name = "con-shell".into();
-    bash.highlights = CON_SHELL_HIGHLIGHTS.into();
+    bash.highlights = CUBE_SHELL_HIGHLIGHTS.into();
     registry.register("con-shell", &bash);
 }
 
@@ -237,7 +237,7 @@ pub fn sync_gpui_theme(
     );
 }
 
-/// Publish the complete theme once, including Con's typography and track style.
+/// Publish the complete theme once, including Cube's typography and track style.
 fn apply_theme(
     mut config: Rc<ThemeConfig>,
     terminal_font_family: &str,
@@ -311,10 +311,10 @@ fn dynamic_theme(tt: &TerminalTheme, cx: &App) -> Rc<ThemeConfig> {
 /// Fallback: map terminal theme name to a pre-registered GPUI theme.
 fn fallback_theme(terminal_theme_name: &str, mode: ThemeMode, cx: &App) -> Rc<ThemeConfig> {
     let name = match (mode.is_dark(), terminal_theme_name) {
-        (false, _) => "Con Light",
+        (false, _) => "Cube Light",
         (true, "catppuccin-mocha") => "Catppuccin Mocha",
         (true, "tokyonight") => "Tokyo Night",
-        (true, _) => "Con Dark",
+        (true, _) => "Cube Dark",
     };
     ThemeRegistry::global(cx).themes()[name].clone()
 }
@@ -566,12 +566,12 @@ pub fn system_is_dark(window: &gpui::Window, cx: &gpui::App) -> bool {
 
 /// Force NSApp's appearance when the user pins a scheme, and release the
 /// override when they go back to following the system. Only macOS honours the
-/// override; elsewhere the resolved scheme still drives Con's own chrome.
-pub fn apply_window_color_scheme(scheme: con_core::config::ColorScheme, cx: &mut gpui::App) {
+/// override; elsewhere the resolved scheme still drives Cube's own chrome.
+pub fn apply_window_color_scheme(scheme: cube_core::config::ColorScheme, cx: &mut gpui::App) {
     cx.set_window_appearance(match scheme {
-        con_core::config::ColorScheme::System => None,
-        con_core::config::ColorScheme::Light => Some(gpui::WindowAppearance::Light),
-        con_core::config::ColorScheme::Dark => Some(gpui::WindowAppearance::Dark),
+        cube_core::config::ColorScheme::System => None,
+        cube_core::config::ColorScheme::Light => Some(gpui::WindowAppearance::Light),
+        cube_core::config::ColorScheme::Dark => Some(gpui::WindowAppearance::Dark),
     });
 }
 
@@ -684,7 +684,7 @@ mod tests {
                 assert_eq!(
                     Theme::global(cx).tokens.scrollbar,
                     gpui::transparent_black().into(),
-                    "the styled scrollbar token must reflect Con's transparent track"
+                    "the styled scrollbar token must reflect Cube's transparent track"
                 );
                 let base = gpui_base::Theme::global(cx);
                 assert_eq!(base.scrollbar.mode(), ScrollbarMode::Hover);
@@ -708,7 +708,7 @@ mod tests {
                 ".SystemUIFont",
                 19.0,
             );
-            // An unknown name belongs to Ghostty's native lookup, which Con
+            // An unknown name belongs to Ghostty's native lookup, which Cube
             // cannot map to a palette; fall back to the OS appearance rather
             // than guessing dark. The test platform reports light.
             assert_eq!(Theme::global(cx).mode, ThemeMode::Light);

@@ -1,6 +1,6 @@
 //! Windows terminal view — drives the `con-ghostty` Windows backend
 //! (`WindowsGhosttyApp` + `WindowsGhosttyTerminal` + a `RenderSession`
-//! that owns the renderer, VT parser, and ConPTY for one pane).
+//! that owns the renderer, VT parser, and CubePTY for one pane).
 //!
 //! Same public type names as the macOS `ghostty_view` so the rest of
 //! `con-app` (terminal_pane.rs, workspace/) compiles unchanged. The
@@ -22,10 +22,10 @@
 //!
 //! 1. `GhosttyView::new(app, cwd, restored_screen_text, font_size, cx)` pre-allocates a
 //!    `WindowsGhosttyTerminal` so `terminal_pane` can hold an Arc to
-//!    it. No renderer/ConPTY yet — those are built lazily.
+//!    it. No renderer/CubePTY yet — those are built lazily.
 //! 2. `on_children_prepainted` captures the pane's bounds the first
 //!    time they're known. At that point we spin up a `RenderSession`
-//!    (Renderer + VT + ConPTY) sized to those physical pixels.
+//!    (Renderer + VT + CubePTY) sized to those physical pixels.
 //! 3. Each subsequent prepaint: resize on geometry change, update DPI
 //!    on scale-factor change, pump one `render_frame()`. When the
 //!    frame is fresh we rebuild `cached_image` and `cx.notify()` so
@@ -43,13 +43,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::terminal_find::{TerminalFind, TerminalFindDismissed, TerminalFindUpdated};
-use con_ghostty::cursor::CursorBlink;
-use con_ghostty::vt::{
+use cube_ghostty::cursor::CursorBlink;
+use cube_ghostty::vt::{
     SelectionAutoscroll, SelectionAutoscrollUpdate, SelectionGeometry, SelectionPoint, VtKeyAction,
     VtKeyEvent, VtKeyModifiers, VtMouseButton, VtPasteResult, VtPasteSource,
 };
-use con_ghostty::{DesktopNotification, TerminalProgress};
-use con_ghostty::{GhosttyApp, GhosttyScrollbar, GhosttySplitDirection, GhosttyTerminal};
+use cube_ghostty::{DesktopNotification, TerminalProgress};
+use cube_ghostty::{GhosttyApp, GhosttyScrollbar, GhosttySplitDirection, GhosttyTerminal};
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
 use gpui::*;
@@ -68,8 +68,8 @@ use crate::terminal_paste::{
 };
 use crate::terminal_restore::restored_terminal_output;
 use crate::terminal_scrollbar::{SCROLLBAR_INSET_PX, SCROLLBAR_WIDTH_PX, thumb_layout};
-use con_ghostty::windows::host_view::{MouseDownRoute, MouseEventMods, RenderSession};
-use con_ghostty::windows::render::{FrameBgra, RenderOutcome};
+use cube_ghostty::windows::host_view::{MouseDownRoute, MouseEventMods, RenderSession};
+use cube_ghostty::windows::render::{FrameBgra, RenderOutcome};
 
 const SELECTION_AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(15);
 const TERMINAL_PADDING_X_PX: f32 = 10.0;
@@ -147,7 +147,7 @@ pub struct GhosttyView {
     init_failed: bool,
     /// Emit `GhosttyProcessExited` exactly once on shell death.
     process_exit_emitted: bool,
-    pub(crate) terminal_title: con_core::terminal_title::TerminalTitle,
+    pub(crate) terminal_title: cube_core::terminal_title::TerminalTitle,
     last_cwd: Option<String>,
     last_progress: Option<TerminalProgress>,
     /// Pane bounds in logical window pixels, captured during prepaint.
@@ -188,7 +188,7 @@ pub struct GhosttyView {
     terminal_middle_mouse_sequence: MouseButtonSequence<MousePressRoute>,
     terminal_right_mouse_sequence: MouseButtonSequence<MousePressRoute>,
     /// Whether the most recent right-button press was captured by terminal
-    /// mouse tracking. The context-menu builder suppresses Con's menu even
+    /// mouse tracking. The context-menu builder suppresses Cube's menu even
     /// when the active protocol legitimately emits no bytes for that press.
     terminal_mouse_right_consumed: Option<bool>,
     mouse_down_link: Option<TerminalLink>,
@@ -199,7 +199,7 @@ pub struct GhosttyView {
     selection_autoscroll_active: bool,
     keys_awaiting_release: HashMap<String, crate::terminal_keys::TrackedVtKey>,
     pending_unsafe_paste: Option<(String, VtPasteSource)>,
-    /// Cloned and handed to `RenderSession::new`; the ConPTY reader
+    /// Cloned and handed to `RenderSession::new`; the CubePTY reader
     /// thread sends at most one queued signal while a repaint wake is
     /// pending. The coalescer task spawned in `new()` consumes that
     /// signal on the GPUI thread and pokes `cx.notify()` so freshly
@@ -243,7 +243,7 @@ impl GhosttyView {
         let (wake_tx, mut wake_rx) = unbounded::<()>();
         let wake_pending = Arc::new(AtomicBool::new(false));
 
-        // Output wake path: the ConPTY reader may produce many chunks
+        // Output wake path: the CubePTY reader may produce many chunks
         // while GPUI is blocked or the window is minimized. Queue at
         // most one pending wake; the renderer's mailbox owns latest-frame
         // semantics, so more `()` entries would only grow memory.
@@ -318,7 +318,7 @@ impl GhosttyView {
         self.terminal.as_ref()
     }
 
-    /// Keep layout fixtures independent of ConPTY, GPU setup and worker wakes.
+    /// Keep layout fixtures independent of CubePTY, GPU setup and worker wakes.
     #[cfg(test)]
     pub(crate) fn prepare_for_layout_test(&mut self) {
         self.init_failed = true;
@@ -1388,9 +1388,9 @@ impl GhosttyView {
         }
 
         // Only report wheel to the shell when it has explicitly enabled
-        // mouse tracking. Otherwise scroll Con's own viewport via
+        // mouse tracking. Otherwise scroll Cube's own viewport via
         // libghostty-vt. Shift bypasses reporting per xterm convention
-        // so the user can scroll Con's scrollback even when a TUI has
+        // so the user can scroll Cube's scrollback even when a TUI has
         // `set mouse=a`.
         if !session.mouse_tracking_active() || mods.shift {
             session.scroll_viewport_or_alt_screen(delta_y_px, !mods.shift);
@@ -1566,9 +1566,9 @@ impl GhosttyView {
         &mut self,
         tracking_key: &str,
         event: &VtKeyEvent<'_>,
-    ) -> Result<con_ghostty::vt::VtKeyOutcome, String> {
+    ) -> Result<cube_ghostty::vt::VtKeyOutcome, String> {
         let Some(terminal) = self.terminal.as_ref().cloned() else {
-            return Ok(con_ghostty::vt::VtKeyOutcome::default());
+            return Ok(cube_ghostty::vt::VtKeyOutcome::default());
         };
         let outcome = terminal.send_key(event)?;
         if outcome.output_accepted {
@@ -1646,7 +1646,7 @@ impl GhosttyView {
     }
 
     /// Translate a GPUI key event with libghostty-vt and forward the
-    /// encoded bytes to ConPTY. App shortcuts remain ahead of this path.
+    /// encoded bytes to CubePTY. App shortcuts remain ahead of this path.
     fn handle_key_down(
         &mut self,
         event: &KeyDownEvent,
@@ -2670,6 +2670,6 @@ impl Drop for GhosttyView {
 fn perf_trace_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var_os("CON_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
+        std::env::var_os("CUBE_GHOSTTY_PROFILE").is_some_and(|v| !v.is_empty() && v != "0")
     })
 }

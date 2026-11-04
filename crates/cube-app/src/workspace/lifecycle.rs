@@ -36,7 +36,7 @@ mod tab_strip_restore_tests {
     }
 }
 
-impl ConWorkspace {
+impl CubeWorkspace {
     #[cfg(target_os = "macos")]
     pub fn from_session(
         config: Config,
@@ -110,7 +110,7 @@ impl ConWorkspace {
             TerminalTheme::default()
         });
         let colors = theme_to_ghostty_colors(&terminal_theme);
-        let ghostty_app = con_ghostty::GhosttyApp::new(
+        let ghostty_app = cube_ghostty::GhosttyApp::new(
             if cfg!(target_os = "macos") {
                 None
             } else {
@@ -184,7 +184,7 @@ impl ConWorkspace {
         let session_save_tx = spawn_session_save_worker();
         let (control_request_tx, control_request_rx) = crossbeam_channel::unbounded();
         let control_socket =
-            match con_core::spawn_control_socket_server(runtime.clone(), control_request_tx) {
+            match cube_core::spawn_control_socket_server(runtime.clone(), control_request_tx) {
                 Ok(handle) => Some(handle),
                 Err(err) => {
                     log::error!("Failed to start con control socket: {}", err);
@@ -828,7 +828,7 @@ impl ConWorkspace {
         };
         // 密码脚本写不出来时退回本地 shell，但要说一声：否则用户会以为
         // 分屏连上了服务器，实际拿到的是一个本地终端。
-        let Some(command) = con_core::connections::connect_command(&server) else {
+        let Some(command) = cube_core::connections::connect_command(&server) else {
             use gpui_component::{WindowExt as _, notification::Notification};
             window.push_notification(
                 Notification::new()

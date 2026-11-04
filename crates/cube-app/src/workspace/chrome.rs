@@ -3,7 +3,7 @@ use super::*;
 /// Always returns `Some(1.0)` for agent-request opens so the motion value is
 /// driven to visible even when `agent_panel_open` was set by a path that
 /// skipped the motion update (e.g. the skill-invoke branch).
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) const SECONDARY_PANE_OBSERVATION_LINES: usize = 40;
 
     pub(super) fn clamp_terminal_opacity(value: f32) -> f32 {

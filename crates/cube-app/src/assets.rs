@@ -8,13 +8,13 @@ use std::sync::Arc;
 #[derive(rust_embed::RustEmbed)]
 #[folder = "../../assets/icons"]
 #[include = "**/*.svg"]
-struct ConIcons;
+struct CubeIcons;
 
 /// Embeds top-level app images such as the macOS app icon PNG.
 #[derive(rust_embed::RustEmbed)]
 #[folder = "../../assets"]
 #[include = "*.png"]
-struct ConImages;
+struct CubeImages;
 
 /// Alternate selectable raccoon app icons.
 #[derive(rust_embed::RustEmbed)]
@@ -24,16 +24,16 @@ struct AppIcons;
 
 /// Asset source that serves con's icons first, then falls back to
 /// gpui-component's bundled icons (Lucide).
-pub struct ConAssets;
+pub struct CubeAssets;
 
-impl AssetSource for ConAssets {
+impl AssetSource for CubeAssets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
         if path.is_empty() {
             return Ok(None);
         }
 
         // Try con's own icons first
-        if let Some(data) = ConIcons::get(path) {
+        if let Some(data) = CubeIcons::get(path) {
             return Ok(Some(data.data));
         }
 
@@ -43,7 +43,7 @@ impl AssetSource for ConAssets {
             return Ok(Some(data.data));
         }
 
-        if let Some(data) = ConImages::get(path) {
+        if let Some(data) = CubeImages::get(path) {
             return Ok(Some(data.data));
         }
 
@@ -52,7 +52,7 @@ impl AssetSource for ConAssets {
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-        let mut results: Vec<SharedString> = ConIcons::iter()
+        let mut results: Vec<SharedString> = CubeIcons::iter()
             .filter(|p| p.starts_with(path))
             .map(|p| p.into())
             .collect();
@@ -64,7 +64,7 @@ impl AssetSource for ConAssets {
         );
 
         results.extend(
-            ConImages::iter()
+            CubeImages::iter()
                 .filter(|p| p.starts_with(path))
                 .map(|p| p.into()),
         );
@@ -83,7 +83,7 @@ pub fn png_bytes(asset_path: &str) -> Option<Cow<'static, [u8]>> {
     {
         return Some(file.data);
     }
-    ConImages::get(asset_path).map(|file| file.data)
+    CubeImages::get(asset_path).map(|file| file.data)
 }
 
 /// Downsample small picker images before uploading them to GPUI's single-level atlas.
@@ -485,7 +485,7 @@ mod tests {
 
     impl Render for PreviewView {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-            let ImageSource::Custom(load) = png_preview("app-icons/con-raccoon-A1.png", 48.0)
+            let ImageSource::Custom(load) = png_preview("app-icons/cube-raccoon-A1.png", 48.0)
             else {
                 unreachable!()
             };
@@ -503,7 +503,7 @@ mod tests {
     fn preview_notifies_a_view_joining_an_inflight_load(cx: &mut gpui::TestAppContext) {
         // Start loading without a live requesting view, as when its window closed.
         let _pending =
-            cx.update(|cx| cx.fetch_asset::<PngPreview>(&("app-icons/con-raccoon-A1.png", 48)));
+            cx.update(|cx| cx.fetch_asset::<PngPreview>(&("app-icons/cube-raccoon-A1.png", 48)));
         let loaded = std::rc::Rc::new(std::cell::Cell::new(false));
         let window = cx.add_window(|_, _| PreviewView {
             loaded: loaded.clone(),
@@ -549,7 +549,7 @@ mod tests {
 
     #[test]
     fn app_icon_previews_match_physical_sizes_and_preserve_alpha() {
-        let bytes = png_bytes("app-icons/con-raccoon-A1.png").unwrap();
+        let bytes = png_bytes("app-icons/cube-raccoon-A1.png").unwrap();
         for size in [48, 60, 72, 96, 144] {
             let preview = preview_bgra(&bytes, size).unwrap();
             assert_eq!(preview.dimensions(), (size, size));

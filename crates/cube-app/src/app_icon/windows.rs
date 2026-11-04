@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn windows_accepts_every_catalog_png_as_small_and_large_icon_resources() {
-        for choice in con_core::config::APP_ICONS {
+        for choice in cube_core::config::APP_ICONS {
             let image = crate::app_icon::window_icon_image(choice.id).unwrap();
             for size in [32, 256] {
                 let icon = create(&image, size).unwrap();

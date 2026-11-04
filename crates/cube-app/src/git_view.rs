@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use con_core::git::{self, GitChange, GitCommit, GitStatus};
+use cube_core::git::{self, GitChange, GitCommit, GitStatus};
 use gpui::{
     AnyElement, Bounds, ClipboardItem, Context, Entity, EventEmitter, FontWeight, Hsla,
     IntoElement, MouseButton, ParentElement, Pixels, Render, SharedString,
@@ -34,7 +34,7 @@ pub struct OpenDiff {
     ///
     /// 带完整状态而不只是路径：自动刷新时 `working_diff` 要靠
     /// `unstaged == Untracked` 判断是否走 `--no-index` 分支。
-    pub change: Option<con_core::git::GitChange>,
+    pub change: Option<cube_core::git::GitChange>,
     /// 是否来自工作区（可自动刷新）。提交 diff 是历史快照，恒为 false。
     pub is_working_tree: bool,
 }
@@ -74,7 +74,7 @@ impl ChangeGroup {
 pub struct DiscardChangeRequested {
     /// 待放弃的变更。带完整状态：冲突文件要用 `checkout --ours`，
     /// 未跟踪文件要用 `clean`，不能只看路径。
-    pub change: con_core::git::GitChange,
+    pub change: cube_core::git::GitChange,
 }
 
 pub struct GitView {
@@ -93,7 +93,7 @@ pub struct GitView {
     /// 是否有一次「只刷新变更」正在排队，用来合并连续的保存事件。
     changes_refresh_pending: bool,
     /// 提交历史的泳道布局，随 commits 一起刷新。
-    graph: con_core::git_graph::GitGraphLayout,
+    graph: cube_core::git_graph::GitGraphLayout,
     /// 等待用户确认的放弃改动请求。
     pending_discard: Option<DiscardChangeRequested>,
     /// 两个分组各自的展开状态。
@@ -318,7 +318,7 @@ impl GitView {
         };
         let emit_root = root.clone();
         // 提交 diff 不自动刷新，`change` 只用来携带路径。
-        let emit_change = path.as_ref().map(|path| con_core::git::GitChange {
+        let emit_change = path.as_ref().map(|path| cube_core::git::GitChange {
             path: path.clone(),
             old_path: None,
             staged: None,
@@ -1040,7 +1040,7 @@ impl GitView {
 
         // 布局只在提交集合变化时重算，渲染帧里直接取。
         if self.graph.rows.len() != self.commits.len() {
-            self.graph = con_core::git_graph::layout(&self.commits);
+            self.graph = cube_core::git_graph::layout(&self.commits);
         }
 
         let graph = GitGraphElement::new(

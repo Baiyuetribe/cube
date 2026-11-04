@@ -339,7 +339,7 @@ pub struct DiffRequest {
     /// 仓库根，diff 里的路径相对它。
     pub root: PathBuf,
     /// 单文件 diff 的变更信息。整提交 diff 为 None。
-    pub change: Option<con_core::git::GitChange>,
+    pub change: Option<cube_core::git::GitChange>,
     /// 是否来自工作区。只有工作区 diff 会自动刷新。
     pub is_working_tree: bool,
 }
@@ -348,7 +348,7 @@ pub struct DiffRequest {
 #[derive(Clone)]
 pub(crate) struct DiffDocument {
     pub(crate) title: String,
-    pub(crate) diff: con_core::git::ParsedDiff,
+    pub(crate) diff: cube_core::git::ParsedDiff,
     /// 仓库根目录，跳转源文件时用来拼绝对路径。
     pub(crate) root: Option<PathBuf>,
     /// 单文件 diff 的源文件路径。
@@ -362,7 +362,7 @@ pub(crate) struct DiffDocument {
 impl DiffDocument {
     /// 测试用的空上下文构造。
     #[cfg(test)]
-    pub(crate) fn new(title: String, diff: con_core::git::ParsedDiff) -> Self {
+    pub(crate) fn new(title: String, diff: cube_core::git::ParsedDiff) -> Self {
         Self {
             title,
             diff,
@@ -732,7 +732,7 @@ impl EditorView {
         let source_path = change.as_ref().map(|change| change.path.clone());
         let document = DiffDocument {
             title: title.clone(),
-            diff: con_core::git::parse_diff(&raw_diff),
+            diff: cube_core::git::parse_diff(&raw_diff),
             root: Some(root),
             source_path,
             reload,

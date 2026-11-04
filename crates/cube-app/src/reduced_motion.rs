@@ -61,7 +61,7 @@ mod platform {
     fn observer_class() -> &'static Class {
         static CLASS: std::sync::OnceLock<&'static Class> = std::sync::OnceLock::new();
         CLASS.get_or_init(|| {
-            let mut decl = ClassDecl::new("ConReducedMotionObserver", class!(NSObject)).unwrap();
+            let mut decl = ClassDecl::new("CubeReducedMotionObserver", class!(NSObject)).unwrap();
             decl.add_ivar::<*mut c_void>("sender");
             unsafe {
                 decl.add_method(
@@ -189,7 +189,7 @@ mod platform {
 
         let (hwnd_tx, hwnd_rx) = std::sync::mpsc::sync_channel(1);
         let thread = std::thread::spawn(move || unsafe {
-            let class = w!("ConReducedMotionWatcher");
+            let class = w!("CubeReducedMotionWatcher");
             let window_class = WNDCLASSW {
                 lpfnWndProc: Some(window_proc),
                 lpszClassName: class,

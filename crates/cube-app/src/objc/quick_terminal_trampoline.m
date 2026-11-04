@@ -5,17 +5,17 @@
 #include <objc/runtime.h>
 #include <unistd.h>
 
-static const CGFloat CON_QUICK_TERMINAL_MIN_HEIGHT = 280.0;
+static const CGFloat CUBE_QUICK_TERMINAL_MIN_HEIGHT = 280.0;
 
-extern void con_quick_terminal_handle_resign_key(void);
-extern void con_quick_terminal_remember_active_app(int32_t pid);
+extern void cube_quick_terminal_handle_resign_key(void);
+extern void cube_quick_terminal_remember_active_app(int32_t pid);
 
 static char kResignKeyObserverKey;
 static char kAppResignActiveObserverKey;
 static char kImeRetryGenerationKey;
 static id gActiveAppObserver = nil;
 
-static BOOL con_quick_terminal_is_text_input_view(NSView *view) {
+static BOOL cube_quick_terminal_is_text_input_view(NSView *view) {
     // GPUI's native view implements NSTextInputClient directly. The content
     // view may contain plain NSView wrappers, which cannot receive IME commits.
     return view != nil && [view respondsToSelector:@selector(hasMarkedText)] &&
@@ -23,7 +23,7 @@ static BOOL con_quick_terminal_is_text_input_view(NSView *view) {
            [view respondsToSelector:@selector(setMarkedText:selectedRange:replacementRange:)];
 }
 
-void con_quick_terminal_init(void) {
+void cube_quick_terminal_init(void) {
     if (gActiveAppObserver != nil) {
         return;
     }
@@ -35,12 +35,12 @@ void con_quick_terminal_init(void) {
               usingBlock:^(NSNotification *notification) {
         NSRunningApplication *app = notification.userInfo[NSWorkspaceApplicationKey];
         if (app != nil) {
-            con_quick_terminal_remember_active_app((int32_t)app.processIdentifier);
+            cube_quick_terminal_remember_active_app((int32_t)app.processIdentifier);
         }
     }];
 }
 
-static NSRect con_quick_terminal_frame(NSWindow *window, bool visible) {
+static NSRect cube_quick_terminal_frame(NSWindow *window, bool visible) {
     NSScreen *screen = window.screen ?: NSScreen.mainScreen;
     NSRect visibleFrame = screen.visibleFrame;
     CGFloat halfHeight = visibleFrame.size.height / 2.0;
@@ -50,7 +50,7 @@ static NSRect con_quick_terminal_frame(NSWindow *window, bool visible) {
     if (height <= 0.0) {
         height = halfHeight;
     }
-    CGFloat clampedHeight = fmin(fmax(height, CON_QUICK_TERMINAL_MIN_HEIGHT), visibleFrame.size.height);
+    CGFloat clampedHeight = fmin(fmax(height, CUBE_QUICK_TERMINAL_MIN_HEIGHT), visibleFrame.size.height);
 
     NSRect frame;
     frame.origin.x = visibleFrame.origin.x;
@@ -60,7 +60,7 @@ static NSRect con_quick_terminal_frame(NSWindow *window, bool visible) {
     return frame;
 }
 
-static NSView *con_quick_terminal_text_input_view(NSWindow *window) {
+static NSView *cube_quick_terminal_text_input_view(NSWindow *window) {
     NSView *contentView = window.contentView;
     if (contentView == nil) {
         return nil;
@@ -68,7 +68,7 @@ static NSView *con_quick_terminal_text_input_view(NSWindow *window) {
 
     id responder = window.firstResponder;
     if ([responder isKindOfClass:NSView.class] &&
-        con_quick_terminal_is_text_input_view((NSView *)responder)) {
+        cube_quick_terminal_is_text_input_view((NSView *)responder)) {
         return (NSView *)responder;
     }
 
@@ -77,7 +77,7 @@ static NSView *con_quick_terminal_text_input_view(NSWindow *window) {
         NSView *view = stack.lastObject;
         [stack removeLastObject];
 
-        if (con_quick_terminal_is_text_input_view(view)) {
+        if (cube_quick_terminal_is_text_input_view(view)) {
             return view;
         }
 
@@ -89,8 +89,8 @@ static NSView *con_quick_terminal_text_input_view(NSWindow *window) {
     return nil;
 }
 
-static void con_quick_terminal_focus_text_input_view(NSWindow *window) {
-    NSView *view = con_quick_terminal_text_input_view(window);
+static void cube_quick_terminal_focus_text_input_view(NSWindow *window) {
+    NSView *view = cube_quick_terminal_text_input_view(window);
     if (view == nil) {
         return;
     }
@@ -98,7 +98,7 @@ static void con_quick_terminal_focus_text_input_view(NSWindow *window) {
     [window makeFirstResponder:view];
 }
 
-static bool con_quick_terminal_has_marked_text(NSWindow *window) {
+static bool cube_quick_terminal_has_marked_text(NSWindow *window) {
     id responder = window.firstResponder;
     if (responder == nil || ![responder respondsToSelector:@selector(hasMarkedText)]) {
         return false;
@@ -108,34 +108,34 @@ static bool con_quick_terminal_has_marked_text(NSWindow *window) {
     return hasMarkedText(responder, @selector(hasMarkedText));
 }
 
-static NSUInteger con_quick_terminal_ime_retry_generation(NSWindow *window) {
+static NSUInteger cube_quick_terminal_ime_retry_generation(NSWindow *window) {
     NSNumber *generation = objc_getAssociatedObject(window, &kImeRetryGenerationKey);
     return generation.unsignedIntegerValue;
 }
 
-static void con_quick_terminal_bump_ime_retry_generation(NSWindow *window) {
-    NSUInteger generation = con_quick_terminal_ime_retry_generation(window) + 1;
+static void cube_quick_terminal_bump_ime_retry_generation(NSWindow *window) {
+    NSUInteger generation = cube_quick_terminal_ime_retry_generation(window) + 1;
     objc_setAssociatedObject(window, &kImeRetryGenerationKey, @(generation),
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-static void con_quick_terminal_handle_resign_after_ime(NSWindow *window);
+static void cube_quick_terminal_handle_resign_after_ime(NSWindow *window);
 
-static void con_quick_terminal_schedule_resign_retry(NSWindow *window) {
-    NSUInteger generation = con_quick_terminal_ime_retry_generation(window);
+static void cube_quick_terminal_schedule_resign_retry(NSWindow *window) {
+    NSUInteger generation = cube_quick_terminal_ime_retry_generation(window);
     __weak NSWindow *weakWindow = window;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.20 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         NSWindow *strongWindow = weakWindow;
         if (strongWindow == nil ||
-            con_quick_terminal_ime_retry_generation(strongWindow) != generation) {
+            cube_quick_terminal_ime_retry_generation(strongWindow) != generation) {
             return;
         }
-        con_quick_terminal_handle_resign_after_ime(strongWindow);
+        cube_quick_terminal_handle_resign_after_ime(strongWindow);
     });
 }
 
-static void con_quick_terminal_handle_resign_after_ime(NSWindow *window) {
+static void cube_quick_terminal_handle_resign_after_ime(NSWindow *window) {
     if (window == nil || window.isKeyWindow) {
         return;
     }
@@ -143,25 +143,25 @@ static void con_quick_terminal_handle_resign_after_ime(NSWindow *window) {
     if (NSApp.isActive) {
         NSWindow *keyWindow = NSApp.keyWindow;
         if (keyWindow != nil && keyWindow != window) {
-            con_quick_terminal_handle_resign_key();
+            cube_quick_terminal_handle_resign_key();
             return;
         }
-        // Some IMEs briefly move key focus during candidate handling while Con
+        // Some IMEs briefly move key focus during candidate handling while Cube
         // remains active. Keep the text-input view as first responder.
-        con_quick_terminal_focus_text_input_view(window);
+        cube_quick_terminal_focus_text_input_view(window);
         return;
     }
 
-    if (con_quick_terminal_has_marked_text(window)) {
-        con_quick_terminal_schedule_resign_retry(window);
+    if (cube_quick_terminal_has_marked_text(window)) {
+        cube_quick_terminal_schedule_resign_retry(window);
         return;
     }
 
-    con_quick_terminal_handle_resign_key();
+    cube_quick_terminal_handle_resign_key();
 }
 
-static void con_quick_terminal_apply_configuration(NSWindow *window) {
-    con_quick_terminal_bump_ime_retry_generation(window);
+static void cube_quick_terminal_apply_configuration(NSWindow *window) {
+    cube_quick_terminal_bump_ime_retry_generation(window);
 
     // Borderless removes the visible chrome; the resizable bit keeps the
     // AppKit edge-resize behavior for the bottom edge and preserves live
@@ -175,10 +175,10 @@ static void con_quick_terminal_apply_configuration(NSWindow *window) {
     window.releasedWhenClosed = NO;
     window.movable = NO;
     window.level = NSNormalWindowLevel;
-    window.contentMinSize = NSMakeSize(320.0, CON_QUICK_TERMINAL_MIN_HEIGHT);
-    [window setFrame:con_quick_terminal_frame(window, false) display:NO];
+    window.contentMinSize = NSMakeSize(320.0, CUBE_QUICK_TERMINAL_MIN_HEIGHT);
+    [window setFrame:cube_quick_terminal_frame(window, false) display:NO];
     [window orderOut:nil];
-    con_quick_terminal_focus_text_input_view(window);
+    cube_quick_terminal_focus_text_input_view(window);
 
     // Auto-hide when the window loses focus (user clicks elsewhere).
     id oldObserver = objc_getAssociatedObject(window, &kResignKeyObserverKey);
@@ -190,7 +190,7 @@ static void con_quick_terminal_apply_configuration(NSWindow *window) {
                     object:window
                      queue:NSOperationQueue.mainQueue
                 usingBlock:^(NSNotification *note) {
-                    con_quick_terminal_handle_resign_after_ime((NSWindow *)note.object);
+                    cube_quick_terminal_handle_resign_after_ime((NSWindow *)note.object);
                 }];
     objc_setAssociatedObject(window, &kResignKeyObserverKey, observer,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -207,15 +207,15 @@ static void con_quick_terminal_apply_configuration(NSWindow *window) {
                 usingBlock:^(__unused NSNotification *note) {
                     NSWindow *strongWindow = weakWindow;
                     if (strongWindow != nil) {
-                        con_quick_terminal_handle_resign_after_ime(strongWindow);
+                        cube_quick_terminal_handle_resign_after_ime(strongWindow);
                     }
                 }];
     objc_setAssociatedObject(window, &kAppResignActiveObserverKey, appObserver,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-static void con_quick_terminal_remove_resign_observer(NSWindow *window) {
-    con_quick_terminal_bump_ime_retry_generation(window);
+static void cube_quick_terminal_remove_resign_observer(NSWindow *window) {
+    cube_quick_terminal_bump_ime_retry_generation(window);
 
     id observer = objc_getAssociatedObject(window, &kResignKeyObserverKey);
     if (observer) {
@@ -232,33 +232,33 @@ static void con_quick_terminal_remove_resign_observer(NSWindow *window) {
     }
 }
 
-void con_quick_terminal_configure(void *window_ptr) {
+void cube_quick_terminal_configure(void *window_ptr) {
     NSWindow *window = (__bridge NSWindow *)window_ptr;
     if (window == nil) {
         return;
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        con_quick_terminal_apply_configuration(window);
+        cube_quick_terminal_apply_configuration(window);
     });
 }
 
-void con_quick_terminal_prepare_destroy(void *window_ptr) {
+void cube_quick_terminal_prepare_destroy(void *window_ptr) {
     NSWindow *window = (__bridge NSWindow *)window_ptr;
     if (window == nil) {
         return;
     }
 
     if ([NSThread isMainThread]) {
-        con_quick_terminal_remove_resign_observer(window);
+        cube_quick_terminal_remove_resign_observer(window);
     } else {
         dispatch_sync(dispatch_get_main_queue(), ^{
-            con_quick_terminal_remove_resign_observer(window);
+            cube_quick_terminal_remove_resign_observer(window);
         });
     }
 }
 
-void *con_quick_terminal_window_from_view(void *view_ptr) {
+void *cube_quick_terminal_window_from_view(void *view_ptr) {
     NSView *view = (__bridge NSView *)view_ptr;
     if (view == nil) {
         return NULL;
@@ -267,7 +267,7 @@ void *con_quick_terminal_window_from_view(void *view_ptr) {
     return (__bridge void *)view.window;
 }
 
-int32_t con_quick_terminal_frontmost_app_pid(void) {
+int32_t cube_quick_terminal_frontmost_app_pid(void) {
     NSRunningApplication *app = NSWorkspace.sharedWorkspace.frontmostApplication;
     if (app == nil) {
         return 0;
@@ -276,7 +276,7 @@ int32_t con_quick_terminal_frontmost_app_pid(void) {
     return (int32_t)app.processIdentifier;
 }
 
-bool con_quick_terminal_active_display_visible_frame(double *x, double *y, double *width, double *height) {
+bool cube_quick_terminal_active_display_visible_frame(double *x, double *y, double *width, double *height) {
     NSPoint mouseLocation = NSEvent.mouseLocation;
     NSScreen *target = nil;
     for (NSScreen *screen in NSScreen.screens) {
@@ -308,11 +308,11 @@ bool con_quick_terminal_active_display_visible_frame(double *x, double *y, doubl
     return true;
 }
 
-bool con_quick_terminal_is_main_thread(void) {
+bool cube_quick_terminal_is_main_thread(void) {
     return [NSThread isMainThread];
 }
 
-bool con_quick_terminal_activate_app(int32_t pid) {
+bool cube_quick_terminal_activate_app(int32_t pid) {
     if (pid <= 0) {
         return false;
     }
@@ -334,14 +334,14 @@ bool con_quick_terminal_activate_app(int32_t pid) {
 #pragma clang diagnostic pop
 }
 
-void con_quick_terminal_slide_in(void *window_ptr) {
+void cube_quick_terminal_slide_in(void *window_ptr) {
     NSWindow *window = (__bridge NSWindow *)window_ptr;
     if (window == nil) {
         return;
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        [window setFrame:con_quick_terminal_frame(window, false) display:NO];
+        [window setFrame:cube_quick_terminal_frame(window, false) display:NO];
         if (@available(macOS 14.0, *)) {
             [NSApp activate];
         } else {
@@ -351,17 +351,17 @@ void con_quick_terminal_slide_in(void *window_ptr) {
 #pragma clang diagnostic pop
         }
         [window makeKeyAndOrderFront:nil];
-        con_quick_terminal_focus_text_input_view(window);
+        cube_quick_terminal_focus_text_input_view(window);
 
         [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
             context.duration = 0.18;
             context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
-            [[window animator] setFrame:con_quick_terminal_frame(window, true) display:YES];
+            [[window animator] setFrame:cube_quick_terminal_frame(window, true) display:YES];
         } completionHandler:nil];
     });
 }
 
-void con_quick_terminal_slide_out(void *window_ptr, int32_t return_pid) {
+void cube_quick_terminal_slide_out(void *window_ptr, int32_t return_pid) {
     NSWindow *window = (__bridge NSWindow *)window_ptr;
     if (window == nil) {
         return;
@@ -371,10 +371,10 @@ void con_quick_terminal_slide_out(void *window_ptr, int32_t return_pid) {
         [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
             context.duration = 0.14;
             context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
-            [[window animator] setFrame:con_quick_terminal_frame(window, false) display:YES];
+            [[window animator] setFrame:cube_quick_terminal_frame(window, false) display:YES];
         } completionHandler:^{
             if (return_pid > 0 && return_pid != (int32_t)getpid()) {
-                con_quick_terminal_activate_app(return_pid);
+                cube_quick_terminal_activate_app(return_pid);
             }
             [window orderOut:nil];
         }];

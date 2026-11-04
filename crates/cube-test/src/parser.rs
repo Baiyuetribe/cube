@@ -5,7 +5,7 @@
 /// ```text
 /// # This is a comment
 ///
-/// con-cli <arguments...>   # preferred
+/// cube-cli <arguments...>   # preferred
 /// # Legacy: old tests may still use `cmd ...`
 /// ---- <mode>              # mode is optional, default: contains
 /// expected output here
@@ -22,7 +22,7 @@
 ///
 /// Blank lines and lines starting with `#` outside a step block are ignored.
 ///
-/// Both `con-cli ...` (preferred) and legacy `cmd ...` step directives are
+/// Both `cube-cli ...` (preferred) and legacy `cmd ...` step directives are
 /// accepted. Legacy `match <mode>` line between the step directive and `----`
 /// is also accepted for backwards compatibility but the inline `---- <mode>`
 /// form is preferred.
@@ -67,7 +67,7 @@ impl MatchMode {
 pub struct Step {
     /// Human-readable label (from inline comment on cmd line, or auto-generated)
     pub label: String,
-    /// Arguments to pass to con-cli (already split on whitespace, respecting quotes)
+    /// Arguments to pass to cube-cli (already split on whitespace, respecting quotes)
     pub args: Vec<String>,
     pub match_mode: MatchMode,
     /// Expected output (empty for `ok` / `error` with no expected block)
@@ -99,10 +99,10 @@ pub fn parse_source(source: &str, origin: String) -> Result<Vec<Step>> {
         if let Some(rest) = step_args(trimmed) {
             let cmd_line = i + 1; // 1-based
 
-            // Split inline label comment: `con-cli foo bar  # my label`
+            // Split inline label comment: `cube-cli foo bar  # my label`
             let (args_str, label) = split_inline_comment(rest);
             let args = shell_split(args_str.trim()).with_context(|| {
-                format!("{origin}:{cmd_line}: failed to parse con-cli arguments")
+                format!("{origin}:{cmd_line}: failed to parse cube-cli arguments")
             })?;
 
             let label = if label.is_empty() {
@@ -129,7 +129,7 @@ pub fn parse_source(source: &str, origin: String) -> Result<Vec<Step>> {
             // Expect `----` separator, optionally followed by match mode
             if i >= lines.len() {
                 bail!(
-                    "{origin}:{}: expected `----` after con-cli/cmd block, got <eof>",
+                    "{origin}:{}: expected `----` after cube-cli/cmd block, got <eof>",
                     i + 1
                 );
             }
@@ -140,7 +140,7 @@ pub fn parse_source(source: &str, origin: String) -> Result<Vec<Step>> {
                 mode.trim()
             } else {
                 bail!(
-                    "{origin}:{}: expected `----` after con-cli/cmd block, got {:?}",
+                    "{origin}:{}: expected `----` after cube-cli/cmd block, got {:?}",
                     i + 1,
                     sep_line
                 );
@@ -190,7 +190,7 @@ pub fn parse_source(source: &str, origin: String) -> Result<Vec<Step>> {
             });
         } else {
             bail!(
-                "{origin}:{}: unexpected line {:?} (expected `con-cli`, legacy `cmd`, `#`, or blank)",
+                "{origin}:{}: unexpected line {:?} (expected `cube-cli`, legacy `cmd`, `#`, or blank)",
                 i + 1,
                 trimmed
             );
@@ -201,8 +201,8 @@ pub fn parse_source(source: &str, origin: String) -> Result<Vec<Step>> {
 }
 
 fn step_args(line: &str) -> Option<&str> {
-    line.strip_prefix("con-cli ")
-        .or_else(|| if line == "con-cli" { Some("") } else { None })
+    line.strip_prefix("cube-cli ")
+        .or_else(|| if line == "cube-cli" { Some("") } else { None })
         .or_else(|| line.strip_prefix("cmd "))
         .or_else(|| if line == "cmd" { Some("") } else { None })
 }
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn parse_simple_step_default_contains() {
-        let src = "con-cli --json identify\n----\n{\"version\":\n";
+        let src = "cube-cli --json identify\n----\n{\"version\":\n";
         let steps = parse_source(src, "test".into()).unwrap();
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].args, vec!["--json", "identify"]);
@@ -285,21 +285,21 @@ mod tests {
 
     #[test]
     fn parse_inline_mode_on_separator() {
-        let src = "con-cli --json tabs list\n---- exact\n{}\n";
+        let src = "cube-cli --json tabs list\n---- exact\n{}\n";
         let steps = parse_source(src, "test".into()).unwrap();
         assert_eq!(steps[0].match_mode, MatchMode::Exact);
     }
 
     #[test]
     fn parse_inline_mode_json_subset() {
-        let src = "con-cli --json tabs list\n---- json-subset\n{\"tabs\":[]}\n";
+        let src = "cube-cli --json tabs list\n---- json-subset\n{\"tabs\":[]}\n";
         let steps = parse_source(src, "test".into()).unwrap();
         assert_eq!(steps[0].match_mode, MatchMode::JsonSubset);
     }
 
     #[test]
     fn parse_inline_mode_ok_empty_expected() {
-        let src = "con-cli tabs new\n---- ok\n";
+        let src = "cube-cli tabs new\n---- ok\n";
         let steps = parse_source(src, "test".into()).unwrap();
         assert_eq!(steps[0].match_mode, MatchMode::Ok);
         assert_eq!(steps[0].expected, "");
@@ -307,20 +307,20 @@ mod tests {
 
     #[test]
     fn parse_legacy_match_line_still_works() {
-        let src = "con-cli --json tabs list\nmatch json-subset\n----\n{\"tabs\":[]}\n";
+        let src = "cube-cli --json tabs list\nmatch json-subset\n----\n{\"tabs\":[]}\n";
         let steps = parse_source(src, "test".into()).unwrap();
         assert_eq!(steps[0].match_mode, MatchMode::JsonSubset);
     }
 
     #[test]
     fn separator_requires_space_before_mode() {
-        let src = "con-cli --json tabs list\n----json-subset\n{\"tabs\":[]}\n";
+        let src = "cube-cli --json tabs list\n----json-subset\n{\"tabs\":[]}\n";
         assert!(parse_source(src, "test".into()).is_err());
     }
 
     #[test]
     fn parse_multiple_steps() {
-        let src = "con-cli identify\n----\ncon\n\ncon-cli --json tabs list\n---- json-subset\n{\"tabs\":[]}\n";
+        let src = "cube-cli identify\n----\ncon\n\ncube-cli --json tabs list\n---- json-subset\n{\"tabs\":[]}\n";
         let steps = parse_source(src, "test".into()).unwrap();
         assert_eq!(steps.len(), 2);
         assert_eq!(steps[1].match_mode, MatchMode::JsonSubset);
@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn inline_label_comment() {
-        let src = "con-cli --json identify  # smoke test\n----\ncon\n";
+        let src = "cube-cli --json identify  # smoke test\n----\ncon\n";
         let steps = parse_source(src, "test".into()).unwrap();
         assert_eq!(steps[0].label, "smoke test");
     }

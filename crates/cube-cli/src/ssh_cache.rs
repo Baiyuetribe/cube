@@ -24,7 +24,7 @@ pub struct Cache {
 impl Cache {
     pub fn user() -> Self {
         Self {
-            path: con_paths::app_cache_dir().join(CACHE_FILE),
+            path: cube_paths::app_cache_dir().join(CACHE_FILE),
         }
     }
 
@@ -245,7 +245,8 @@ fn unix_timestamp() -> i64 {
 
 pub fn run(args: &[std::ffi::OsString]) -> i32 {
     let parsed = match SshCacheArgs::try_parse_from(
-        std::iter::once(std::ffi::OsString::from("con-cli +ssh-cache")).chain(args.iter().cloned()),
+        std::iter::once(std::ffi::OsString::from("cube-cli +ssh-cache"))
+            .chain(args.iter().cloned()),
     ) {
         Ok(args) => args,
         Err(error) => {
@@ -278,11 +279,11 @@ pub fn run(args: &[std::ffi::OsString]) -> i32 {
     } else if let Some(host) = parsed.host {
         match cache.contains(&host, parsed.expire_days) {
             Ok(true) => {
-                println!("'{host}' has Con terminfo installed.");
+                println!("'{host}' has Cube terminfo installed.");
                 return 0;
             }
             Ok(false) => {
-                println!("'{host}' does not have Con terminfo installed.");
+                println!("'{host}' does not have Cube terminfo installed.");
                 return 1;
             }
             Err(error) => Err(error),
@@ -302,14 +303,17 @@ pub fn run(args: &[std::ffi::OsString]) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => {
-            eprintln!("con-cli +ssh-cache: {error}");
+            eprintln!("cube-cli +ssh-cache: {error}");
             1
         }
     }
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "con-cli +ssh-cache", about = "Manage Con's SSH terminfo cache")]
+#[command(
+    name = "cube-cli +ssh-cache",
+    about = "Manage Cube's SSH terminfo cache"
+)]
 struct SshCacheArgs {
     #[arg(long, conflicts_with_all = ["add", "remove", "host"])]
     clear: bool,
@@ -373,7 +377,7 @@ mod tests {
         ];
         assert!(
             SshCacheArgs::try_parse_from(
-                std::iter::once(std::ffi::OsString::from("con-cli +ssh-cache"))
+                std::iter::once(std::ffi::OsString::from("cube-cli +ssh-cache"))
                     .chain(args.into_iter())
             )
             .is_err()

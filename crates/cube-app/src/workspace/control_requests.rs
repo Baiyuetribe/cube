@@ -1,11 +1,11 @@
 use super::*;
 
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) fn spawn_control_terminal_exec(
         &mut self,
         tab_idx: usize,
         command: String,
-        target: con_core::PaneTarget,
+        target: cube_core::PaneTarget,
         response_tx: tokio::sync::oneshot::Sender<ControlResult>,
         cx: &mut Context<Self>,
     ) {
@@ -58,10 +58,10 @@ impl ConWorkspace {
                         .control_socket
                         .as_ref()
                         .map(|handle| handle.path().display().to_string())
-                        .unwrap_or_else(|| con_core::control_socket_path().display().to_string()),
+                        .unwrap_or_else(|| cube_core::control_socket_path().display().to_string()),
                     active_tab_index: self.active_tab + 1,
                     tab_count: self.tabs.len(),
-                    methods: con_core::control_methods(),
+                    methods: cube_core::control_methods(),
                 })
                 .map_err(|err| ControlError::internal(err.to_string()));
                 Self::send_control_result(response_tx, result);
@@ -69,7 +69,7 @@ impl ConWorkspace {
             ControlCommand::SystemCapabilities => {
                 Self::send_control_result(
                     response_tx,
-                    Ok(json!({ "methods": con_core::control_methods() })),
+                    Ok(json!({ "methods": cube_core::control_methods() })),
                 );
             }
             ControlCommand::TabsList => {
@@ -122,7 +122,7 @@ impl ConWorkspace {
                     Ok(tab_idx) => {
                         self.spawn_control_pane_query(
                             tab_idx,
-                            con_terminal::PaneQuery::List,
+                            cube_terminal::PaneQuery::List,
                             response_tx,
                             cx,
                         );
@@ -137,7 +137,7 @@ impl ConWorkspace {
             } => match self.resolve_control_tab_index(tab_index) {
                 Ok(tab_idx) => self.spawn_control_pane_query(
                     tab_idx,
-                    con_terminal::PaneQuery::ReadContent {
+                    cube_terminal::PaneQuery::ReadContent {
                         target: Self::pane_selector_from_target(target),
                         lines,
                     },
@@ -163,7 +163,7 @@ impl ConWorkspace {
             } => match self.resolve_control_tab_index(tab_index) {
                 Ok(tab_idx) => self.spawn_control_pane_query(
                     tab_idx,
-                    con_terminal::PaneQuery::SendKeys {
+                    cube_terminal::PaneQuery::SendKeys {
                         target: Self::pane_selector_from_target(target),
                         keys,
                     },
@@ -179,7 +179,7 @@ impl ConWorkspace {
             } => match self.resolve_control_tab_index(tab_index) {
                 Ok(tab_idx) => self.spawn_control_pane_query(
                     tab_idx,
-                    con_terminal::PaneQuery::CreatePane { command, location },
+                    cube_terminal::PaneQuery::CreatePane { command, location },
                     response_tx,
                     cx,
                 ),
@@ -193,7 +193,7 @@ impl ConWorkspace {
             } => match self.resolve_control_tab_index(tab_index) {
                 Ok(tab_idx) => self.spawn_control_pane_query(
                     tab_idx,
-                    con_terminal::PaneQuery::WaitFor {
+                    cube_terminal::PaneQuery::WaitFor {
                         target: Self::pane_selector_from_target(target),
                         timeout_secs,
                         pattern,
@@ -207,7 +207,7 @@ impl ConWorkspace {
                 match self.resolve_control_tab_index(tab_index) {
                     Ok(tab_idx) => self.spawn_control_pane_query(
                         tab_idx,
-                        con_terminal::PaneQuery::ProbeShellContext {
+                        cube_terminal::PaneQuery::ProbeShellContext {
                             target: Self::pane_selector_from_target(target),
                         },
                         response_tx,
@@ -264,7 +264,7 @@ impl ConWorkspace {
                 match self.resolve_control_tab_index(tab_index) {
                     Ok(tab_idx) => self.spawn_control_pane_query(
                         tab_idx,
-                        con_terminal::PaneQuery::InspectTmux {
+                        cube_terminal::PaneQuery::InspectTmux {
                             target: Self::pane_selector_from_target(target),
                         },
                         response_tx,
@@ -277,7 +277,7 @@ impl ConWorkspace {
                 match self.resolve_control_tab_index(tab_index) {
                     Ok(tab_idx) => self.spawn_control_pane_query(
                         tab_idx,
-                        con_terminal::PaneQuery::TmuxList {
+                        cube_terminal::PaneQuery::TmuxList {
                             pane: Self::pane_selector_from_target(target),
                         },
                         response_tx,
@@ -294,7 +294,7 @@ impl ConWorkspace {
             } => match self.resolve_control_tab_index(tab_index) {
                 Ok(tab_idx) => self.spawn_control_pane_query(
                     tab_idx,
-                    con_terminal::PaneQuery::TmuxCapture {
+                    cube_terminal::PaneQuery::TmuxCapture {
                         pane: Self::pane_selector_from_target(pane),
                         target,
                         lines,
@@ -314,7 +314,7 @@ impl ConWorkspace {
             } => match self.resolve_control_tab_index(tab_index) {
                 Ok(tab_idx) => self.spawn_control_pane_query(
                     tab_idx,
-                    con_terminal::PaneQuery::TmuxSendKeys {
+                    cube_terminal::PaneQuery::TmuxSendKeys {
                         pane: Self::pane_selector_from_target(pane),
                         target,
                         literal_text,
@@ -338,7 +338,7 @@ impl ConWorkspace {
             } => match self.resolve_control_tab_index(tab_index) {
                 Ok(tab_idx) => self.spawn_control_pane_query(
                     tab_idx,
-                    con_terminal::PaneQuery::TmuxRunCommand {
+                    cube_terminal::PaneQuery::TmuxRunCommand {
                         pane: Self::pane_selector_from_target(pane),
                         target,
                         location,

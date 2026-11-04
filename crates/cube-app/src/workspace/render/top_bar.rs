@@ -755,7 +755,7 @@ mod chrome_tests {
         use gpui::AssetSource;
         for path in ["phosphor/caret-left.svg", "phosphor/caret-right.svg"] {
             assert!(
-                crate::assets::ConAssets.load(path).unwrap().is_some(),
+                crate::assets::CubeAssets.load(path).unwrap().is_some(),
                 "{path}"
             );
         }
@@ -1674,7 +1674,7 @@ mod chrome_tests {
     }
 }
 
-impl ConWorkspace {
+impl CubeWorkspace {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_top_bar(
         &mut self,
@@ -2955,8 +2955,8 @@ mod tab_surface_tests {
     #[test]
     fn default_theme_selection_stays_distinct_without_fading_its_label() {
         for terminal_theme in [
-            con_terminal::TerminalTheme::flexoki_dark(),
-            con_terminal::TerminalTheme::flexoki_light(),
+            cube_terminal::TerminalTheme::flexoki_dark(),
+            cube_terminal::TerminalTheme::flexoki_light(),
         ] {
             let backdrop: Hsla = rgb(terminal_theme.background.to_u32()).into();
             let ink: Hsla = rgb(terminal_theme.foreground.to_u32()).into();

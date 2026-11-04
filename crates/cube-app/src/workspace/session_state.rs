@@ -1,6 +1,6 @@
 use super::*;
 
-impl ConWorkspace {
+impl CubeWorkspace {
     pub(super) fn snapshot_session(&self, cx: &App) -> Session {
         self.snapshot_session_with_options(cx, self.config.appearance.restore_terminal_text)
     }
@@ -10,7 +10,7 @@ impl ConWorkspace {
         cx: &App,
         capture_screen_text: bool,
     ) -> Session {
-        let tabs: Vec<con_core::session::TabState> = self
+        let tabs: Vec<cube_core::session::TabState> = self
             .tabs
             .iter()
             .map(|tab| {
@@ -29,7 +29,7 @@ impl ConWorkspace {
                     .pane_tree
                     .pane_terminals()
                     .into_iter()
-                    .map(|(_, terminal)| con_core::session::PaneState {
+                    .map(|(_, terminal)| cube_core::session::PaneState {
                         cwd: terminal.current_dir(cx),
                     })
                     .collect();
@@ -37,11 +37,11 @@ impl ConWorkspace {
                     .shell_history
                     .iter()
                     .map(
-                        |(pane_id, entries)| con_core::session::PaneCommandHistoryState {
+                        |(pane_id, entries)| cube_core::session::PaneCommandHistoryState {
                             pane_id: Some(*pane_id),
                             entries: entries
                                 .iter()
-                                .map(|entry| con_core::session::CommandHistoryEntryState {
+                                .map(|entry| cube_core::session::CommandHistoryEntryState {
                                     command: entry.command.clone(),
                                     cwd: entry.cwd.clone(),
                                 })
@@ -49,7 +49,7 @@ impl ConWorkspace {
                         },
                     )
                     .collect();
-                con_core::session::TabState {
+                cube_core::session::TabState {
                     title,
                     cwd,
                     layout: pane_layout,
@@ -69,7 +69,7 @@ impl ConWorkspace {
             global_shell_history: self
                 .global_shell_history
                 .iter()
-                .map(|entry| con_core::session::CommandHistoryEntryState {
+                .map(|entry| cube_core::session::CommandHistoryEntryState {
                     command: entry.command.clone(),
                     cwd: entry.cwd.clone(),
                 })
@@ -88,7 +88,7 @@ impl ConWorkspace {
             global_shell_history: self
                 .global_shell_history
                 .iter()
-                .map(|entry| con_core::session::CommandHistoryEntryState {
+                .map(|entry| cube_core::session::CommandHistoryEntryState {
                     command: entry.command.clone(),
                     cwd: entry.cwd.clone(),
                 })
@@ -159,7 +159,7 @@ impl ConWorkspace {
     }
 
     pub(super) fn restore_shell_history(
-        tab_state: &con_core::session::TabState,
+        tab_state: &cube_core::session::TabState,
     ) -> HashMap<usize, VecDeque<CommandSuggestionEntry>> {
         let mut restored = HashMap::new();
 
@@ -185,7 +185,7 @@ impl ConWorkspace {
     }
 
     pub(super) fn restore_global_shell_history(
-        session: &con_core::session::Session,
+        session: &cube_core::session::Session,
         tabs: &[Tab],
     ) -> VecDeque<CommandSuggestionEntry> {
         let from_session: VecDeque<_> = session
@@ -253,7 +253,7 @@ impl ConWorkspace {
     }
 
     pub(super) fn restore_global_input_history(
-        session: &con_core::session::Session,
+        session: &cube_core::session::Session,
         persisted_history: &GlobalHistoryState,
         shell_history: &VecDeque<CommandSuggestionEntry>,
     ) -> VecDeque<String> {
@@ -329,7 +329,7 @@ fn first_pane_id_in_layout(layout: &PaneLayoutState) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::focused_pane_id_for_persisted_layout;
-    use con_core::session::{PaneLayoutState, PaneSplitDirection};
+    use cube_core::session::{PaneLayoutState, PaneSplitDirection};
 
     fn leaf(pane_id: usize) -> PaneLayoutState {
         PaneLayoutState::Leaf {

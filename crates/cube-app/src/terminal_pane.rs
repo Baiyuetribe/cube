@@ -1,15 +1,15 @@
 //! TerminalPane — Ghostty-backed terminal pane wrapper.
 
 #[cfg(not(target_os = "macos"))]
-use con_ghostty::TerminalColors;
-use con_ghostty::{GhosttyTerminal, TerminalProgress, TerminalPromptState};
+use cube_ghostty::TerminalColors;
+use cube_ghostty::{GhosttyTerminal, TerminalProgress, TerminalPromptState};
 #[cfg(not(target_os = "macos"))]
-use con_terminal::TerminalTheme;
-use con_terminal::{PaneObservationFrame, PaneObservationSupport, derive_screen_hints};
+use cube_terminal::TerminalTheme;
+use cube_terminal::{PaneObservationFrame, PaneObservationSupport, derive_screen_hints};
 use gpui::*;
 
 use crate::ghostty_view::GhosttyView;
-use crate::workspace::ConWorkspace;
+use crate::workspace::CubeWorkspace;
 
 #[derive(Clone)]
 pub struct TerminalPane {
@@ -80,7 +80,7 @@ impl TerminalPane {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn root_identity(&self, cx: &App) -> Option<con_ghostty::process::ProcessIdentity> {
+    pub fn root_identity(&self, cx: &App) -> Option<cube_ghostty::process::ProcessIdentity> {
         self.entity
             .read(cx)
             .terminal()
@@ -472,7 +472,7 @@ impl TerminalPane {
 pub fn subscribe_terminal_pane(
     pane: &TerminalPane,
     window: &mut Window,
-    cx: &mut Context<ConWorkspace>,
+    cx: &mut Context<CubeWorkspace>,
 ) {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     pane.entity.update(cx, |view, cx| {
@@ -491,48 +491,48 @@ pub fn subscribe_terminal_pane(
     cx.subscribe_in(
         &pane.entity,
         window,
-        ConWorkspace::on_terminal_file_requested,
+        CubeWorkspace::on_terminal_file_requested,
     )
     .detach();
     cx.subscribe_in(
         &pane.entity,
         window,
-        ConWorkspace::on_terminal_focus_changed,
+        CubeWorkspace::on_terminal_focus_changed,
     )
     .detach();
     cx.subscribe_in(
         &pane.entity,
         window,
-        ConWorkspace::on_terminal_process_exited,
+        CubeWorkspace::on_terminal_process_exited,
     )
     .detach();
     cx.subscribe_in(
         &pane.entity,
         window,
-        ConWorkspace::on_terminal_title_changed,
+        CubeWorkspace::on_terminal_title_changed,
     )
     .detach();
-    cx.subscribe_in(&pane.entity, window, ConWorkspace::on_terminal_bell)
+    cx.subscribe_in(&pane.entity, window, CubeWorkspace::on_terminal_bell)
         .detach();
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     cx.subscribe_in(
         &pane.entity,
         window,
-        ConWorkspace::on_terminal_desktop_notification,
+        CubeWorkspace::on_terminal_desktop_notification,
     )
     .detach();
-    cx.subscribe_in(&pane.entity, window, ConWorkspace::on_terminal_cwd_changed)
+    cx.subscribe_in(&pane.entity, window, CubeWorkspace::on_terminal_cwd_changed)
         .detach();
     cx.subscribe_in(
         &pane.entity,
         window,
-        ConWorkspace::on_terminal_progress_changed,
+        CubeWorkspace::on_terminal_progress_changed,
     )
     .detach();
     cx.subscribe_in(
         &pane.entity,
         window,
-        ConWorkspace::on_terminal_split_requested,
+        CubeWorkspace::on_terminal_split_requested,
     )
     .detach();
 }
