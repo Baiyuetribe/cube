@@ -331,6 +331,26 @@ enum EditorTabKind {
 pub(crate) struct DiffDocument {
     pub(crate) title: String,
     pub(crate) diff: con_core::git::ParsedDiff,
+    /// 仓库根目录，跳转源文件时用来拼绝对路径。
+    pub(crate) root: Option<PathBuf>,
+    /// 单文件 diff 的源文件路径。
+    pub(crate) source_path: Option<PathBuf>,
+    /// 自动刷新信息。提交 diff 为 None。
+    pub(crate) reload: Option<crate::diff_view::DiffReload>,
+}
+
+impl DiffDocument {
+    /// 测试用的空上下文构造。
+    #[cfg(test)]
+    pub(crate) fn new(title: String, diff: con_core::git::ParsedDiff) -> Self {
+        Self {
+            title,
+            diff,
+            root: None,
+            source_path: None,
+            reload: None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -688,10 +708,56 @@ impl EditorView {
         raw_diff: String,
         cx: &mut Context<Self>,
     ) {
+        // 这个入口拿不到仓库根，`path` 可能是真实文件也可能是合成 key
+        // （`标题#时间戳`），猜出来的路径不可靠，索性不提供跳转。
         let document = DiffDocument {
             title: title.clone(),
             diff: con_core::git::parse_diff(&raw_diff),
+            root: None,
+            source_path: None,
+            reload: None,
         };
+        self.open_diff_document(path, title, raw_diff, document, cx);
+    }
+
+    /// 带仓库上下文的 diff。行号点击可跳回源文件。
+    pub fn open_diff_with_context(
+        &mut self,
+        path: PathBuf,
+        title: String,
+        raw_diff: String,
+        root: PathBuf,
+        source_path: Option<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        // 工作区单个文件的改动才值得自动刷新；整个提交是历史快照。
+        let reload = source_path
+            .as_ref()
+            .map(|path| crate::diff_view::DiffReload {
+                root: root.clone(),
+                path: Some(path.clone()),
+                signal: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            });
+        let document = DiffDocument {
+            title: title.clone(),
+            diff: con_core::git::parse_diff(&raw_diff),
+            root: Some(root),
+            source_path,
+            reload,
+        };
+        self.open_diff_document(path, title, raw_diff, document, cx);
+    }
+
+    fn open_diff_document(
+        &mut self,
+        path: PathBuf,
+        title: String,
+        raw_diff: String,
+        document: DiffDocument,
+        cx: &mut Context<Self>,
+    ) {
+        // 工作区改动才自动刷新；提交 diff 是历史快照。
+        let reload = document.reload.clone();
         let apply = Self::apply_loaded_file_tab(
             &mut self.tabs,
             &mut self.active_tab,
@@ -712,6 +778,14 @@ impl EditorView {
         }
         if apply.active_file_changed {
             cx.emit(ActiveFileChanged);
+        }
+        if let Some(reload) = reload
+            && let Some(view) = self.tabs[self.active_tab].diff_view.clone()
+        {
+            view.update(cx, |view, cx| {
+                view.set_reload(Some(reload));
+                view.start_auto_reload(cx);
+            });
         }
         cx.notify();
     }
@@ -2376,7 +2450,20 @@ impl Render for EditorView {
             let view = match &self.tabs[active_index].diff_view {
                 Some(view) => view.clone(),
                 None => {
-                    let view = cx.new(|_| crate::diff_view::DiffView::new(document));
+                    let view = cx.new(|cx| {
+                        let mut view = crate::diff_view::DiffView::new(document);
+                        view.start_auto_reload(cx);
+                        view
+                    });
+                    // 行号点击跳到源文件：编辑器自己就能打开并定位，
+                    // 不需要绕回工作区。
+                    cx.subscribe(
+                        &view,
+                        |this: &mut Self, _view, event: &crate::diff_view::JumpToSource, cx| {
+                            this.open_file_at(event.path.clone(), Some((event.line, 1)), cx);
+                        },
+                    )
+                    .detach();
                     self.tabs[active_index].diff_view = Some(view.clone());
                     view
                 }

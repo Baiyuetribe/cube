@@ -121,6 +121,8 @@ pub enum DiffLineKind {
     Removed,
     /// `\ No newline at end of file` 之类的标记。
     Marker,
+    /// 二进制文件占位行（`Binary files ... differ`、`GIT binary patch` 及其数据）。
+    Binary,
 }
 
 /// diff 里的一行，带新旧行号。
@@ -176,16 +178,26 @@ pub fn inline_diff(old: &str, new: &str) -> (Vec<InlineSpan>, Vec<InlineSpan>) {
         return (old_spans, new_spans);
     }
 
-    // lcs[i][j] = old_chars[i..] 与 new_chars[j..] 的 LCS 长度。
-    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
+    // 只保留 LCS 表的长度，回溯所需的走向记在 `directions` 里：
+    // 0 = 取对角线（字符相同），1 = 跳过旧行字符，2 = 跳过新行字符。
+    // 完整二维 u32 表在 400x400 时是 640KB，这里是一张 160KB 的 u8 表
+    // 加两行滚动数组；逻辑不变，分配次数和内存都降一个数量级。
+    let mut directions = vec![0u8; (n + 1) * (m + 1)];
+    let mut next_row = vec![0u32; m + 1];
+    let mut current_row = vec![0u32; m + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {
-            lcs[i][j] = if old_chars[i].1 == new_chars[j].1 {
-                lcs[i + 1][j + 1] + 1
+            let (value, direction) = if old_chars[i].1 == new_chars[j].1 {
+                (next_row[j + 1] + 1, 0u8)
+            } else if next_row[j] >= current_row[j + 1] {
+                (next_row[j], 1u8)
             } else {
-                lcs[i + 1][j].max(lcs[i][j + 1])
+                (current_row[j + 1], 2u8)
             };
+            current_row[j] = value;
+            directions[i * (m + 1) + j] = direction;
         }
+        std::mem::swap(&mut next_row, &mut current_row);
     }
 
     // 沿 LCS 走一遍，命中的字符属于「相同」，其余归为改动段。
@@ -202,7 +214,7 @@ pub fn inline_diff(old: &str, new: &str) -> (Vec<InlineSpan>, Vec<InlineSpan>) {
             push_span(&mut new_spans, new_run.take());
             i += 1;
             j += 1;
-        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
+        } else if directions[i * (m + 1) + j] == 1 {
             let start = old_chars[i].0;
             let end = start + old_chars[i].1.len_utf8();
             old_run = Some(match old_run {
@@ -264,10 +276,16 @@ pub struct ParsedDiff {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffFile {
     /// 显示用的路径（优先取 `+++ b/...` 去掉前缀的部分）。
+    ///
+    /// 删除文件时 `+++ ` 是 `/dev/null`，此时保留 `--- a/...` 里的旧路径。
     pub path: String,
+    /// 旧路径。仅重命名/删除时有意义，其余情况等于 `path`。
+    pub old_path: Option<String>,
     pub lines: Vec<DiffLine>,
     pub added: usize,
     pub removed: usize,
+    /// 二进制文件。这类文件没有可渲染的行，只有一行占位说明。
+    pub is_binary: bool,
 }
 
 /// 把 `git diff` / `git show` 的 unified 输出解析成结构化行。
@@ -277,9 +295,11 @@ pub fn parse_diff(text: &str) -> ParsedDiff {
     let mut files: Vec<DiffFile> = Vec::new();
     let mut current = DiffFile {
         path: String::new(),
+        old_path: None,
         lines: Vec::new(),
         added: 0,
         removed: 0,
+        is_binary: false,
     };
     // hunk 头里的行号，随着读行递增。
     let mut old_no: u32 = 0;
@@ -291,16 +311,16 @@ pub fn parse_diff(text: &str) -> ParsedDiff {
             if !current.lines.is_empty() || !current.path.is_empty() {
                 files.push(current);
             }
-            // 兜底路径：diff --git a/x b/x 里的后一半。
-            let fallback = raw
-                .rsplit_once(" b/")
-                .map(|(_, path)| path.to_string())
-                .unwrap_or_default();
+            // 兜底路径：diff --git a/x b/x 里的后一半。纯重命名没有 `--- ` / `+++ `
+            // 行，旧路径只能从这里取。
+            let (old_path, fallback) = split_diff_git_paths(raw);
             current = DiffFile {
                 path: fallback,
+                old_path,
                 lines: Vec::new(),
                 added: 0,
                 removed: 0,
+                is_binary: false,
             };
             old_no = 0;
             new_no = 0;
@@ -329,7 +349,11 @@ pub fn parse_diff(text: &str) -> ParsedDiff {
 
         // `+++ b/path` / `--- a/path` 出现在 hunk 之前，属于文件头。
         if raw.starts_with("+++ ") {
-            current.path = strip_diff_prefix(raw.trim_start_matches("+++ "));
+            // 删除文件时 `+++ ` 是 `/dev/null`，别拿它覆盖 `--- a/...` 解析出的旧路径。
+            let target = raw.trim_start_matches("+++ ");
+            if !is_dev_null(target) {
+                current.path = strip_diff_prefix(target);
+            }
             current.lines.push(DiffLine {
                 kind: DiffLineKind::FileHeader,
                 old_line: None,
@@ -337,6 +361,18 @@ pub fn parse_diff(text: &str) -> ParsedDiff {
                 text: raw.to_string(),
             });
             continue;
+        }
+        // 记下 `--- a/path` 里的旧路径：删除文件时新版路径是 /dev/null，
+        // 重命名时两边不同，都需要它。
+        if let Some(source) = raw.strip_prefix("--- ")
+            && !is_dev_null(source)
+        {
+            let old_path = strip_diff_prefix(source);
+            if current.path.is_empty() {
+                current.path = old_path.clone();
+            }
+            // 已经从 `diff --git` 拿到更准确的两边路径时不要覆盖。
+            current.old_path.get_or_insert(old_path);
         }
         if raw.starts_with("--- ")
             || raw.starts_with("index ")
@@ -347,6 +383,23 @@ pub fn parse_diff(text: &str) -> ParsedDiff {
         {
             current.lines.push(DiffLine {
                 kind: DiffLineKind::FileHeader,
+                old_line: None,
+                new_line: None,
+                text: raw.to_string(),
+            });
+            continue;
+        }
+
+        // 二进制文件没有可读内容。git 用一行说明或 `GIT binary patch` + 负载
+        // 表达；若不在这里拦下，它们会被当成上下文行，行号还会记成 0。
+        // 标记一旦置上，本文件剩下的行都归为同类，直到下一个 `diff --git`。
+        if current.is_binary
+            || raw.starts_with("Binary files ")
+            || raw.starts_with("GIT binary patch")
+        {
+            current.is_binary = true;
+            current.lines.push(DiffLine {
+                kind: DiffLineKind::Binary,
                 old_line: None,
                 new_line: None,
                 text: raw.to_string(),
@@ -418,6 +471,9 @@ pub fn parse_diff(text: &str) -> ParsedDiff {
 /// 时（跳过的未改动区块）用空行补齐，保证数组下标 == 行号 - 1，高亮时能按
 /// 行号直接取到对应的源码。
 pub fn reconstructed_new_lines(file: &DiffFile) -> Vec<String> {
+    if file.is_binary {
+        return Vec::new();
+    }
     let mut lines: Vec<String> = Vec::new();
     for line in &file.lines {
         match line.kind {
@@ -443,6 +499,9 @@ pub fn reconstructed_new_lines(file: &DiffFile) -> Vec<String> {
 /// 和 [`reconstructed_new_lines`] 对称：上下文行和删除行拼出旧文件。删行在
 /// 单栏和并排视图里都占一席之地，给它配上语法高亮，观感才和新增行一致。
 pub fn reconstructed_old_lines(file: &DiffFile) -> Vec<String> {
+    if file.is_binary {
+        return Vec::new();
+    }
     let mut lines: Vec<String> = Vec::new();
     for line in &file.lines {
         match line.kind {
@@ -471,6 +530,28 @@ fn parse_hunk_header(rest: &str) -> Option<(u32, u32)> {
     let old_start = old.split(',').next()?.parse().ok()?;
     let new_start = new.split(',').next()?.parse().ok()?;
     Some((old_start, new_start))
+}
+
+/// 从 `diff --git a/x b/y` 里拆出新旧路径。
+///
+/// 路径里可能含空格，所以按最后一个 ` b/` 切；只有新旧不同时才返回旧路径。
+fn split_diff_git_paths(raw: &str) -> (Option<String>, String) {
+    let rest = raw.trim_start_matches("diff --git ");
+    let Some((old_part, new_part)) = rest.rsplit_once(" b/") else {
+        return (None, rest.to_string());
+    };
+    let old_path = strip_diff_prefix(old_part);
+    let new_path = new_part.to_string();
+    if old_path == new_path {
+        (None, new_path)
+    } else {
+        (Some(old_path), new_path)
+    }
+}
+
+/// `/dev/null` 在 diff 里表示「这一侧不存在」。
+fn is_dev_null(path: &str) -> bool {
+    path.trim() == "/dev/null"
 }
 
 /// 去掉 `a/` `b/` 前缀。
@@ -539,8 +620,20 @@ fn parse_status(text: &str) -> Vec<GitChange> {
         let Some(y) = chars.next() else { continue };
         let path = &entry[3..];
 
-        let staged = GitStatus::from_char(x);
-        let unstaged = GitStatus::from_char(y);
+        // `??` 表示未跟踪：两列都是 `?`，但它只在工作区里，暂存区没有这项。
+        // 直接按字符解析会让同一个文件同时出现在「已暂存」和「未暂存」里，
+        // 计数也会翻倍。
+        let is_untracked = x == '?' || y == '?';
+        let staged = if is_untracked {
+            None
+        } else {
+            GitStatus::from_char(x)
+        };
+        let unstaged = if is_untracked {
+            Some(GitStatus::Untracked)
+        } else {
+            GitStatus::from_char(y)
+        };
 
         // 重命名/复制在 -z 模式下紧接着一个原路径字段，跳过它。
         if matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C') {
@@ -708,16 +801,32 @@ pub fn commit_diff(repo: &Path, hash: &str, path: Option<&Path>) -> Result<GitDi
     })
 }
 
-/// 工作区里某个文件未暂存的改动。
+/// 工作区里某个文件相对 HEAD 的改动。
+///
+/// 用 `diff HEAD` 而不是裸 `diff`：后者只显示未暂存的改动，暂存之后
+/// diff 视图会突然变空，看起来像文件没变化。
 pub fn working_diff(repo: &Path, path: &Path) -> Result<GitDiff, String> {
     let path_text = path.to_string_lossy().into_owned();
     let text = run_git(
         repo,
-        &["diff", "--no-color", "--no-ext-diff", "--", &path_text],
+        &[
+            "diff",
+            "HEAD",
+            "--no-color",
+            "--no-ext-diff",
+            "--",
+            &path_text,
+        ],
     )?;
     Ok(GitDiff {
         text: text.trim_start_matches('\n').to_string(),
     })
+}
+
+/// 整个工作区相对 HEAD 的改动，供自动刷新重新读取。
+pub fn working_diff_all(repo: &Path) -> Result<String, String> {
+    let text = run_git(repo, &["diff", "HEAD", "--no-color", "--no-ext-diff"])?;
+    Ok(text.trim_start_matches('\n').to_string())
 }
 
 /// 提交暂存区。`message` 为空时返回错误，不执行任何操作。
@@ -738,6 +847,22 @@ pub fn commit(repo: &Path, message: &str, stage_all: bool) -> Result<String, Str
     args.push("-m");
     args.push(message);
     run_git(repo, &args).map(|text| text.trim().to_string())
+}
+
+/// 把某个文件加入暂存区（`git add`）。
+///
+/// 未跟踪文件和已修改文件都适用：`git add` 会顺带开始跟踪新文件。
+pub fn stage_file(repo: &Path, path: &Path) -> Result<(), String> {
+    let path_text = path.to_string_lossy().into_owned();
+    run_git(repo, &["add", "--", &path_text])?;
+    Ok(())
+}
+
+/// 取消暂存（`git restore --staged`），工作区内容保持不变。
+pub fn unstage_file(repo: &Path, path: &Path) -> Result<(), String> {
+    let path_text = path.to_string_lossy().into_owned();
+    run_git(repo, &["restore", "--staged", "--", &path_text])?;
+    Ok(())
 }
 
 /// 放弃某个文件的改动，**丢弃内容不可恢复**。
@@ -777,14 +902,28 @@ mod tests {
         assert!(!changes[0].is_staged());
         assert!(changes[0].is_unstaged());
 
-        // "??" -> 未跟踪，只出现在工作区。
+        // "??" -> 未跟踪，只出现在工作区，暂存区没有这项。
         assert_eq!(changes[1].path, PathBuf::from("new_file.txt"));
+        assert_eq!(changes[1].staged, None, "未跟踪文件不该算已暂存");
         assert_eq!(changes[1].unstaged, Some(GitStatus::Untracked));
+        assert!(!changes[1].is_staged());
 
         // "A " -> 已暂存新增。
         assert_eq!(changes[2].staged, Some(GitStatus::Added));
         assert_eq!(changes[2].unstaged, None);
         assert!(changes[2].is_staged());
+    }
+
+    /// 未跟踪文件只能被一个分组统计，否则「已暂存 1 / 未暂存 6」会明显对不上。
+    #[test]
+    fn untracked_file_is_counted_once() {
+        let text = " M a.rs\0?? todo.yml\0";
+        let changes = parse_status(text);
+        let staged = changes.iter().filter(|c| c.is_staged()).count();
+        let unstaged = changes.iter().filter(|c| c.is_unstaged()).count();
+        assert_eq!(staged, 0, "没有任何暂存内容");
+        assert_eq!(unstaged, 2);
+        assert_eq!(staged + unstaged, changes.len(), "每个文件只归一组");
     }
 
     #[test]
@@ -1127,6 +1266,230 @@ diff --git a/x.rs b/x.rs
         // 第 10 行是 new_ten，也就是下标 9。
         assert_eq!(lines.len(), 10);
         assert_eq!(lines[9], "new_ten");
+    }
+
+    /// 二进制文件的说明行不能被当成上下文行。
+    #[test]
+    fn binary_file_is_marked_and_not_numbered() {
+        let text = "\
+diff --git a/logo.png b/logo.png
+index 111..222 100644
+Binary files a/logo.png and b/logo.png differ
+";
+        let diff = parse_diff(text);
+        let file = &diff.files[0];
+
+        assert!(file.is_binary);
+        assert_eq!(file.path, "logo.png");
+        assert_eq!(file.added, 0);
+        assert_eq!(file.removed, 0);
+        assert!(
+            file.lines
+                .iter()
+                .all(|line| line.kind != DiffLineKind::Context),
+            "二进制说明行不该被当成上下文"
+        );
+        assert!(
+            file.lines
+                .iter()
+                .any(|line| line.kind == DiffLineKind::Binary),
+            "应当有 Binary 行"
+        );
+        // 二进制文件不参与高亮重建。
+        assert!(reconstructed_new_lines(file).is_empty());
+        assert!(reconstructed_old_lines(file).is_empty());
+    }
+
+    /// `GIT binary patch` 及其负载也归为二进制，且不污染后续文件。
+    #[test]
+    fn git_binary_patch_body_stays_binary_and_resets_on_next_file() {
+        let text = "\
+diff --git a/img.png b/img.png
+index 111..222 100644
+GIT binary patch
+literal 12
+TcmZ?wbhEHbRA>iY0RR91
+
+diff --git a/x.rs b/x.rs
+--- a/x.rs
++++ b/x.rs
+@@ -1,1 +1,1 @@
+-old
++new
+";
+        let diff = parse_diff(text);
+        assert!(diff.files[0].is_binary);
+        assert!(
+            diff.files[0]
+                .lines
+                .iter()
+                .all(|line| line.kind != DiffLineKind::Context),
+            "补丁负载不能被当成上下文"
+        );
+
+        let second = &diff.files[1];
+        assert!(!second.is_binary, "标记必须随文件段重置");
+        assert_eq!(second.added, 1);
+        assert_eq!(second.removed, 1);
+    }
+
+    /// 删除文件的路径应保留旧路径，而不是变成 /dev/null。
+    #[test]
+    fn deleted_file_keeps_its_old_path() {
+        let text = "\
+diff --git a/old.rs b/old.rs
+deleted file mode 100644
+index 333..000
+--- a/old.rs
++++ /dev/null
+@@ -1,2 +0,0 @@
+-fn gone() {}
+-more
+";
+        let diff = parse_diff(text);
+        let file = &diff.files[0];
+
+        assert_eq!(file.path, "old.rs");
+        assert_eq!(file.old_path.as_deref(), Some("old.rs"));
+        assert_eq!(file.removed, 2);
+        assert_eq!(file.added, 0);
+    }
+
+    /// 新增文件：`--- /dev/null`，路径取 `+++ b/...`。
+    #[test]
+    fn added_file_uses_the_new_path() {
+        let text = "\
+diff --git a/new.rs b/new.rs
+new file mode 100644
+index 000..444
+--- /dev/null
++++ b/new.rs
+@@ -0,0 +1,2 @@
++one
++two
+";
+        let diff = parse_diff(text);
+        let file = &diff.files[0];
+
+        assert_eq!(file.path, "new.rs");
+        assert_eq!(file.old_path, None, "/dev/null 不是有效旧路径");
+        assert_eq!(file.added, 2);
+    }
+
+    /// 重命名记录两边路径。
+    #[test]
+    fn renamed_file_records_both_paths() {
+        let text = "\
+diff --git a/old_name.rs b/new_name.rs
+similarity index 100%
+rename from old_name.rs
+rename to new_name.rs
+";
+        let diff = parse_diff(text);
+        let file = &diff.files[0];
+
+        assert_eq!(file.path, "new_name.rs");
+        assert_eq!(file.old_path.as_deref(), Some("old_name.rs"));
+    }
+
+    /// 暂存与取消暂存要能来回切换，且不影响工作区内容。
+    #[test]
+    fn stage_and_unstage_round_trip() {
+        let dir = std::env::temp_dir().join(format!(
+            "con-git-stage-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .expect("git 应当可用")
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@t"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(dir.join("tracked.txt"), "one\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "init"]);
+
+        std::fs::write(dir.join("tracked.txt"), "two\n").unwrap();
+        stage_file(&dir, Path::new("tracked.txt")).unwrap();
+        let staged = status(&dir).unwrap();
+        assert!(
+            staged
+                .iter()
+                .find(|c| c.path == Path::new("tracked.txt"))
+                .unwrap()
+                .is_staged(),
+            "暂存后应出现在暂存区"
+        );
+
+        unstage_file(&dir, Path::new("tracked.txt")).unwrap();
+        let after = status(&dir).unwrap();
+        let entry = after
+            .iter()
+            .find(|c| c.path == Path::new("tracked.txt"))
+            .unwrap();
+        assert!(!entry.is_staged(), "取消暂存后不该在暂存区");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("tracked.txt")).unwrap(),
+            "two\n",
+            "取消暂存不能改动工作区内容"
+        );
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// 未跟踪文件暂存后进入暂存区，不再算作未跟踪。
+    #[test]
+    fn staging_untracked_file_begins_tracking() {
+        let dir = std::env::temp_dir().join(format!(
+            "con-git-stage-untracked-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .expect("git 应当可用")
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@t"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(dir.join(".gitkeep"), "").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "init"]);
+
+        std::fs::write(dir.join("new.txt"), "hello\n").unwrap();
+        let before = status(&dir).unwrap();
+        let entry = before
+            .iter()
+            .find(|c| c.path == Path::new("new.txt"))
+            .unwrap();
+        assert_eq!(entry.unstaged, Some(GitStatus::Untracked));
+
+        stage_file(&dir, Path::new("new.txt")).unwrap();
+        let after = status(&dir).unwrap();
+        let entry = after
+            .iter()
+            .find(|c| c.path == Path::new("new.txt"))
+            .unwrap();
+        assert_eq!(entry.staged, Some(GitStatus::Added));
+        assert_eq!(entry.unstaged, None);
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// 旧版内容还原：删除行按旧行号落位，新增行不参与。

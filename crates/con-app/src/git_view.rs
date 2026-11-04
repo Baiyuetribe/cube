@@ -28,6 +28,25 @@ use crate::ui_scale::ui_px;
 pub struct OpenDiff {
     pub title: String,
     pub text: String,
+    /// 仓库根目录，diff 里的路径都相对它。
+    pub root: PathBuf,
+    /// 单文件 diff 的文件路径（相对仓库根）。整提交 diff 为 None。
+    pub path: Option<PathBuf>,
+}
+
+/// 变更列表的两个分组。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ChangeGroup {
+    /// 暂存区里的内容。
+    Staged,
+    /// 工作区里还没暂存的内容。
+    Unstaged,
+}
+
+impl ChangeGroup {
+    fn is_staged(self) -> bool {
+        matches!(self, Self::Staged)
+    }
 }
 
 /// 用户在变更列表里请求放弃某处改动。
@@ -186,6 +205,8 @@ impl GitView {
         };
         let path = change.path.clone();
         let title = format!("{} (工作区)", path.display());
+        let emit_root = root.clone();
+        let emit_path = path.clone();
         cx.spawn(async move |this, cx| {
             let diff = cx
                 .background_executor()
@@ -196,6 +217,8 @@ impl GitView {
                     cx.emit(OpenDiff {
                         title,
                         text: diff.text,
+                        root: emit_root,
+                        path: Some(emit_path),
                     });
                 }
             });
@@ -211,6 +234,8 @@ impl GitView {
             Some(path) => format!("{} {}", commit.short_hash, path.display()),
             None => format!("提交 {}", commit.short_hash),
         };
+        let emit_root = root.clone();
+        let emit_path = path.clone();
         cx.spawn(async move |this, cx| {
             let hash = commit.hash.clone();
             let diff = cx
@@ -222,6 +247,8 @@ impl GitView {
                     cx.emit(OpenDiff {
                         title,
                         text: diff.text,
+                        root: emit_root,
+                        path: emit_path,
                     });
                 }
             });
@@ -438,6 +465,8 @@ impl GitView {
         theme: &gpui_component::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // 和 VSCode 一致：有暂存内容时先列「暂存的更改」，再列「更改」；
+        // 某一组为空就整组不显示。
         let staged: Vec<GitChange> = self
             .changes
             .iter()
@@ -465,20 +494,31 @@ impl GitView {
             list = list.child(empty_state("工作区干净", theme));
         }
 
-        // 已暂存 / 未暂存各自成组，标题可折叠，并显示条目数。
         if !staged.is_empty() {
-            list = list.child(self.section_header("已暂存", staged.len(), true, theme, cx));
+            list = list.child(self.section_header(
+                "暂存的更改",
+                staged.len(),
+                ChangeGroup::Staged,
+                theme,
+                cx,
+            ));
             if self.staged_open {
                 for change in staged {
-                    list = list.child(self.change_row(change, true, theme, cx));
+                    list = list.child(self.change_row(change, ChangeGroup::Staged, theme, cx));
                 }
             }
         }
         if !unstaged.is_empty() {
-            list = list.child(self.section_header("未暂存", unstaged.len(), false, theme, cx));
+            list = list.child(self.section_header(
+                "更改",
+                unstaged.len(),
+                ChangeGroup::Unstaged,
+                theme,
+                cx,
+            ));
             if self.unstaged_open {
                 for change in unstaged {
-                    list = list.child(self.change_row(change, false, theme, cx));
+                    list = list.child(self.change_row(change, ChangeGroup::Unstaged, theme, cx));
                 }
             }
         }
@@ -501,20 +541,18 @@ impl GitView {
         &self,
         title: &'static str,
         count: usize,
-        staged: bool,
+        group: ChangeGroup,
         theme: &gpui_component::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let open = if staged {
-            self.staged_open
-        } else {
-            self.unstaged_open
+        let open = match group {
+            ChangeGroup::Staged => self.staged_open,
+            ChangeGroup::Unstaged => self.unstaged_open,
         };
         div()
-            .id(if staged {
-                "git-section-staged"
-            } else {
-                "git-section-unstaged"
+            .id(match group {
+                ChangeGroup::Staged => "git-section-staged",
+                ChangeGroup::Unstaged => "git-section-unstaged",
             })
             .flex()
             .items_center()
@@ -555,13 +593,181 @@ impl GitView {
                     .child(count.to_string()),
             )
             .on_click(cx.listener(move |this, _, _, cx| {
-                if staged {
-                    this.staged_open = !this.staged_open;
-                } else {
-                    this.unstaged_open = !this.unstaged_open;
+                match group {
+                    ChangeGroup::Staged => this.staged_open = !this.staged_open,
+                    ChangeGroup::Unstaged => this.unstaged_open = !this.unstaged_open,
                 }
                 cx.notify();
             }))
+            .into_any_element()
+    }
+
+    /// 一行变更。悬停时右侧浮出「暂存 / 取消暂存」按钮，和 VSCode 一致。
+    fn change_row(
+        &mut self,
+        change: GitChange,
+        group: ChangeGroup,
+        theme: &gpui_component::Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let is_staged = group.is_staged();
+        // 显示当前分组对应的那一侧状态：暂存组看暂存区，其余的看工作区。
+        let status = if is_staged {
+            change.staged
+        } else {
+            change.unstaged
+        };
+        let (letter, color) = status.map_or((' ', theme.muted_foreground), |status| {
+            (status.letter(), status_color(status, theme))
+        });
+        let is_untracked = change.unstaged == Some(GitStatus::Untracked);
+
+        let name = change
+            .path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| change.path.display().to_string());
+        let dir = change
+            .path
+            .parent()
+            .map(|parent| parent.to_string_lossy().into_owned())
+            .unwrap_or_default();
+
+        let change_for_click = change.clone();
+        // 已暂存的文件有「取消暂存」，其余都是「暂存」。
+        let action_label = if is_staged { "−" } else { "+" };
+        let action_tooltip = if is_staged {
+            "取消暂存"
+        } else {
+            "暂存更改"
+        };
+        let path_for_action = change.path.clone();
+
+        div()
+            .id(SharedString::from(format!(
+                "git-change-{}-{}",
+                if is_staged { "s" } else { "u" },
+                change.path.display()
+            )))
+            .group("git-change-row")
+            .h(px(ROW_HEIGHT))
+            .w_full()
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .pl(px(8.0))
+            .pr(px(6.0))
+            .cursor_pointer()
+            .hover(|style| style.bg(theme.foreground.opacity(0.05)))
+            // 文件图标在最左，和文件树里的一致。
+            .child(render_file_icon(
+                icon_for_path(&change.path, false, false),
+                ui_px(theme, 12.0),
+                theme.muted_foreground,
+            ))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .max_w(px(140.0))
+                    .truncate()
+                    .text_size(ui_px(theme, 11.5))
+                    .font_family(theme.font_family.clone())
+                    .text_color(if is_staged {
+                        theme.foreground.opacity(0.75)
+                    } else {
+                        theme.foreground
+                    })
+                    .child(name),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .truncate()
+                    .text_size(ui_px(theme, 10.5))
+                    .font_family(theme.font_family.clone())
+                    .text_color(theme.muted_foreground.opacity(0.7))
+                    .child(dir),
+            )
+            // 悬停时才显示的操作按钮。占位保持行宽稳定，字母列不会跳动。
+            .child(
+                div()
+                    .w(px(16.0))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .invisible()
+                    .group_hover("git-change-row", |style| style.visible())
+                    .child(
+                        Button::new(SharedString::from(format!(
+                            "git-stage-{}",
+                            change.path.display()
+                        )))
+                        .label(action_label)
+                        .ghost()
+                        .small()
+                        .tooltip(action_tooltip)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.stage_or_unstage(path_for_action.clone(), is_staged, cx);
+                        })),
+                    ),
+            )
+            // 状态字母在最右，和 VSCode 一样，扫一眼就能看出改动类型。
+            .child(
+                div()
+                    .w(px(10.0))
+                    .flex_shrink_0()
+                    .text_size(ui_px(theme, 10.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(color)
+                    .child(letter.to_string()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.open_working_diff(&change_for_click, cx);
+            }))
+            .context_menu({
+                // 未跟踪文件的放弃方式是「删除」，已跟踪的是「还原」。
+                let path = change.path.clone();
+                let label = if is_untracked {
+                    "删除未跟踪文件"
+                } else {
+                    "放弃更改"
+                };
+                let entity = cx.entity().downgrade();
+                let stage_entity = entity.clone();
+                let stage_path = change.path.clone();
+                move |menu, _window, _cx| {
+                    let path = path.clone();
+                    let entity = entity.clone();
+                    let stage_path = stage_path.clone();
+                    let stage_entity = stage_entity.clone();
+                    menu.item(
+                        PopupMenuItem::new(if is_staged {
+                            "取消暂存"
+                        } else {
+                            "暂存更改"
+                        })
+                        .on_click(move |_, _, app| {
+                            let path = stage_path.clone();
+                            let _ = stage_entity.update(app, |this, cx| {
+                                this.stage_or_unstage(path, is_staged, cx);
+                            });
+                        }),
+                    )
+                    .separator()
+                    .item(PopupMenuItem::new(label).on_click(move |_, _, app| {
+                        let path = path.clone();
+                        let _ = entity.update(app, |this, cx| {
+                            this.pending_discard = Some(DiscardChangeRequested {
+                                path: path.clone(),
+                                untracked: is_untracked,
+                            });
+                            cx.notify();
+                        });
+                    }))
+                }
+            })
             .into_any_element()
     }
 
@@ -651,114 +857,33 @@ impl GitView {
         .detach();
     }
 
-    fn change_row(
-        &mut self,
-        change: GitChange,
-        staged: bool,
-        theme: &gpui_component::Theme,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let status = if staged {
-            change.staged
-        } else {
-            change.unstaged
+    /// 历史列表：左侧泳道图，右侧提交摘要与分支徽章。
+    ///
+    /// 泳道图是独立的自绘元素，行高必须和右侧每一行严格一致，否则圆点会和
+    /// 暂存或取消暂存一个文件，成功后刷新列表。
+    fn stage_or_unstage(&mut self, path: PathBuf, is_staged: bool, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
         };
-        let (letter, color) = status.map_or((' ', theme.muted_foreground), |status| {
-            (status.letter(), status_color(status, theme))
-        });
-        let name = change
-            .path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| change.path.display().to_string());
-        let dir = change
-            .path
-            .parent()
-            .map(|parent| parent.to_string_lossy().into_owned())
-            .unwrap_or_default();
-
-        let change_for_click = change.clone();
-        div()
-            .id(SharedString::from(format!(
-                "git-change-{}-{}",
-                if staged { "s" } else { "u" },
-                change.path.display()
-            )))
-            .h(px(ROW_HEIGHT))
-            .w_full()
-            .flex()
-            .items_center()
-            .gap(px(6.0))
-            .pl(px(8.0))
-            .pr(px(8.0))
-            .cursor_pointer()
-            .hover(|style| style.bg(theme.foreground.opacity(0.05)))
-            // 文件图标在最左，和文件树里的一致。
-            .child(render_file_icon(
-                icon_for_path(&change.path, false, false),
-                ui_px(theme, 12.0),
-                theme.muted_foreground,
-            ))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .max_w(px(140.0))
-                    .truncate()
-                    .text_size(ui_px(theme, 11.5))
-                    .font_family(theme.font_family.clone())
-                    .text_color(theme.foreground)
-                    .child(name),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .truncate()
-                    .text_size(ui_px(theme, 10.5))
-                    .font_family(theme.font_family.clone())
-                    .text_color(theme.muted_foreground.opacity(0.7))
-                    .child(dir),
-            )
-            // 状态字母移到最右，和 VSCode 一样，扫一眼就能看出改动类型。
-            .child(
-                div()
-                    .w(px(10.0))
-                    .flex_shrink_0()
-                    .text_size(ui_px(theme, 10.5))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(color)
-                    .child(letter.to_string()),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.open_working_diff(&change_for_click, cx);
-            }))
-            .context_menu({
-                // 未跟踪文件的放弃方式是「删除」，已跟踪的是「还原」。
-                let untracked = matches!(status, Some(GitStatus::Untracked));
-                let path = change.path.clone();
-                let label = if untracked {
-                    "删除未跟踪文件"
-                } else {
-                    "放弃更改"
-                };
-                // WeakEntity 先取出再进闭包：闭包要求 'static，不能借用 cx。
-                let entity = cx.entity().downgrade();
-                move |menu, _window, _cx| {
-                    let path = path.clone();
-                    let entity = entity.clone();
-                    menu.item(PopupMenuItem::new(label).on_click(move |_, _, app| {
-                        let path = path.clone();
-                        let _ = entity.update(app, |this, cx| {
-                            this.pending_discard = Some(DiscardChangeRequested {
-                                path: path.clone(),
-                                untracked,
-                            });
-                            cx.notify();
-                        });
-                    }))
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    if is_staged {
+                        git::unstage_file(&root, &path)
+                    } else {
+                        git::stage_file(&root, &path)
+                    }
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(error) = result {
+                    this.error = Some(error);
                 }
-            })
-            .into_any_element()
+                this.refresh(cx);
+            });
+        })
+        .detach();
     }
 
     fn render_commit_box(

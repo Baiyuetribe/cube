@@ -16,32 +16,69 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
 };
 
+use std::path::PathBuf;
+
+use notify::Watcher as _;
+
 use crate::ui_scale::ui_px;
 
 /// 用户关闭 diff 视图。
 pub struct CloseDiff;
 
-/// 行高。
+/// 用户请求跳到源文件。
+///
+/// `line` 是新版行号；删除行没有新行号，用旧行号兜底，点开的是改动之前的位置。
+pub struct JumpToSource {
+    pub path: PathBuf,
+    pub line: usize,
+}
+
+/// 行高基准值。实际渲染时按 UI 字号缩放，见 [`line_height`]。
 const LINE_HEIGHT: f32 = 18.0;
-/// 文件段标题行高。跳转时要按实际高度累加，不能统一用行高。
+/// 文件段标题行高基准。跳转时要按实际高度累加，不能统一用行高。
 const FILE_HEADER_HEIGHT: f32 = 26.0;
-/// 行号列宽度（新旧两栏）。
+/// 行号列宽度基准（新旧两栏）。
 const GUTTER_WIDTH: f32 = 76.0;
-/// 并排视图里单侧行号列的宽度。
+/// 并排视图里单侧行号列的宽度基准。
 const SINGLE_GUTTER_WIDTH: f32 = 48.0;
+/// 并排视图的最小窗口宽度。低于它就退回单栏。
+const SPLIT_MIN_WIDTH: f32 = 760.0;
 /// 连续未改动超过这个行数就折叠，只留头尾各两行做上下文。
 const COLLAPSE_THRESHOLD: usize = 6;
 /// 折叠时保留的上下文行数（上下各留这么多）。
 const CONTEXT_KEPT: usize = 2;
 
+// 上面这些尺寸都跟着 UI 字号缩放。写死像素的话，用户把字号调大会出现
+// 文字撑出固定行高、行号被挤掉的问题。
+
+fn line_height(theme: &gpui_component::Theme) -> gpui::Pixels {
+    ui_px(theme, LINE_HEIGHT)
+}
+
+fn file_header_height(theme: &gpui_component::Theme) -> gpui::Pixels {
+    ui_px(theme, FILE_HEADER_HEIGHT)
+}
+
+fn gutter_width(theme: &gpui_component::Theme) -> gpui::Pixels {
+    ui_px(theme, GUTTER_WIDTH)
+}
+
+fn single_gutter_width(theme: &gpui_component::Theme) -> gpui::Pixels {
+    ui_px(theme, SINGLE_GUTTER_WIDTH)
+}
+
 pub struct DiffView {
     title: String,
+    /// 仓库根目录。diff 里的路径是相对它的，跳转源文件要用。
+    root: Option<PathBuf>,
+    /// 打开时的默认路径，单文件 diff 从标题里推不出来时兜底。
+    source_path: Option<PathBuf>,
     diff: ParsedDiff,
     /// 打平后的所有行，列表按这个渲染。
     rows: Vec<FlatRow>,
-    /// 是否已经算过高亮。用显式标记而不是判空：全是二进制文件时
-    /// `highlights` 会一直为空，否则每次渲染都要重算一遍。
-    has_highlights: bool,
+    /// 算高亮时用的主题特征。切换主题（浅/深或换配色）后要重算，
+    /// 因为 TextRun 里的颜色是算好后固定下来的。
+    highlighted_with: Option<(bool, String)>,
     /// 新版内容的语法高亮，首次渲染时按主题算一次。
     highlights: Vec<Vec<Vec<TextRun>>>,
     /// 旧版内容的语法高亮，只给删除行用。
@@ -54,12 +91,32 @@ pub struct DiffView {
     layout: DiffLayout,
     /// 并排视图的行，由 `rows` 推导而来。
     split_rows: Vec<SplitRow>,
+    /// 自身的弱引用，行号点击回调用。首次渲染时填入。
+    self_weak: gpui::WeakEntity<DiffView>,
+    /// 重新读取 diff 的来源。只有能定位到仓库和文件时才自动刷新。
+    reload: Option<DiffReload>,
+    /// 轮询任务是否已启动，避免重复 spawn。
+    reload_timer_started: bool,
+    /// 用户试图在窄窗口切并排时的提示。下次切换排布时清掉。
+    hint_too_narrow: bool,
+}
+
+/// 自动刷新 diff 所需的信息。
+///
+/// 只对工作区改动有效：提交 diff 是历史快照，不会变。
+#[derive(Clone)]
+pub struct DiffReload {
+    pub root: PathBuf,
+    /// `None` 表示整个仓库的工作区 diff。
+    pub path: Option<PathBuf>,
+    /// 文件变更信号。监视线程推、DiffView 拉。
+    pub signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// 行号栏的显示方式。
 ///
 /// 单栏要同时显示新旧两个行号；并排时每一侧只需要自己那一个，省下的宽度留给正文。
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Gutter {
     /// 旧号 + 新号两栏。
     Both,
@@ -83,16 +140,17 @@ enum DiffLayout {
 enum SplitRow {
     FileHeader {
         path: String,
+        old_path: Option<String>,
         added: usize,
         removed: usize,
+        is_binary: bool,
     },
     /// hunk 头、`\ No newline` 标记这类整行展示的内容。
-    Band {
-        line: DiffLine,
-    },
+    Band { file: usize, line: DiffLine },
     Collapsed {
         key: (usize, usize),
         count: usize,
+        is_expanded: bool,
     },
     /// 左旧右新。某一侧为 None 表示那边是空白填充。
     Pair {
@@ -114,8 +172,10 @@ struct SplitSide {
 enum FlatRow {
     FileHeader {
         path: String,
+        old_path: Option<String>,
         added: usize,
         removed: usize,
+        is_binary: bool,
     },
     Line {
         file: usize,
@@ -123,15 +183,18 @@ enum FlatRow {
         /// 行内改动区间（字节偏移），空表示整行没有字符级差异。
         inline: Vec<InlineSpan>,
     },
-    /// 被折叠的一批上下文行。
+    /// 被折叠的一批上下文行（或展开后用于收起的横条）。
     Collapsed {
         /// 文件下标 + 该区间第一行的新行号，展开时据此判断。
         key: (usize, usize),
         count: usize,
+        /// true 表示这一条是「收起」，内容已经铺在它前面。
+        is_expanded: bool,
     },
 }
 
 impl EventEmitter<CloseDiff> for DiffView {}
+impl EventEmitter<JumpToSource> for DiffView {}
 
 impl DiffView {
     pub fn new(document: crate::editor_view::DiffDocument) -> Self {
@@ -139,15 +202,21 @@ impl DiffView {
         let diff = document.diff;
         let mut view = Self {
             title,
+            root: document.root,
+            source_path: document.source_path,
             diff,
             rows: Vec::new(),
-            has_highlights: false,
+            highlighted_with: None,
             highlights: Vec::new(),
             old_highlights: Vec::new(),
             expanded: std::collections::HashSet::new(),
             scroll_handle: gpui::ScrollHandle::new(),
             layout: DiffLayout::Unified,
             split_rows: Vec::new(),
+            self_weak: gpui::WeakEntity::new_invalid(),
+            reload: None,
+            reload_timer_started: false,
+            hint_too_narrow: false,
         };
         view.rebuild_rows();
         view
@@ -159,8 +228,10 @@ impl DiffView {
         for (file_index, file) in self.diff.files.iter().enumerate() {
             rows.push(FlatRow::FileHeader {
                 path: file.path.clone(),
+                old_path: file.old_path.clone(),
                 added: file.added,
                 removed: file.removed,
+                is_binary: file.is_binary,
             });
 
             // 先收集本文件的有效行（跳过文件头）。
@@ -217,6 +288,12 @@ impl DiffView {
                         // 文件下标也要编进 key，否则多个文件里同号的行会一起展开。
                         let key = (file_index, line.new_line.unwrap_or(0) as usize);
                         if self.expanded.contains(&key) {
+                            // 收起条画在展开内容之后，两头都能点到。
+                            rows.push(FlatRow::Collapsed {
+                                key,
+                                count: hidden,
+                                is_expanded: true,
+                            });
                             for offset in hidden_start..hidden_end {
                                 rows.push(FlatRow::Line {
                                     file: file_index,
@@ -225,7 +302,11 @@ impl DiffView {
                                 });
                             }
                         } else {
-                            rows.push(FlatRow::Collapsed { key, count: hidden });
+                            rows.push(FlatRow::Collapsed {
+                                key,
+                                count: hidden,
+                                is_expanded: false,
+                            });
                         }
                     }
                     // 尾部上下文。
@@ -248,10 +329,11 @@ impl DiffView {
     /// 行号是文件内的绝对行号，所以按行号索引即可；重建内容时用空行补齐
     /// 跳过的区块，下标正好等于 行号 - 1。
     fn ensure_highlights(&mut self, theme: &gpui_component::Theme) {
-        if self.has_highlights {
+        let signature = (theme.is_dark(), theme.highlight_theme.name.clone());
+        if self.highlighted_with.as_ref() == Some(&signature) {
             return;
         }
-        self.has_highlights = true;
+        self.highlighted_with = Some(signature);
         let mono_font = theme.mono_font_family.clone();
         let font_size = ui_px(theme, 11.0);
         let mut highlights = Vec::with_capacity(self.diff.files.len());
@@ -288,6 +370,235 @@ impl DiffView {
             .and_then(|lines| lines.get((number as usize).saturating_sub(1)))
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// 并排视图里按「这一侧是谁」取高亮。
+    ///
+    /// 左侧是旧文件、右侧是新文件；上下文行两边都存在，但行号可以不同，
+    /// 必须按各自的行号体系取，否则跨 hunk 时会拿到别处的样式。
+    fn side_runs(&self, file: usize, side: &SplitSide, is_left: bool) -> Vec<TextRun> {
+        let (source, number) = match (is_left, side.line.kind) {
+            // 左侧的删除行来自旧文件。
+            (true, DiffLineKind::Removed) => (&self.old_highlights, side.line.old_line),
+            // 上下文行两边文本相同，走新版内容即可；旧版内容里跳过的区块
+            // 是空行，反而会丢掉高亮。
+            // 其余情况按新版内容取；新增行只有新行号。
+            _ => (&self.highlights, side.line.new_line),
+        };
+        let Some(number) = number else {
+            return Vec::new();
+        };
+        source
+            .get(file)
+            .and_then(|lines| lines.get((number as usize).saturating_sub(1)))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// 构造传给 `render_line` 的跳转目标。解析不出路径时返回 None，行号栏不可点。
+    fn jump_target(&self, file: usize) -> Option<(&gpui::WeakEntity<DiffView>, usize)> {
+        self.resolve_path(file)?;
+        Some((&self.self_weak, file))
+    }
+
+    /// 设置自动刷新来源。只有工作区 diff 能自动刷新，提交 diff 不传。
+    pub fn set_reload(&mut self, reload: Option<DiffReload>) {
+        self.reload = reload;
+    }
+
+    /// 启动自动刷新：盯着仓库工作区，文件一变就重拉 diff。
+    ///
+    /// 只在工作区 diff 上启用；提交 diff 是历史快照，重拉没有意义。
+    pub(crate) fn start_auto_reload(&mut self, cx: &mut Context<Self>) {
+        let Some(reload) = self.reload.clone() else {
+            return;
+        };
+        if self.reload_timer_started {
+            return;
+        }
+        self.reload_timer_started = true;
+
+        // 用 notify 监视仓库，事件只置一个标志，由轮询任务节流后重拉。
+        // 直接对每个事件重跑 git 会在保存时打好几次 diff。
+        let signal = reload.signal.clone();
+        let watch_target = reload
+            .path
+            .as_ref()
+            .map(|path| reload.root.join(path))
+            .unwrap_or_else(|| reload.root.clone());
+
+        // 监视线程靠 stop 标志退出：标签关掉后轮询任务结束，
+        // 线程下一次醒来就能收尾，不会一直挂着 watcher。
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let watcher_stop = stop.clone();
+        std::thread::spawn(move || {
+            let Ok(mut watcher) =
+                notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                    if event.is_ok() {
+                        signal.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                })
+            else {
+                return;
+            };
+            // 单文件就盯文件本身；整仓库盯根目录。
+            let mode = if watch_target.is_file() {
+                notify::RecursiveMode::NonRecursive
+            } else {
+                notify::RecursiveMode::Recursive
+            };
+            if watcher.watch(&watch_target, mode).is_err() {
+                return;
+            }
+            // watcher 必须活着事件才会投递；用短睡眠轮询停止标志。
+            while !watcher_stop.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        });
+
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(400))
+                    .await;
+                let fired = reload
+                    .signal
+                    .swap(false, std::sync::atomic::Ordering::Relaxed);
+                let alive = this.update(cx, |this, cx| {
+                    if fired {
+                        this.reload_now(cx);
+                    }
+                });
+                if alive.is_err() {
+                    // 视图已经销毁，通知监视线程退出。
+                    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// 重新从 git 读当前 diff 并重建行。
+    fn reload_now(&mut self, cx: &mut Context<Self>) {
+        let Some(reload) = self.reload.clone() else {
+            return;
+        };
+        // 记住展开状态和滚动位置，刷新后尽量保持原地。
+        let scroll = self.scroll_handle.offset();
+        cx.spawn(async move |this, cx| {
+            let root = reload.root.clone();
+            let path = reload.path.clone();
+            let text = cx
+                .background_executor()
+                .spawn(async move {
+                    match path {
+                        Some(path) => con_core::git::working_diff(&root, &path).map(|d| d.text),
+                        None => con_core::git::working_diff_all(&root),
+                    }
+                })
+                .await;
+            let Ok(text) = text else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.diff = con_core::git::parse_diff(&text);
+                this.highlighted_with = None;
+                this.rebuild_rows();
+                // 行数变了，滚动位置可能越界，让 gpui 自己收拢。
+                this.scroll_handle
+                    .set_offset(gpui::point(scroll.x, scroll.y));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 每个文件段在当前排布里的起始行下标。
+    fn file_row_indices(&self) -> Vec<usize> {
+        match self.layout {
+            DiffLayout::Unified => self
+                .rows
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| matches!(row, FlatRow::FileHeader { .. }))
+                .map(|(index, _)| index)
+                .collect(),
+            DiffLayout::SideBySide => self
+                .split_rows
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| matches!(row, SplitRow::FileHeader { .. }))
+                .map(|(index, _)| index)
+                .collect(),
+        }
+    }
+
+    /// 滚到下一个文件段；已经是最后一个就绕回开头。
+    ///
+    /// 偏移按当前排布的行高累加，和 `jump_to_change` 用同一套坐标。
+    fn scroll_to_next_file(&mut self, cx: &mut Context<Self>) {
+        let files = self.file_row_indices();
+        if files.is_empty() {
+            return;
+        }
+        let offsets = self.row_offsets(cx.theme());
+        let scroll_top = -self.scroll_handle.offset().y.as_f32();
+
+        // 当前顶端所在的文件段，往下走一个。
+        let current = files
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| {
+                let offset = offsets.get(**row).copied().unwrap_or(0.0) as f64;
+                offset <= f64::from(scroll_top) + 1.0
+            })
+            .map(|(slot, _)| slot)
+            .next_back()
+            .unwrap_or(0);
+        let next = (current + 1) % files.len();
+
+        let offset_y = px(-(offsets.get(files[next]).copied().unwrap_or(0.0)));
+        self.scroll_handle
+            .set_offset(gpui::point(px(0.0), offset_y));
+        cx.notify();
+    }
+
+    /// 目标行号：新行号优先，删除行退回旧行号。
+    ///
+    /// 删除行在新文件里已经没有位置，退到旧行号至少能落到改动附近。
+    fn target_line(line: &DiffLine) -> Option<u32> {
+        line.new_line.or(line.old_line)
+    }
+
+    /// 把 diff 里的相对路径解析成绝对路径。
+    ///
+    /// 优先用仓库根；没有根时退回打开时的源文件路径（单文件 diff 常见）。
+    fn resolve_path(&self, file: usize) -> Option<PathBuf> {
+        let entry = self.diff.files.get(file)?;
+        // 有仓库根时按 diff 里的相对路径拼，多文件 diff 每个文件各自正确。
+        if let Some(root) = self.root.as_ref() {
+            return Some(root.join(entry.path.as_str()));
+        }
+        // 没有根时只能用打开时的单个文件路径。
+        if self.diff.files.len() > 1 {
+            return None;
+        }
+        self.source_path.clone()
+    }
+
+    /// 跳到某个文件的某一行。
+    fn jump_to_source(&self, file: usize, line: Option<u32>, cx: &mut Context<Self>) {
+        let Some(path) = self.resolve_path(file) else {
+            return;
+        };
+        let Some(line) = line else {
+            return;
+        };
+        cx.emit(JumpToSource {
+            path,
+            line: line as usize,
+        });
     }
 
     /// 所有改动行在当前排布里的下标（hunk 头也算，方便看清区块边界）。
@@ -332,14 +643,10 @@ impl DiffView {
     /// 当前排布下每个行下标对应的累计高度。
     ///
     /// 文件标题比普通行高，不能统一乘行高；折叠条和普通行等高。
-    fn row_offsets(&self) -> Vec<f32> {
-        let is_header = |header: bool| {
-            if header {
-                FILE_HEADER_HEIGHT
-            } else {
-                LINE_HEIGHT
-            }
-        };
+    fn row_offsets(&self, theme: &gpui_component::Theme) -> Vec<f32> {
+        let row_height = line_height(theme).as_f32();
+        let header_height = file_header_height(theme).as_f32();
+        let is_header = |header: bool| if header { header_height } else { row_height };
         let mut offsets = Vec::new();
         let mut cursor = 0.0;
         match self.layout {
@@ -367,7 +674,7 @@ impl DiffView {
         if changes.is_empty() {
             return;
         }
-        let offsets = self.row_offsets();
+        let offsets = self.row_offsets(cx.theme());
         if offsets.is_empty() {
             return;
         }
@@ -422,20 +729,29 @@ fn build_split_rows(rows: &[FlatRow]) -> Vec<SplitRow> {
         match &rows[index] {
             FlatRow::FileHeader {
                 path,
+                old_path,
                 added,
                 removed,
+                is_binary,
             } => {
                 split.push(SplitRow::FileHeader {
                     path: path.clone(),
+                    old_path: old_path.clone(),
                     added: *added,
                     removed: *removed,
+                    is_binary: *is_binary,
                 });
                 index += 1;
             }
-            FlatRow::Collapsed { key, count } => {
+            FlatRow::Collapsed {
+                key,
+                count,
+                is_expanded,
+            } => {
                 split.push(SplitRow::Collapsed {
                     key: *key,
                     count: *count,
+                    is_expanded: *is_expanded,
                 });
                 index += 1;
             }
@@ -457,7 +773,10 @@ fn build_split_rows(rows: &[FlatRow]) -> Vec<SplitRow> {
                 let kind = line.kind;
                 // 下面两条收集循环按 file 过滤，避免跨文件误配。
                 if kind != DiffLineKind::Removed && kind != DiffLineKind::Added {
-                    split.push(SplitRow::Band { line: line.clone() });
+                    split.push(SplitRow::Band {
+                        file,
+                        line: line.clone(),
+                    });
                     index += 1;
                     continue;
                 }
@@ -516,12 +835,13 @@ fn build_split_rows(rows: &[FlatRow]) -> Vec<SplitRow> {
 fn render_split_row(
     theme: &gpui_component::Theme,
     mono_font: &SharedString,
-    left: Option<SplitSide>,
+    left: Option<&SplitSide>,
     left_runs: Vec<TextRun>,
-    right: Option<SplitSide>,
+    right: Option<&SplitSide>,
     right_runs: Vec<TextRun>,
+    jump: Option<(&gpui::WeakEntity<DiffView>, usize)>,
 ) -> AnyElement {
-    let half = |side: Option<SplitSide>, runs: Vec<TextRun>, gutter: Gutter| -> AnyElement {
+    let half = |side: Option<&SplitSide>, runs: Vec<TextRun>, gutter: Gutter| -> AnyElement {
         let Some(side) = side else {
             // 空侧：画一条淡淡的底色，让「这里没有对应行」一眼可见。
             return div()
@@ -533,11 +853,19 @@ fn render_split_row(
                     .opacity(if theme.is_dark() { 0.025 } else { 0.02 }))
                 .into_any_element();
         };
-        render_line(theme, mono_font, side.line, runs, side.inline, gutter)
+        render_line(
+            theme,
+            mono_font,
+            &side.line,
+            runs,
+            &side.inline,
+            gutter,
+            jump,
+        )
     };
 
     div()
-        .h(px(LINE_HEIGHT))
+        .h(line_height(theme))
         .w_full()
         .flex()
         .items_center()
@@ -630,7 +958,7 @@ fn highlight_lines(
         theme,
         mono_font.clone(),
         font_size,
-        px(LINE_HEIGHT),
+        line_height(theme),
     )
 }
 
@@ -655,8 +983,20 @@ fn stripe_color(kind: DiffLineKind, theme: &gpui_component::Theme) -> Hsla {
 }
 
 impl Render for DiffView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
+        // 并排视图每侧至少要有这么多像素才排得下代码；窄了自动退回单栏。
+        let available_width = window.bounds().size.width.as_f32();
+        let is_too_narrow = available_width < SPLIT_MIN_WIDTH;
+        let effective_layout = if self.layout == DiffLayout::SideBySide && is_too_narrow {
+            DiffLayout::Unified
+        } else {
+            self.layout
+        };
+        // 窗口重新变宽后提示就该消失。
+        if !is_too_narrow {
+            self.hint_too_narrow = false;
+        }
 
         if self.diff.files.is_empty() {
             return div()
@@ -666,10 +1006,12 @@ impl Render for DiffView {
                 .justify_center()
                 .text_size(ui_px(&theme, 12.0))
                 .text_color(theme.muted_foreground)
-                .child("这个文件没有文本差异（可能是二进制或纯重命名）")
+                .child("没有可显示的差异")
                 .into_any_element();
         }
 
+        // 首次渲染时缓存自身弱引用，供行号点击回调使用。
+        self.self_weak = cx.weak_entity();
         self.ensure_highlights(&theme);
 
         // 直接铺开所有行。虚拟列表放进实体化子视图后算不出可见范围
@@ -685,54 +1027,93 @@ impl Render for DiffView {
             .overflow_y_scroll()
             .track_scroll(&self.scroll_handle);
 
-        match self.layout {
+        match effective_layout {
             DiffLayout::Unified => {
-                for row_index in 0..self.rows.len() {
-                    rows = rows.child(match self.rows[row_index].clone() {
+                for row in &self.rows {
+                    rows = rows.child(match row {
                         FlatRow::FileHeader {
                             path,
+                            old_path,
                             added,
                             removed,
-                        } => render_file_header(&theme, path, added, removed),
-                        FlatRow::Collapsed { key, count } => {
-                            render_collapsed(&theme, key, count, cx)
-                        }
+                            is_binary,
+                        } => render_file_header(
+                            &theme,
+                            path,
+                            old_path.as_deref(),
+                            *added,
+                            *removed,
+                            *is_binary,
+                        ),
+                        FlatRow::Collapsed {
+                            key,
+                            count,
+                            is_expanded,
+                        } => render_collapsed(&theme, *key, *count, *is_expanded, cx),
                         FlatRow::Line { file, line, inline } => {
-                            let runs = self.line_runs(file, &line);
-                            render_line(&theme, &mono_font, line, runs, inline, Gutter::Both)
+                            let runs = self.line_runs(*file, line);
+                            render_line(
+                                &theme,
+                                &mono_font,
+                                line,
+                                runs,
+                                inline,
+                                Gutter::Both,
+                                self.jump_target(*file),
+                            )
                         }
                     });
                 }
             }
             DiffLayout::SideBySide => {
-                for row_index in 0..self.split_rows.len() {
-                    rows = rows.child(match self.split_rows[row_index].clone() {
+                for row in &self.split_rows {
+                    rows = rows.child(match row {
                         SplitRow::FileHeader {
                             path,
+                            old_path,
                             added,
                             removed,
-                        } => render_file_header(&theme, path, added, removed),
-                        SplitRow::Collapsed { key, count } => {
-                            render_collapsed(&theme, key, count, cx)
-                        }
-                        SplitRow::Band { line } => render_line(
+                            is_binary,
+                        } => render_file_header(
+                            &theme,
+                            path,
+                            old_path.as_deref(),
+                            *added,
+                            *removed,
+                            *is_binary,
+                        ),
+                        SplitRow::Collapsed {
+                            key,
+                            count,
+                            is_expanded,
+                        } => render_collapsed(&theme, *key, *count, *is_expanded, cx),
+                        SplitRow::Band { file, line } => render_line(
                             &theme,
                             &mono_font,
                             line,
                             Vec::new(),
-                            Vec::new(),
+                            &[],
                             Gutter::Both,
+                            self.jump_target(*file),
                         ),
                         SplitRow::Pair { file, left, right } => {
                             let left_runs = left
                                 .as_ref()
-                                .map(|side| self.line_runs(file, &side.line))
+                                .map(|side| self.side_runs(*file, side, true))
                                 .unwrap_or_default();
                             let right_runs = right
                                 .as_ref()
-                                .map(|side| self.line_runs(file, &side.line))
+                                .map(|side| self.side_runs(*file, side, false))
                                 .unwrap_or_default();
-                            render_split_row(&theme, &mono_font, left, left_runs, right, right_runs)
+                            render_split_row(
+                                &theme,
+                                &mono_font,
+                                left.as_ref(),
+                                left_runs,
+                                right.as_ref(),
+                                right_runs,
+                                self.jump_target(*file),
+                            )
                         }
                     });
                 }
@@ -745,14 +1126,19 @@ impl Render for DiffView {
             .flex()
             .flex_col()
             .bg(theme.background)
-            .child(self.render_toolbar(&theme, cx))
+            .child(self.render_toolbar(&theme, effective_layout, cx))
             .child(rows)
             .into_any_element()
     }
 }
 
 impl DiffView {
-    fn render_toolbar(&self, theme: &gpui_component::Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn render_toolbar(
+        &self,
+        theme: &gpui_component::Theme,
+        effective_layout: DiffLayout,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .flex()
             .items_center()
@@ -788,24 +1174,56 @@ impl DiffView {
                     .text_color(theme.danger)
                     .child(self.removed_text()),
             )
-            // 单栏 / 并排切换。
+            // 多文件 diff 的文件导航。点击逐个跳到下一个文件段，
+            // 比在一屏几百行里滚要靠得住。
+            .when(self.diff.files.len() > 1, |bar| {
+                bar.child(
+                    Button::new("diff-files")
+                        .label(format!("{} 个文件", self.diff.files.len()))
+                        .ghost()
+                        .small()
+                        .tooltip("跳到下一个文件")
+                        .on_click(cx.listener(|this, _, _, cx| this.scroll_to_next_file(cx))),
+                )
+            })
+            .when(self.hint_too_narrow, |bar| {
+                bar.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_size(ui_px(theme, 9.5))
+                        .font_family(theme.font_family.clone())
+                        .text_color(theme.muted_foreground.opacity(0.85))
+                        .child("窗口太窄，已退回单栏"),
+                )
+            })
+            // 单栏 / 并排切换。窗口太窄时并排会被降级，按钮如实反映当前排布。
             .child(
                 Button::new("diff-layout")
-                    .label(match self.layout {
+                    .label(match effective_layout {
                         DiffLayout::Unified => "并排",
                         DiffLayout::SideBySide => "单栏",
                     })
                     .ghost()
                     .small()
-                    .tooltip(match self.layout {
-                        DiffLayout::Unified => "切换为左右并排对比",
-                        DiffLayout::SideBySide => "切换为上下单栏对比",
+                    .tooltip(match (self.layout, effective_layout) {
+                        (DiffLayout::SideBySide, DiffLayout::Unified) => "窗口太窄，已退回单栏",
+                        (DiffLayout::Unified, _) => "切换为左右并排对比",
+                        _ => "切换为上下单栏对比",
                     })
-                    .on_click(cx.listener(|this, _, _, cx| {
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        // 按用户真正存储的排布切换，而不是按被降级后的显示状态，
+                        // 否则窄窗口下点一次会看起来毫无反应。
                         this.layout = match this.layout {
                             DiffLayout::Unified => DiffLayout::SideBySide,
                             DiffLayout::SideBySide => DiffLayout::Unified,
                         };
+                        this.hint_too_narrow = false;
+                        // 窄窗口下切到并排会被立刻降级，提示一下。
+                        if this.layout == DiffLayout::SideBySide
+                            && window.bounds().size.width.as_f32() < SPLIT_MIN_WIDTH
+                        {
+                            this.hint_too_narrow = true;
+                        }
                         // 两种排布行数不同，滚动位置要回到顶部免得看到半截。
                         this.scroll_handle.set_offset(gpui::point(px(0.0), px(0.0)));
                         cx.notify();
@@ -841,15 +1259,31 @@ impl DiffView {
 
 fn render_file_header(
     theme: &gpui_component::Theme,
-    path: String,
+    path: &str,
+    old_path: Option<&str>,
     added: usize,
     removed: usize,
+    is_binary: bool,
 ) -> AnyElement {
+    // 重命名要把旧路径也显示出来，否则只看到一个陌生的新名字。
+    let title = match old_path {
+        Some(old) if old != path => format!("{old} → {path}"),
+        _ => path.to_string(),
+    };
+
+    let badge = if is_binary {
+        Some(("二进制", theme.muted_foreground))
+    } else if added == 0 && removed == 0 {
+        Some(("无文本变化", theme.muted_foreground))
+    } else {
+        None
+    };
+
     div()
         .flex()
         .items_center()
         .gap(px(8.0))
-        .h(px(26.0))
+        .h(file_header_height(theme))
         .px(px(10.0))
         .bg(theme
             .foreground
@@ -863,34 +1297,57 @@ fn render_file_header(
                 .font_weight(FontWeight::SEMIBOLD)
                 .font_family(theme.font_family.clone())
                 .text_color(theme.foreground)
-                .child(path),
+                .child(title),
         )
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_size(ui_px(theme, 10.0))
-                .font_family(theme.mono_font_family.clone())
-                .text_color(theme.success)
-                .child(format!("+{added}")),
-        )
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_size(ui_px(theme, 10.0))
-                .font_family(theme.mono_font_family.clone())
-                .text_color(theme.danger)
-                .child(format!("−{removed}")),
-        )
+        .when_some(badge, |row, (label, color)| {
+            row.child(
+                div()
+                    .flex_shrink_0()
+                    .px(px(5.0))
+                    .rounded(px(3.0))
+                    .bg(theme.foreground.opacity(0.08))
+                    .text_size(ui_px(theme, 9.0))
+                    .font_family(theme.font_family.clone())
+                    .text_color(color.opacity(0.9))
+                    .child(label),
+            )
+        })
+        .when(!is_binary, |row| {
+            row.child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(ui_px(theme, 10.0))
+                    .font_family(theme.mono_font_family.clone())
+                    .text_color(theme.success)
+                    .child(format!("+{added}")),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(ui_px(theme, 10.0))
+                    .font_family(theme.mono_font_family.clone())
+                    .text_color(theme.danger)
+                    .child(format!("−{removed}")),
+            )
+        })
         .into_any_element()
 }
 
-/// 折叠区块：一条可点击的横条，展开后显示被隐藏的上下文。
+/// 折叠区块：一条可点击的横条。
+///
+/// `is_expanded` 为 true 时画在展开后的区块下方，点击可重新收起。
 fn render_collapsed(
     theme: &gpui_component::Theme,
     key: (usize, usize),
     count: usize,
+    is_expanded: bool,
     cx: &mut Context<DiffView>,
 ) -> AnyElement {
+    let label = if is_expanded {
+        format!("⋯ 收起 {count} 行未改动的内容")
+    } else {
+        format!("⋯ 展开 {count} 行未改动的内容")
+    };
     div()
         .id(SharedString::from(format!(
             "diff-collapsed-{}-{}",
@@ -898,7 +1355,7 @@ fn render_collapsed(
         )))
         .flex()
         .items_center()
-        .h(px(LINE_HEIGHT))
+        .h(line_height(theme))
         .w_full()
         .px(px(10.0))
         .cursor_pointer()
@@ -911,10 +1368,14 @@ fn render_collapsed(
                 .text_size(ui_px(theme, 10.0))
                 .font_family(theme.mono_font_family.clone())
                 .text_color(theme.primary.opacity(0.85))
-                .child(format!("⋯ 展开 {count} 行未改动的内容")),
+                .child(label),
         )
         .on_click(cx.listener(move |this, _, _, cx| {
-            this.expanded.insert(key);
+            if is_expanded {
+                this.expanded.remove(&key);
+            } else {
+                this.expanded.insert(key);
+            }
             this.rebuild_rows();
             cx.notify();
         }))
@@ -958,60 +1419,61 @@ fn render_line_content(
     let base_color = theme.foreground.opacity(0.92);
     let font_size = ui_px(theme, 11.0);
 
-    let wrapper = div()
+    // 行内标记靠 TextRun 的背景色表达：gpui 的文本绘制会先画每个 run 的背景，
+    // 所以整行仍然是一次 layout、一个字符串，等宽对齐天然成立。
+    let styled_runs = if inline.is_empty() || text.is_empty() {
+        runs.to_vec()
+    } else {
+        marked_runs(text, runs, inline, mark)
+    };
+
+    let content = text_content(base_color, &styled_runs, text);
+    div()
         .flex_1()
         .min_w(px(0.0))
         .flex()
         .items_center()
         .overflow_hidden()
         .text_size(font_size)
-        .font_family(mono_font.clone());
+        .font_family(mono_font.clone())
+        .child(content)
+        .into_any_element()
+}
 
-    // 没有字符级差异（或拿不到行内容）时整行一个样式。
-    if inline.is_empty() || text.is_empty() {
-        let content = text_content(base_color, runs, text);
-        return wrapper.child(content).into_any_element();
+/// 按改动区间切分高亮 run，给改动段加上背景色。
+///
+/// 输出仍然连续覆盖整行、字节数之和等于 `text.len()`，可以直接交给
+/// `StyledText` 一次性排版。
+fn marked_runs(text: &str, runs: &[TextRun], inline: &[InlineSpan], mark: Hsla) -> Vec<TextRun> {
+    // 边界收拢到字符边界，避免切出非法切片。
+    let mut bounds: Vec<(usize, usize)> = Vec::new();
+    for span in inline {
+        let start = floor_boundary(text, span.start);
+        let end = floor_boundary(text, span.end);
+        if start < end {
+            bounds.push((start, end));
+        }
+    }
+    if bounds.is_empty() {
+        return runs.to_vec();
     }
 
-    // 按改动区间切段，区间之外是未改动部分。
-    let mut segments: Vec<(usize, usize, bool)> = Vec::new();
+    let mut marked = Vec::with_capacity(runs.len() + bounds.len());
     let mut cursor = 0;
-    for span in inline {
-        let span_start = span.start.min(text.len());
-        let span_end = span.end.min(text.len());
-        if span_start >= span_end {
-            continue;
+    for (start, end) in bounds {
+        if start > cursor {
+            marked.extend(slice_runs(runs, cursor, start));
         }
-        if span_start > cursor {
-            segments.push((cursor, span_start, false));
-        }
-        segments.push((span_start, span_end, true));
-        cursor = span_end;
+        marked.extend(slice_runs(runs, start, end).into_iter().map(|mut run| {
+            run.background_color = Some(mark);
+            run
+        }));
+        cursor = end;
     }
     if cursor < text.len() {
-        segments.push((cursor, text.len(), false));
+        marked.extend(slice_runs(runs, cursor, text.len()));
     }
-
-    let mut row = wrapper;
-    for (start, end, is_changed) in segments {
-        // 切分点可能落在多字节字符中间，向前后收拢到最近的字符边界。
-        let start = floor_boundary(text, start);
-        let end = floor_boundary(text, end);
-        if start >= end {
-            continue;
-        }
-        let slice = &text[start..end];
-        let segment_runs = slice_runs(runs, start, end);
-        let content = text_content(base_color, &segment_runs, slice);
-        // 不能加左右 padding：背景是画在 div 上的，padding 会把后面的字符推走，
-        // 等宽对齐就断了。
-        row = row.child(
-            div()
-                .when(is_changed, |style| style.bg(mark).rounded(px(2.0)))
-                .child(content),
-        );
-    }
-    row.into_any_element()
+    marked
 }
 
 /// 把下标向前收拢到最近的字符边界，避免切出非法 str 切片。
@@ -1038,17 +1500,39 @@ fn text_content(base_color: Hsla, runs: &[TextRun], text: &str) -> AnyElement {
 fn render_line(
     theme: &gpui_component::Theme,
     mono_font: &SharedString,
-    line: DiffLine,
+    line: &DiffLine,
     runs: Vec<TextRun>,
-    inline: Vec<InlineSpan>,
+    inline: &[InlineSpan],
     gutter: Gutter,
+    jump: Option<(&gpui::WeakEntity<DiffView>, usize)>,
 ) -> AnyElement {
     let background = row_background(line.kind, theme);
+
+    // 二进制说明行：只有一行占位文字，没有行号也没有增删符号。
+    if line.kind == DiffLineKind::Binary {
+        return div()
+            .h(line_height(theme))
+            .w_full()
+            .flex()
+            .items_center()
+            .px(px(10.0))
+            .bg(background)
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .truncate()
+                    .text_size(ui_px(theme, 10.0))
+                    .font_family(mono_font.clone())
+                    .text_color(theme.muted_foreground.opacity(0.75))
+                    .child(line.text.clone()),
+            )
+            .into_any_element();
+    }
 
     // hunk 头单独一行，用灰色小字，不加行号。
     if line.kind == DiffLineKind::HunkHeader {
         return div()
-            .h(px(LINE_HEIGHT))
+            .h(line_height(theme))
             .w_full()
             .flex()
             .items_center()
@@ -1061,7 +1545,7 @@ fn render_line(
                     .text_size(ui_px(theme, 10.0))
                     .font_family(mono_font.clone())
                     .text_color(theme.muted_foreground.opacity(0.8))
-                    .child(line.text),
+                    .child(line.text.clone()),
             )
             .into_any_element();
     }
@@ -1090,10 +1574,10 @@ fn render_line(
             .opacity(if theme.is_dark() { 0.34 } else { 0.22 }),
         _ => theme.transparent,
     };
-    let content = render_line_content(theme, mono_font, &line.text, &runs, &inline, mark);
+    let content = render_line_content(theme, mono_font, &line.text, &runs, inline, mark);
 
     div()
-        .h(px(LINE_HEIGHT))
+        .h(line_height(theme))
         .w_full()
         .flex()
         .items_center()
@@ -1105,36 +1589,56 @@ fn render_line(
                 .flex_shrink_0()
                 .bg(stripe_color(line.kind, theme)),
         )
-        .child(match gutter {
-            // 单栏：旧号 | 新号。增行只显示新号，删行只显示旧号。
-            Gutter::Both => div()
-                .w(px(GUTTER_WIDTH))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .text_size(ui_px(theme, 9.5))
-                .font_family(mono_font.clone())
-                .text_color(theme.muted_foreground.opacity(0.55))
-                .child(div().w(px(32.0)).pr(px(6.0)).text_right().child(old_no))
-                .child(div().w(px(32.0)).pr(px(6.0)).text_right().child(new_no))
-                .into_any_element(),
-            // 并排：每侧只留一个行号列，正文能多出 28px。
-            Gutter::Old | Gutter::New => div()
-                .w(px(SINGLE_GUTTER_WIDTH))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_end()
-                .pr(px(6.0))
-                .text_size(ui_px(theme, 9.5))
-                .font_family(mono_font.clone())
-                .text_color(theme.muted_foreground.opacity(0.55))
-                .child(if gutter == Gutter::Old {
-                    old_no
-                } else {
-                    new_no
-                })
-                .into_any_element(),
+        .child({
+            // 行号栏可点击：跳到源文件对应位置。没有路径信息时退回成纯文本。
+            let clickable = jump.filter(|_| line.old_line.is_some() || line.new_line.is_some());
+            let target_line = DiffView::target_line(line);
+            let gutter_element = match gutter {
+                // 单栏：旧号 | 新号。增行只显示新号，删行只显示旧号。
+                Gutter::Both => div()
+                    .w(gutter_width(theme))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .text_size(ui_px(theme, 9.5))
+                    .font_family(mono_font.clone())
+                    .text_color(theme.muted_foreground.opacity(0.55))
+                    .child(div().w(px(32.0)).pr(px(6.0)).text_right().child(old_no))
+                    .child(div().w(px(32.0)).pr(px(6.0)).text_right().child(new_no)),
+                // 并排：每侧只留一个行号列，正文能多出 28px。
+                Gutter::Old | Gutter::New => div()
+                    .w(single_gutter_width(theme))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .pr(px(6.0))
+                    .text_size(ui_px(theme, 9.5))
+                    .font_family(mono_font.clone())
+                    .text_color(theme.muted_foreground.opacity(0.55))
+                    .child(if gutter == Gutter::Old {
+                        old_no
+                    } else {
+                        new_no
+                    }),
+            };
+            match (clickable, target_line) {
+                (Some((view, file)), Some(line_no)) => {
+                    let id = SharedString::from(format!("diff-gutter-{file}-{line_no}-{gutter:?}"));
+                    let view = view.clone();
+                    gutter_element
+                        .id(id)
+                        .cursor_pointer()
+                        .hover(|style| style.text_color(theme.primary.opacity(0.9)))
+                        .on_click(move |_, _, cx| {
+                            let _ = view.update(cx, |this, cx| {
+                                this.jump_to_source(file, Some(line_no), cx)
+                            });
+                        })
+                        .into_any_element()
+                }
+                _ => gutter_element.into_any_element(),
+            }
         })
         .child(
             div()
@@ -1156,10 +1660,7 @@ mod tests {
 
     fn make(raw: &str) -> DiffView {
         let diff = parse_diff(raw);
-        let document = crate::editor_view::DiffDocument {
-            title: "t".into(),
-            diff,
-        };
+        let document = crate::editor_view::DiffDocument::new("t".into(), diff);
         DiffView::new(document)
     }
 
@@ -1235,13 +1736,87 @@ diff --git a/a.rs b/a.rs
 
         view.expanded.insert(key);
         view.rebuild_rows();
+        // 展开后多出一批上下文行，还多一条「收起」横条。
         assert!(view.rows.len() > before, "展开后行数应增加");
         assert!(
-            !view
-                .rows
-                .iter()
-                .any(|row| matches!(row, FlatRow::Collapsed { .. }))
+            view.rows.iter().any(|row| matches!(
+                row,
+                FlatRow::Collapsed {
+                    is_expanded: true,
+                    ..
+                }
+            )),
+            "展开后应留一条收起横条"
         );
+        assert!(
+            view.rows.iter().any(|row| matches!(
+                row,
+                FlatRow::Line { line, .. } if line.text == "ctx1"
+            )),
+            "被折叠的行应当重新出现"
+        );
+    }
+
+    /// 多文件 diff 的文件段下标必须与 FileHeader 数量一致。
+    #[test]
+    fn file_row_indices_track_each_file_header() {
+        let raw = "\
+diff --git a/a.rs b/a.rs
+--- a/a.rs
++++ b/a.rs
+@@ -1,1 +1,1 @@
+-old
++new
+diff --git a/b.rs b/b.rs
+--- a/b.rs
++++ b/b.rs
+@@ -1,1 +1,1 @@
+-x
++y
+";
+        let mut view = make(raw);
+        let unified = view.file_row_indices();
+        assert_eq!(unified.len(), 2);
+        assert_eq!(unified[0], 0, "第一个文件段从第 0 行开始");
+        assert!(matches!(view.rows[unified[1]], FlatRow::FileHeader { .. }));
+
+        view.layout = DiffLayout::SideBySide;
+        let split = view.file_row_indices();
+        assert_eq!(split.len(), 2);
+        assert!(matches!(
+            view.split_rows[split[0]],
+            SplitRow::FileHeader { .. }
+        ));
+    }
+
+    /// 展开后重新收起，行数回到展开前。
+    #[test]
+    fn collapsing_again_restores_the_hidden_rows() {
+        let mut raw =
+            String::from("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,11 +1,11 @@\n");
+        for i in 0..10 {
+            raw.push_str(&format!(" ctx{i}\n"));
+        }
+        raw.push_str("-old\n+new\n");
+
+        let mut view = make(&raw);
+        let collapsed_rows = view.rows.len();
+        let key = view
+            .rows
+            .iter()
+            .find_map(|row| match row {
+                FlatRow::Collapsed { key, .. } => Some(*key),
+                _ => None,
+            })
+            .expect("应当有折叠区块");
+
+        view.expanded.insert(key);
+        view.rebuild_rows();
+        assert_ne!(view.rows.len(), collapsed_rows);
+
+        view.expanded.remove(&key);
+        view.rebuild_rows();
+        assert_eq!(view.rows.len(), collapsed_rows, "收起后应回到初始行数");
     }
 
     /// 两个文件里同号的上下文区块，折叠 key 必须不同，否则会一起展开。

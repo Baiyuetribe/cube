@@ -462,9 +462,11 @@ impl ConWorkspace {
             &git_view_entity,
             window,
             |this, _git, event: &crate::git_view::OpenDiff, window, cx| {
-                this.open_snapshot_in_active_editor(
+                this.open_diff_in_active_editor(
                     event.title.clone(),
                     event.text.clone(),
+                    event.root.clone(),
+                    event.path.clone(),
                     window,
                     cx,
                 );
@@ -956,10 +958,37 @@ impl ConWorkspace {
 
     /// 在活动编辑区里打开一段只读内容（git diff 等）。
     ///
+    /// 打开一个 git diff 标签。
+    ///
+    /// 和 `open_snapshot_in_active_editor` 分开：diff 需要记住仓库根和文件路径，
+    /// 这样行号才能点回源文件。
+    pub(super) fn open_diff_in_active_editor(
+        &mut self,
+        title: String,
+        content: String,
+        root: PathBuf,
+        path: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_snapshot_inner(Some((root, path)), title, content, window, cx);
+    }
+
     /// 与 [`Self::open_path_in_active_editor`] 的区别是不读磁盘：内容是调用方
     /// 给的内存字符串，标签只读。
     pub(super) fn open_snapshot_in_active_editor(
         &mut self,
+        title: String,
+        content: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_snapshot_inner(None, title, content, window, cx);
+    }
+
+    fn open_snapshot_inner(
+        &mut self,
+        diff_context: Option<(PathBuf, Option<PathBuf>)>,
         title: String,
         content: String,
         window: &mut Window,
@@ -1001,7 +1030,12 @@ impl ConWorkspace {
         editor_view.update(cx, |editor: &mut EditorView, cx| {
             // 走 diff 专用标签：增删行着色、新旧行号分栏，
             // 而不是把 unified diff 当普通文本显示。
-            editor.open_diff(key, title, content, cx);
+            match diff_context {
+                Some((root, path)) => {
+                    editor.open_diff_with_context(key, title, content, root, path, cx)
+                }
+                None => editor.open_diff(key, title, content, cx),
+            }
         });
         editor_focus.focus(window, cx);
         self.sync_sidebar(cx);
