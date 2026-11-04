@@ -7,13 +7,13 @@ use std::path::PathBuf;
 
 use con_core::git::{self, GitChange, GitCommit, GitStatus};
 use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, EventEmitter, FontWeight, Hsla, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, div,
-    prelude::*, px, svg,
+    AnyElement, Bounds, ClipboardItem, Context, Entity, EventEmitter, FontWeight, Hsla,
+    IntoElement, MouseButton, ParentElement, Pixels, Render, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, prelude::*, px, svg,
 };
 use gpui_component::input::InputState;
 use gpui_component::{
-    ActiveTheme, Icon, Sizable as _,
+    ActiveTheme, ElementExt as _, Icon, Sizable as _,
     button::{Button, ButtonVariants as _},
     input::Input,
     menu::{ContextMenuExt as _, PopupMenuItem},
@@ -23,13 +23,6 @@ use crate::file_icons::icon_for_path;
 use crate::file_tree_view::render_file_icon;
 use crate::git_graph_element::GitGraphElement;
 use crate::ui_scale::ui_px;
-
-/// 面板当前显示哪个分页。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GitTab {
-    Changes,
-    History,
-}
 
 /// 用户在 Git 面板里要打开某个 diff。
 pub struct OpenDiff {
@@ -48,7 +41,6 @@ pub struct DiscardChangeRequested {
 
 pub struct GitView {
     root: Option<PathBuf>,
-    tab: GitTab,
     changes: Vec<GitChange>,
     commits: Vec<GitCommit>,
     /// 点进某个提交后，显示它改动了哪些文件。
@@ -67,6 +59,14 @@ pub struct GitView {
     /// 两个分组各自的展开状态。
     staged_open: bool,
     unstaged_open: bool,
+    /// 上方变更区占整体的比例（0.15~0.85），由中间的分割线拖动。
+    split_ratio: f32,
+    /// 拖拽分割线时记录「上一帧的指针 y」，每次按增量推进比例。
+    /// 用增量而不是起点基准：分割线本身会跟着比例移动，起点基准会让
+    /// 指针与线的相对位置不断变化，产生抖动。
+    split_drag: Option<f32>,
+    /// 上一次绘制时面板的总高度，用于把拖动像素换算成比例。
+    split_area_height: f32,
 }
 
 const ROW_HEIGHT: f32 = 24.0;
@@ -88,7 +88,6 @@ impl GitView {
         });
         Self {
             root: None,
-            tab: GitTab::Changes,
             changes: Vec::new(),
             commits: Vec::new(),
             selected_commit: None,
@@ -101,6 +100,9 @@ impl GitView {
             pending_discard: None,
             staged_open: true,
             unstaged_open: true,
+            split_ratio: 0.5,
+            split_drag: None,
+            split_area_height: 0.0,
         }
     }
 
@@ -115,15 +117,6 @@ impl GitView {
         self.selected_commit = None;
         self.commit_files.clear();
         self.refresh(cx);
-    }
-
-    fn set_tab(&mut self, tab: GitTab, cx: &mut Context<Self>) {
-        if self.tab != tab {
-            self.tab = tab;
-            self.selected_commit = None;
-            self.commit_files.clear();
-            self.refresh(cx);
-        }
     }
 
     /// 重新读取当前分页需要的数据。
@@ -142,18 +135,14 @@ impl GitView {
             return;
         };
 
-        let want_history = self.tab == GitTab::History;
         let commit = self.selected_commit.clone();
 
         cx.spawn(async move |this, cx| {
             let read =
                 move || -> Result<(Vec<GitChange>, Vec<GitCommit>, Vec<GitChange>), String> {
+                    // 变更和历史上下同屏，两部分一起读。
                     let changes = git::status(&root)?;
-                    let commits = if want_history {
-                        git::log(&root, HISTORY_LIMIT)?
-                    } else {
-                        Vec::new()
-                    };
+                    let commits = git::log(&root, HISTORY_LIMIT)?;
                     let files = match &commit {
                         Some(commit) => git::commit_files(&root, &commit.hash)?,
                         None => Vec::new(),
@@ -168,9 +157,7 @@ impl GitView {
                 match result {
                     Ok((changes, commits, files)) => {
                         this.changes = changes;
-                        if want_history {
-                            this.commits = commits;
-                        }
+                        this.commits = commits;
                         this.commit_files = files;
                         this.error = None;
                     }
@@ -293,79 +280,174 @@ impl GitView {
 }
 
 impl Render for GitView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
 
         if self.root.is_none() {
             return empty_state("不是 git 仓库", &theme);
         }
 
+        if let Some(error) = &self.error {
+            return empty_state_owned(error.clone(), &theme);
+        }
+
+        // 上下分栏：变更在上、历史在下，中间一条可拖动的分割线。
+        // 用 flex_basis 按比例分配，分割线本身不占高度。
+        let ratio = self.split_ratio.clamp(0.15, 0.85);
+        let top = self.render_changes(&theme, cx);
+        let bottom = match self.selected_commit.clone() {
+            Some(commit) => self.render_commit_detail(&commit, &theme, cx),
+            None => self.render_history(&theme, cx),
+        };
+
+        if self.root.is_none() {
+            return empty_state("不是 git 仓库", &theme);
+        }
+
+        if let Some(error) = &self.error {
+            return empty_state_owned(error.clone(), &theme);
+        }
+
+        // 上下分栏：变更在上、历史在下，中间一条可拖动的分割线。
+        //
+        // 两区高度按像素显式指定（比例 × 面板高度），而不是用 flex_grow。
+        // flex 比例分配会被子内容的 flex_basis 争抢，交界位置和按比例定位的
+        // 分割线对不上，拖到偏上偏下时线看起来就「篡位」了；显式像素高度下
+        // 分割线在哪，交界就在哪，永远一致。
+        let ratio = self.split_ratio.clamp(0.15, 0.85);
+        let area_height = self.split_area_height.max(200.0);
+        let top_height = px((area_height * ratio).max(80.0));
+        let bottom_height = px((area_height * (1.0 - ratio)).max(80.0));
+        let top = self.render_changes(&theme, cx);
+        let bottom = match self.selected_commit.clone() {
+            Some(commit) => self.render_commit_detail(&commit, &theme, cx),
+            None => self.render_history(&theme, cx),
+        };
+
         div()
             .id("git-view")
             .size_full()
+            .relative()
             .flex()
             .flex_col()
-            .child(self.render_tabs(&theme, cx))
-            .child(self.render_body(&theme, cx))
+            // 拖动分割线时的 move / up。挂在这一层而不是分割线上：
+            // 根层的 hitbox 覆盖整个面板且不随 ratio 移动，指针拖多远
+            // 事件都不会断。
+            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
+                let Some(last_y) = this.split_drag else {
+                    return;
+                };
+                // 左键已松开却还残留拖拽状态（mouse_up 偶发被吞时），
+                // 立即停止，否则面板会一直跟随指针移动。
+                if event.pressed_button != Some(MouseButton::Left) {
+                    this.split_drag = None;
+                    cx.notify();
+                    return;
+                }
+                if this.split_area_height <= 0.0 {
+                    return;
+                }
+                let current_y = event.position.y.as_f32();
+                // 按增量推进：每次只加「这一帧指针移动的距离」，
+                // 线和指针保持同速，不会互相追赶。
+                let delta = (current_y - last_y) / this.split_area_height;
+                this.split_drag = Some(current_y);
+                let next = (this.split_ratio + delta).clamp(0.15, 0.85);
+                if (next - this.split_ratio).abs() > f32::EPSILON {
+                    this.split_ratio = next;
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseUpEvent, _, cx| {
+                    if this.split_drag.take().is_some() {
+                        cx.notify();
+                    }
+                }),
+            )
+            // 记下可用高度，拖动分割线时把像素位移换算成比例。
+            .on_prepaint({
+                let entity = cx.entity().downgrade();
+                move |bounds: Bounds<Pixels>, _, cx: &mut gpui::App| {
+                    let height = bounds.size.height.as_f32();
+                    let _ = entity.update(cx, |this, _| {
+                        // 只记录不 notify：绘制阶段回调里重绘会造成循环。
+                        this.split_area_height = height;
+                    });
+                }
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .overflow_hidden()
+                    .flex_shrink_0()
+                    .h(top_height)
+                    .child(top),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .overflow_hidden()
+                    .flex_shrink_0()
+                    .h(bottom_height)
+                    .child(bottom),
+            )
+            // 分割线绝对定位盖在两区交界处：flex 子项会被上下滚动区抢占
+            // 命中测试，收不到鼠标事件（sidebar 的拖拽条也是这么做的）。
+            .child(self.render_splitter(&theme, top_height, cx))
             .into_any_element()
     }
 }
 
 impl GitView {
-    fn render_tabs(
+    /// 可拖动的水平分割线，绝对定位在上下两区交界处。
+    ///
+    /// 拖动距离换算成比例时用上一次绘制记下的可用高度；首次绘制前
+    /// `split_area_height` 为 0，拖动不会生效，但那时用户还不会去拖。
+    fn render_splitter(
         &self,
         theme: &gpui_component::Theme,
+        top_height: Pixels,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let tab_button = |id: &'static str, label: &'static str, tab: GitTab| {
-            let is_active = self.tab == tab;
-            div()
-                .id(id)
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .h(px(26.0))
-                .rounded(px(6.0))
-                .cursor_pointer()
-                .text_size(ui_px(theme, 11.5))
-                .font_family(theme.font_family.clone())
-                .text_color(if is_active {
-                    theme.foreground
-                } else {
-                    theme.muted_foreground
-                })
-                .bg(if is_active {
-                    theme.foreground.opacity(0.075)
-                } else {
-                    theme.transparent
-                })
-                .hover(|style| style.bg(theme.foreground.opacity(0.05)))
-                .child(label)
-                .on_click(cx.listener(move |this, _, _, cx| this.set_tab(tab, cx)))
-        };
-
         div()
+            .id("git-splitter")
+            .absolute()
+            .left_0()
+            .right_0()
+            // 和上区高度用同一个值：线的中线正好压在两区交界上。
+            .top(top_height)
+            .mt(px(-12.0))
+            .h(px(24.0))
+            .cursor_row_resize()
+            .group("git-splitter")
             .flex()
-            .gap(px(3.0))
-            .px(px(8.0))
-            .py(px(6.0))
-            .flex_shrink_0()
-            .child(tab_button("git-tab-changes", "变更", GitTab::Changes))
-            .child(tab_button("git-tab-history", "历史", GitTab::History))
-    }
-
-    fn render_body(&mut self, theme: &gpui_component::Theme, cx: &mut Context<Self>) -> AnyElement {
-        if let Some(error) = &self.error {
-            return empty_state_owned(error.clone(), theme);
-        }
-        match self.tab {
-            GitTab::Changes => self.render_changes(theme, cx),
-            GitTab::History => match self.selected_commit.clone() {
-                Some(commit) => self.render_commit_detail(&commit, theme, cx),
-                None => self.render_history(theme, cx),
-            },
-        }
+            .items_center()
+            .occlude()
+            // 命中区本身完全透明，hover 高亮只画在中间那条 1px 细线上，
+            // 视觉宽度和其它分屏线一致；24px 的透明命中区只是为了让拖动
+            // 时事件不断流。
+            .child(
+                div()
+                    .w_full()
+                    .h(px(1.0))
+                    .bg(theme.border.opacity(0.6))
+                    .group_hover("git-splitter", |style| style.bg(theme.primary.opacity(0.7))),
+            )
+            // 只处理按下。move / up 挂在 git-view 根层：这个带子会跟着
+            // ratio 移动，拖动时 hitbox 也在动，指针很容易跑出去，事件
+            // 就断了；根层不动，指针始终在它内部。
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                    this.split_drag = Some(event.position.y.as_f32());
+                    cx.stop_propagation();
+                    cx.notify();
+                }),
+            )
     }
 
     fn render_changes(
