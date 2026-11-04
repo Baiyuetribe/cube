@@ -72,12 +72,12 @@ struct LinuxFontFace {
 
 static LINUX_FONT_DATABASE: LazyLock<fontdb::Database> = LazyLock::new(|| {
     let mut database = fontdb::Database::new();
+    // 系统字体是主来源；内嵌的只是「系统上找不到合适等宽字体」时的兜底。
+    // 只带 Regular/Bold 两个字重的裁切版（各约 230KB），没有完整字符集。
     database.load_system_fonts();
     for font in [
-        include_bytes!("../../../assets/fonts/IoskeleyMono-Regular.ttf").as_slice(),
-        include_bytes!("../../../assets/fonts/IoskeleyMono-Bold.ttf").as_slice(),
-        include_bytes!("../../../assets/fonts/IoskeleyMono-Italic.ttf").as_slice(),
-        include_bytes!("../../../assets/fonts/IoskeleyMono-BoldItalic.ttf").as_slice(),
+        include_bytes!("../../../assets/fonts/IoskeleyMono-Regular-Minimal.ttf").as_slice(),
+        include_bytes!("../../../assets/fonts/IoskeleyMono-Bold-Minimal.ttf").as_slice(),
     ] {
         database.load_font_data(font.to_vec());
     }

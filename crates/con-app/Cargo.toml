@@ -37,7 +37,33 @@ con-terminal.workspace = true
 con-ghostty.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
-gpui-component = { workspace = true, features = ["tree-sitter-languages"] }
+# 逐语言启用语法高亮，而不是打开 `tree-sitter-languages`（那会静态链接
+# 全部 37 种语法，约 35MB）。这里列出的必须和
+# `editor_syntax::language_for_path` 支持的扩展名一致，否则对应文件
+# 会静默退化成纯文本。
+# json / plain 是内置的，不需要特性；scss 复用 css 文法。
+gpui-component = { workspace = true, features = [
+    "tree-sitter-bash",
+    "tree-sitter-c",
+    "tree-sitter-cpp",
+    "tree-sitter-css",
+    "tree-sitter-go",
+    "tree-sitter-html",
+    "tree-sitter-java",
+    "tree-sitter-javascript",
+    "tree-sitter-kotlin",
+    "tree-sitter-make",
+    "tree-sitter-markdown",
+    "tree-sitter-python",
+    "tree-sitter-ruby",
+    "tree-sitter-rust",
+    "tree-sitter-sql",
+    "tree-sitter-toml",
+    "tree-sitter-tsx",
+    "tree-sitter-typescript",
+    "tree-sitter-yaml",
+    "tree-sitter-zig",
+] }
 gpui-kit-assets.workspace = true
 reqwest_client.workspace = true
 anyhow.workspace = true
@@ -57,7 +83,8 @@ chrono.workspace = true
 reqwest.workspace = true
 url.workspace = true
 webbrowser = "1.2.4"
-markdown = { version = "1.0.0", features = ["serde"] }
+# 只用到 `to_mdast` 做语法树遍历，不需要 serde 序列化。
+markdown = { version = "1.0.0", default-features = false }
 html5ever.workspace = true
 markup5ever_rcdom.workspace = true
 ropey.workspace = true

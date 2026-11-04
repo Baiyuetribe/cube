@@ -118,7 +118,7 @@ pub(crate) fn glyph_geometry(
     static FACE: std::sync::OnceLock<ttf_parser::Face<'static>> = std::sync::OnceLock::new();
     let face = FACE.get_or_init(|| {
         ttf_parser::Face::parse(
-            include_bytes!("../../../assets/fonts/IoskeleyMono-Regular.ttf"),
+            include_bytes!("../../../assets/fonts/IoskeleyMono-Icons.ttf"),
             0,
         )
         .expect("bundled icon font")
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn bundled_font_contains_every_program_identity() {
         let font = ttf_parser::Face::parse(
-            include_bytes!("../../../assets/fonts/IoskeleyMono-Regular.ttf"),
+            include_bytes!("../../../assets/fonts/IoskeleyMono-Icons.ttf"),
             0,
         )
         .unwrap();

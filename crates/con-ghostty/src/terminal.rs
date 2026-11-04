@@ -28,7 +28,10 @@ use crate::{
     clipboard_write_policy, ffi,
 };
 
-const DEFAULT_GHOSTTY_FONT_FAMILY: &str = "Ioskeley Mono";
+/// 终端默认字体。内嵌字体已裁成只剩图标与基础字符（923 码点），
+/// 不能拿来渲染正文；这里指向系统等宽字体，其余字符由 Ghostty 的
+/// 字体回退链处理。
+const DEFAULT_GHOSTTY_FONT_FAMILY: &str = "Menlo";
 // Con does not ship Ghostty's `+ssh-cache` CLI helper, so `ssh-terminfo` stays off.
 // `ssh-env` must stay off too: Ghostty's zsh/bash integration installs its ssh
 // wrapper whenever the feature string contains `ssh-`, and that wrapper runs

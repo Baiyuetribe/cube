@@ -143,13 +143,16 @@ const CON_SHELL_HIGHLIGHTS: &str = r####"
 (special_variable_name) @variable.special
 "####;
 
-// Embed IoskeleyMono font files at compile time.
-const FONT_REGULAR: &[u8] = include_bytes!("../../../assets/fonts/IoskeleyMono-Regular.ttf");
-const FONT_BOLD: &[u8] = include_bytes!("../../../assets/fonts/IoskeleyMono-Bold.ttf");
-const FONT_ITALIC: &[u8] = include_bytes!("../../../assets/fonts/IoskeleyMono-Italic.ttf");
-const FONT_BOLD_ITALIC: &[u8] = include_bytes!("../../../assets/fonts/IoskeleyMono-BoldItalic.ttf");
-const FONT_MEDIUM: &[u8] = include_bytes!("../../../assets/fonts/IoskeleyMono-Medium.ttf");
-const FONT_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/IoskeleyMono-SemiBold.ttf");
+/// 文件树图标用的 Nerd Font 字形。
+///
+/// 这不是给正文排版用的：终端和编辑器都用系统字体（`DEFAULT_TERMINAL_FONT_FAMILY`），
+/// 用户也可能选任何已安装的字体。但文件树图标依赖 Nerd Font 私有区码点
+/// （`\u{e68b}` 之类），系统字体没有这些字形，所以单独内嵌一份。
+///
+/// 原始 6 个字重共 26MB，这里裁成 230KB 的 923 码点版本：保留文件树/终端身份
+/// 用到的 Nerd Font 图标、侧栏状态动画的 braille 区，以及 ASCII/Latin-1。
+/// 终端不再依赖这份字体，正文排版不会受影响。
+const FONT_ICONS: &[u8] = include_bytes!("../../../assets/fonts/IoskeleyMono-Icons.ttf");
 
 /// Initialize the con theme system.
 ///
@@ -164,15 +167,8 @@ pub fn init_theme(
 ) {
     register_command_prompt_language();
     cx.text_system()
-        .add_fonts(vec![
-            Cow::Borrowed(FONT_REGULAR),
-            Cow::Borrowed(FONT_BOLD),
-            Cow::Borrowed(FONT_ITALIC),
-            Cow::Borrowed(FONT_BOLD_ITALIC),
-            Cow::Borrowed(FONT_MEDIUM),
-            Cow::Borrowed(FONT_SEMIBOLD),
-        ])
-        .expect("Failed to register IoskeleyMono fonts");
+        .add_fonts(vec![Cow::Borrowed(FONT_ICONS)])
+        .expect("Failed to register file icon font");
 
     for theme_json in [
         CON_DARK_THEME,
@@ -388,7 +384,7 @@ fn generate_gpui_theme_json(tt: &TerminalTheme) -> String {
       "is_default": false,
       "font.size": 14,
       "font.family": ".SystemUIFont",
-      "mono_font.family": "Ioskeley Mono",
+      "mono_font.family": "Menlo",
       "mono_font.size": 14,
       "radius": 8,
       "radius_lg": 12,

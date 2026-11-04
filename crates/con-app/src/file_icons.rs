@@ -5,6 +5,11 @@
 //! they only render with a Nerd Font. They are always drawn with con's bundled
 //! IoskeleyMono rather than the user's terminal font, so icon availability is
 //! stable across font settings.
+//!
+//! 内嵌字体是裁剪生成的（`assets/fonts/IoskeleyMono-Icons.ttf`，只含本文用到
+//! 的图标码点 + braille 区 + ASCII/Latin-1）。**新增 `Glyph` 码点后必须重新
+//! 生成该字体**，否则图标会渲染成空白；`bundled_font_has_visible_file_icon_glyphs`
+//! 和 `bundled_font_contains_every_program_identity` 两个测试会捕捉这种遗漏。
 
 use crate::editor_syntax::{is_image_path, language_for_path};
 use std::path::Path;
@@ -153,7 +158,7 @@ mod tests {
     #[test]
     fn icon_font_family_matches_bundled_ttf_name() {
         let face = ttf_parser::Face::parse(
-            include_bytes!("../../../assets/fonts/IoskeleyMono-Regular.ttf"),
+            include_bytes!("../../../assets/fonts/IoskeleyMono-Icons.ttf"),
             0,
         )
         .unwrap();
@@ -282,7 +287,7 @@ mod tests {
     #[test]
     fn bundled_font_has_visible_file_icon_glyphs() {
         let face = ttf_parser::Face::parse(
-            include_bytes!("../../../assets/fonts/IoskeleyMono-Regular.ttf"),
+            include_bytes!("../../../assets/fonts/IoskeleyMono-Icons.ttf"),
             0,
         )
         .unwrap();

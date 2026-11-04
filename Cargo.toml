@@ -43,7 +43,19 @@ gpui-component = "=0.7.0"
 gpui-kit-assets = "=0.7.0"
 
 # Async
-tokio = { version = "1", features = ["full"] }
+# 精确特性而非 "full"："full" 会带上 process / fs / signal / macros 等
+# 本项目没用到的模块。生产代码只需要 runtime + net（control.rs 的
+# Unix socket 服务）+ io/sync/time（updater 的 HTTP 超时）。
+# reqwest 会自己再启用它需要的部分。
+tokio = { version = "1", features = [
+    "rt",
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "io-std",
+    "sync",
+    "time",
+] }
 futures = "0.3"
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -103,8 +115,15 @@ split-debuginfo = "unpacked"
 opt-level = 1
 
 [profile.release]
-lto = "thin"
+# fat LTO 让跨 crate 内联更彻底，减小体积也略提性能；编译明显更慢。
+lto = "fat"
 codegen-units = 1
+# 剥掉符号表（约 10MB）。调试符号本来也不发布。
+strip = "symbols"
+# 注意不要加 panic = "abort"：con-ghostty/src/vt.rs 的 PNG 解码回调
+# 和 con-app/src/updater.rs 的初始化都用 catch_unwind 兜住 panic
+# （前者 panic 越过 C ABI 边界是未定义行为），abort 会让这两层失效。
+# 实测能再省约 12MB，但代价是崩溃隔离没了。
 
 # Temporary reviewed presentation fix; remove after a compatible official release.
 # See docs/design/native-terminal-presentation.md for provenance and exit criteria.

@@ -8,7 +8,12 @@ pub mod transfer;
 
 pub const MIN_UI_FONT_SIZE: f32 = 12.0;
 pub const MAX_UI_FONT_SIZE: f32 = 24.0;
-pub const DEFAULT_TERMINAL_FONT_FAMILY: &str = "Ioskeley Mono";
+/// 终端默认字体。
+///
+/// 用系统等宽字体而不是内嵌字体：内嵌字体现在只保留文件树/终端身份用到的
+/// Nerd Font 图标和基础字符（923 码点 / 230KB），没有中文、emoji 或冷门符号，
+/// 拿它当终端正文会在这些字符上退化。系统字体由 Ghostty 做字体回退。
+pub const DEFAULT_TERMINAL_FONT_FAMILY: &str = "Menlo";
 
 fn default_font_family() -> String {
     DEFAULT_TERMINAL_FONT_FAMILY.into()

@@ -36,11 +36,12 @@ use windows::core::{Interface, PCWSTR};
 /// Iosevka convention: concatenated family name with no space.
 pub const BUNDLED_FONT_FAMILY: &str = "IoskeleyMono";
 
-const FONT_REGULAR: &[u8] = include_bytes!("../../../../../assets/fonts/IoskeleyMono-Regular.ttf");
-const FONT_BOLD: &[u8] = include_bytes!("../../../../../assets/fonts/IoskeleyMono-Bold.ttf");
-const FONT_ITALIC: &[u8] = include_bytes!("../../../../../assets/fonts/IoskeleyMono-Italic.ttf");
-const FONT_BOLD_ITALIC: &[u8] =
-    include_bytes!("../../../../../assets/fonts/IoskeleyMono-BoldItalic.ttf");
+// 内嵌字体只在「系统没装等宽字体」时兜底，因此用裁剪版（各约 230KB：
+// 基础字符 + 图标字形），不再打包完整的 4.3MB 全字符集。
+const FONT_REGULAR: &[u8] =
+    include_bytes!("../../../../../assets/fonts/IoskeleyMono-Regular-Minimal.ttf");
+const FONT_BOLD: &[u8] =
+    include_bytes!("../../../../../assets/fonts/IoskeleyMono-Bold-Minimal.ttf");
 
 /// Build a private `IDWriteFontCollection` containing the bundled
 /// IoskeleyMono weights. Returns `Ok(None)` when the runtime doesn't
@@ -77,12 +78,9 @@ pub fn build_bundled_collection(dwrite: &IDWriteFactory) -> Result<Option<IDWrit
     let builder: IDWriteFontSetBuilder1 =
         unsafe { factory5.CreateFontSetBuilder() }.context("CreateFontSetBuilder failed")?;
 
-    for (label, bytes) in [
-        ("regular", FONT_REGULAR),
-        ("bold", FONT_BOLD),
-        ("italic", FONT_ITALIC),
-        ("bold_italic", FONT_BOLD_ITALIC),
-    ] {
+    // 只带 regular/bold 两个字重：italic 与 bold-italic 已从资源中裁掉，
+    // 斜体由 DirectWrite 做合成，兜底场景下这点差别可以接受。
+    for (label, bytes) in [("regular", FONT_REGULAR), ("bold", FONT_BOLD)] {
         // SAFETY: bytes are `&'static` (from `include_bytes!`), so the
         // pointer stays valid for the process lifetime. `None` owner
         // is fine when the caller guarantees the data outlives the

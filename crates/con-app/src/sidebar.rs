@@ -3467,7 +3467,7 @@ mod tests {
     #[test]
     fn bundled_font_has_visible_title_status_glyphs() {
         let face = ttf_parser::Face::parse(
-            include_bytes!("../../../assets/fonts/IoskeleyMono-Regular.ttf"),
+            include_bytes!("../../../assets/fonts/IoskeleyMono-Icons.ttf"),
             0,
         )
         .unwrap();
