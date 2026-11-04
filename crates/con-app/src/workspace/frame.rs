@@ -12,8 +12,13 @@ pub(crate) const SPLIT_PANE_INSET: f32 = 0.0;
 // Keep the resize target wider than its visible gutter without shifting its center.
 pub(crate) const PANE_RESIZE_HIT_WIDTH: f32 = 7.0;
 pub(crate) const PANE_RADIUS: f32 = 8.0;
+// 输入岛几何只有测试在覆盖：生产路径已随 AI 输入栏移除，但布局规则
+// 仍是画布边距的权威定义，保留并由测试锁住。
+#[allow(dead_code)]
 pub(crate) const CARD_OUTER_INSET: f32 = CANVAS_INSET + PANE_INSET;
+#[allow(dead_code)]
 pub(super) const INPUT_BOTTOM_INSET: f32 = CARD_GAP - CANVAS_INSET;
+#[allow(dead_code)]
 pub(super) const INPUT_RADIUS: f32 = PANE_RADIUS;
 
 /// The compact canvas uses a negative top margin to reclaim caption clearance.
@@ -336,15 +341,18 @@ fn outline_strips(
 
 /// Align the input tray and its popovers with the pane cards, not the window
 /// centre. Include both the outer canvas and inner pane inset.
+#[allow(dead_code)]
 pub(super) fn input_island_geometry(width: f32, depth: f32) -> (f32, f32) {
     let inset = (CARD_OUTER_INSET * depth).min(width * 0.5);
     (inset, (width - 2.0 * inset).max(0.0))
 }
 
+#[allow(dead_code)]
 pub(super) fn input_safe_height(height: f32, progress: f32, depth: f32) -> f32 {
     (height + (CARD_GAP - PANE_INSET + INPUT_BOTTOM_INSET) * depth) * progress.clamp(0.0, 1.0)
 }
 
+#[allow(dead_code)]
 pub(super) fn input_reserved_height(height: f32, visible: bool, progress: f32, depth: f32) -> f32 {
     // Reserve once when opening and retain the viewport through closing. A
     // second resize at the reveal endpoint makes one interaction look like two.
@@ -367,6 +375,7 @@ pub(super) fn caption_minimum_width(leading: f32) -> f32 {
     leading + 3.0 * 22.0 + 24.0
 }
 
+#[allow(dead_code)]
 pub(super) fn input_reveal_clip(height: f32, progress: f32, depth: f32) -> gpui::Div {
     let progress = progress.clamp(0.0, 1.0);
     gpui::div()
@@ -380,6 +389,7 @@ pub(super) fn input_reveal_clip(height: f32, progress: f32, depth: f32) -> gpui:
 }
 
 /// Keep the input's fill, contour and content in the same reveal layer.
+#[allow(dead_code)]
 pub(super) fn input_card(
     width: f32,
     height: f32,

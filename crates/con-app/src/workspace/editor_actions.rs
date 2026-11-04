@@ -360,15 +360,22 @@ impl ConWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self
+        let saved = self
             .with_focused_editor_view(window, cx, |editor, _cx| match editor.save_active() {
-                Ok(Some(_)) => {}
-                Ok(None) => {}
-                Err(err) => log::error!("failed to save editor file: {err}"),
+                Ok(Some(path)) => Some(path),
+                Ok(None) => None,
+                Err(err) => {
+                    log::error!("failed to save editor file: {err}");
+                    None
+                }
             })
-            .is_some()
-        {
+            .flatten();
+
+        if saved.is_some() {
             Self::notify_editor_action(cx);
+            // 保存会改变工作区状态，Git 面板需要跟上；只重读变更，
+            // 历史不会因为保存而变。
+            self.git_view.update(cx, |git, cx| git.refresh_changes(cx));
         }
     }
 

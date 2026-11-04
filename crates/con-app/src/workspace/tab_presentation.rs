@@ -1,49 +1,3 @@
-/// Derive a display name for a pane from available signals.
-///
-/// Priority:
-/// 1. Proven remote hostname
-/// 2. CWD directory name (skip bare home directories like `/Users/name`)
-/// 3. Raw terminal title
-/// 4. Fallback "Pane N"
-pub(super) fn pane_display_name(
-    hostname: &Option<String>,
-    title: &Option<String>,
-    current_dir: &Option<String>,
-    pane_id: usize,
-) -> String {
-    // SSH session → show hostname
-    if let Some(host) = hostname {
-        return host.clone();
-    }
-
-    // CWD basename
-    if let Some(dir) = current_dir {
-        let path = std::path::Path::new(dir);
-        // Skip bare home directories (e.g., /Users/weyl → "weyl" is confusing)
-        let is_bare_home = matches!(
-            path.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy()),
-            Some(ref name) if name == "home" || name == "Users"
-        ) && path
-            .parent()
-            .and_then(|p| p.parent())
-            .is_some_and(|pp| pp.parent().is_none());
-
-        if !is_bare_home && let Some(base) = path.file_name() {
-            return base.to_string_lossy().to_string();
-        }
-    }
-
-    // Raw title from the visible surface
-    if let Some(title) = title {
-        let title = title.trim();
-        if !title.is_empty() {
-            return title.to_string();
-        }
-    }
-
-    format!("Pane {}", pane_id + 1)
-}
-
 /// One row's worth of presentation data for tab metadata.
 /// Computed by the workspace from the live tab state and pushed to
 /// the panel via `sync_sessions`.
@@ -320,23 +274,3 @@ pub(crate) fn editor_tab_title(active_file: Option<&std::path::Path>) -> String 
 
 #[cfg(test)]
 mod tests;
-
-pub(super) fn longest_common_prefix<'a>(values: impl IntoIterator<Item = &'a str>) -> String {
-    let mut iter = values.into_iter();
-    let Some(first) = iter.next() else {
-        return String::new();
-    };
-    let mut prefix = first.to_string();
-    for value in iter {
-        let shared = prefix
-            .chars()
-            .zip(value.chars())
-            .take_while(|(a, b)| a == b)
-            .count();
-        prefix = prefix.chars().take(shared).collect();
-        if prefix.is_empty() {
-            break;
-        }
-    }
-    prefix
-}

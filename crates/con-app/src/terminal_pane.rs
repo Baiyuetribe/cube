@@ -321,6 +321,9 @@ impl TerminalPane {
             .update(cx, |view, cx| view.mark_native_layout_pending(cx));
     }
 
+    /// 转发到底层视图。当前没有调用方，但和其它 `TerminalPane` 包装方法
+    /// 保持对称，外部按需取终端选区时不用再下去摸实体。
+    #[allow(dead_code)]
     pub fn selection_text(&self, cx: &App) -> Option<String> {
         self.entity.read(cx).selection_text()
     }

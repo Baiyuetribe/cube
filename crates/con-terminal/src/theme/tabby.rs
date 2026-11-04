@@ -498,8 +498,3 @@ pub(super) const SOURCES: &[(&str, &str)] = &[
         include_str!("../../../../assets/themes/tabby/zenburn.conf"),
     ),
 ];
-
-/// 是否为 `tabby-` 前缀下的内嵌主题。
-pub(super) fn contains(slug: &str) -> bool {
-    NAMES.contains(&slug)
-}

@@ -331,8 +331,13 @@ impl EditorBuffer {
         self.dirty = false;
     }
 
+    /// 写入磁盘。
+    ///
+    /// 先写同目录的临时文件再 rename：`fs::write` 直接截断目标文件，
+    /// 写到一半崩溃会留下半截内容。rename 在同一文件系统内是原子的。
     pub fn save_to(&mut self, path: &std::path::Path) -> std::io::Result<()> {
-        std::fs::write(path, self.text())?;
+        let text = self.text();
+        write_atomic(path, text.as_bytes())?;
         self.mark_clean();
         Ok(())
     }
@@ -542,9 +547,76 @@ fn clamp_to_char_boundary(line: &str, mut column: usize) -> usize {
     column
 }
 
+/// 原子写入：临时文件 + rename。
+///
+/// 临时文件放在目标同目录，保证 rename 不跨文件系统（跨设备会失败）。
+fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+
+    let directory = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "con-save".to_string());
+    // 带上进程号和时间戳，避免并发写同一个文件时互相覆盖临时文件。
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let temp = directory.join(format!(".{file_name}.{}.{stamp}.tmp", std::process::id()));
+
+    let result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        // 保留原文件权限位：新建的文件默认是 0644，可能比原文件更宽松。
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let _ = std::fs::set_permissions(&temp, metadata.permissions());
+        }
+        std::fs::rename(&temp, path)
+    })();
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 保存后内容完整，且不残留临时文件。
+    #[test]
+    fn save_to_writes_content_and_leaves_no_temp_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "con-save-atomic-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("note.txt");
+        std::fs::write(&path, "旧内容\n").unwrap();
+
+        let mut buffer = EditorBuffer::from_text("新内容\n第二行\n".to_string());
+        buffer.save_to(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "新内容\n第二行\n");
+        assert!(!buffer.is_dirty(), "保存后应标记为干净");
+
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "不应残留临时文件: {leftovers:?}");
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn insert_text_updates_line_cursor_and_dirty_state() {

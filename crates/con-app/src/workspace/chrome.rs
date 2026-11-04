@@ -81,10 +81,6 @@ impl ConWorkspace {
         self.active_tab < self.tabs.len()
     }
 
-    pub(super) fn elevated_ui_surface_opacity(&self) -> f32 {
-        (self.ui_surface_opacity() + 0.02).min(0.98)
-    }
-
     #[cfg(target_os = "macos")]
     pub(super) fn terminal_adjacent_chrome_duration(
         _open: bool,

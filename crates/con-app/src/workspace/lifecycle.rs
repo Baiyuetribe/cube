@@ -463,10 +463,14 @@ impl ConWorkspace {
             window,
             |this, _git, event: &crate::git_view::OpenDiff, window, cx| {
                 this.open_diff_in_active_editor(
-                    event.title.clone(),
-                    event.text.clone(),
-                    event.root.clone(),
-                    event.path.clone(),
+                    crate::editor_view::DiffRequest {
+                        path: std::path::PathBuf::new(),
+                        title: event.title.clone(),
+                        raw_diff: event.text.clone(),
+                        root: event.root.clone(),
+                        change: event.change.clone(),
+                        is_working_tree: event.is_working_tree,
+                    },
                     window,
                     cx,
                 );
@@ -956,41 +960,13 @@ impl ConWorkspace {
         cx.notify();
     }
 
-    /// 在活动编辑区里打开一段只读内容（git diff 等）。
+    /// 在活动编辑区里打开一个 git diff 标签。
     ///
-    /// 打开一个 git diff 标签。
-    ///
-    /// 和 `open_snapshot_in_active_editor` 分开：diff 需要记住仓库根和文件路径，
-    /// 这样行号才能点回源文件。
+    /// 记住仓库根和变更信息，行号才能点回源文件。
+    /// `is_working_tree` 决定是否启用自动刷新：提交 diff 是历史快照，不刷新。
     pub(super) fn open_diff_in_active_editor(
         &mut self,
-        title: String,
-        content: String,
-        root: PathBuf,
-        path: Option<PathBuf>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_snapshot_inner(Some((root, path)), title, content, window, cx);
-    }
-
-    /// 与 [`Self::open_path_in_active_editor`] 的区别是不读磁盘：内容是调用方
-    /// 给的内存字符串，标签只读。
-    pub(super) fn open_snapshot_in_active_editor(
-        &mut self,
-        title: String,
-        content: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_snapshot_inner(None, title, content, window, cx);
-    }
-
-    fn open_snapshot_inner(
-        &mut self,
-        diff_context: Option<(PathBuf, Option<PathBuf>)>,
-        title: String,
-        content: String,
+        request: crate::editor_view::DiffRequest,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1026,16 +1002,17 @@ impl ConWorkspace {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or_default();
-        let key = std::path::PathBuf::from(format!("{title}#{stamp}"));
+        let key = std::path::PathBuf::from(format!("{}#{stamp}", request.title));
         editor_view.update(cx, |editor: &mut EditorView, cx| {
             // 走 diff 专用标签：增删行着色、新旧行号分栏，
             // 而不是把 unified diff 当普通文本显示。
-            match diff_context {
-                Some((root, path)) => {
-                    editor.open_diff_with_context(key, title, content, root, path, cx)
-                }
-                None => editor.open_diff(key, title, content, cx),
-            }
+            editor.open_diff_with_context(
+                crate::editor_view::DiffRequest {
+                    path: key,
+                    ..request
+                },
+                cx,
+            );
         });
         editor_focus.focus(window, cx);
         self.sync_sidebar(cx);
@@ -1507,46 +1484,6 @@ impl ConWorkspace {
             if let Err(err) = result {
                 log::warn!(
                     "[control] failed to flush deferred pane creation in a window-aware context: {err}"
-                );
-            }
-        });
-    }
-
-    pub(super) fn schedule_active_terminal_focus(&self, was_zoomed: bool, cx: &mut Context<Self>) {
-        #[cfg(not(target_os = "macos"))]
-        let _ = was_zoomed;
-
-        let window_handle = self.window_handle;
-        let workspace_handle = self.workspace_handle.clone();
-        cx.defer(move |cx| {
-            let result = window_handle.update(cx, |_root, window, cx| {
-                if let Some(workspace) = workspace_handle.upgrade() {
-                    workspace.update(cx, |workspace, cx| {
-                        if !workspace.has_active_tab() {
-                            return;
-                        }
-                        if let Some(terminal) = workspace.tabs[workspace.active_tab]
-                            .pane_tree
-                            .try_focused_terminal()
-                            .cloned()
-                        {
-                            terminal.ensure_surface(window, cx);
-                            #[cfg(target_os = "macos")]
-                            workspace.sync_active_tab_native_view_visibility_now_or_after_layout(
-                                was_zoomed, window, cx,
-                            );
-                            #[cfg(not(target_os = "macos"))]
-                            workspace.sync_active_tab_native_view_visibility(cx);
-                            terminal.focus(window, cx);
-                            workspace.sync_active_terminal_focus_states(cx);
-                        }
-                        cx.notify();
-                    });
-                }
-            });
-            if let Err(err) = result {
-                log::warn!(
-                    "[control] failed to focus active terminal in a window-aware context: {err}"
                 );
             }
         });

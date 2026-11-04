@@ -13,6 +13,8 @@ use std::process::Command;
 pub struct GitChange {
     /// 相对仓库根的路径。
     pub path: PathBuf,
+    /// 重命名/复制时的原路径。其余情况为 `None`。
+    pub old_path: Option<PathBuf>,
     /// 暂存区里的状态（XY 中的 X）。`None` 表示暂存区没有这项。
     pub staged: Option<GitStatus>,
     /// 工作区里的状态（XY 中的 Y）。`None` 表示工作区没有改动。
@@ -563,32 +565,92 @@ fn strip_diff_prefix(path: &str) -> String {
         .to_string()
 }
 
-fn run_git(repo: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+/// git 子进程的最长等待时间。
+///
+/// 没有超时的话，仓库在网络盘上、文件系统卡住、或 git 等索引锁
+/// （`.git/index.lock`）时会永久阻塞，调用方的后台线程再也回不来。
+const GIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// 写操作（commit）的超时。跑 hook 可能比只读命令慢得多。
+const GIT_COMMIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// 跑一个 git 命令，带超时，返回 (stdout, stderr, 是否成功)。
+fn run_git_raw(
+    repo: &Path,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> Result<(String, String, bool), String> {
+    // stdout/stderr 用管道，由后台线程读取；主线程只负责等待 + 超时。
+    // 直接 `output()` 只能同步等待，没法半路放弃。
+    let mut child = Command::new("git")
         .args(args)
         .current_dir(repo)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|error| format!("无法运行 git: {error}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(stderr.trim().to_string());
-    }
-    String::from_utf8(output.stdout).map_err(|_| "git 输出不是有效 UTF-8".to_string())
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let read_all = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buffer = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut buffer);
+            }
+            buffer
+        })
+    };
+    let stdout_reader = read_all(stdout.map(|s| Box::new(s) as Box<_>));
+    let stderr_reader = read_all(stderr.map(|s| Box::new(s) as Box<_>));
+
+    // 轮询子进程状态：标准库没有 wait_timeout，用短睡眠即可。
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "git {} 超时（{} 秒未返回）",
+                        args.first().copied().unwrap_or(""),
+                        timeout.as_secs()
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(error) => return Err(format!("等待 git 失败: {error}")),
+        }
+    };
+
+    let out = stdout_reader.join().unwrap_or_default();
+    let err = stderr_reader.join().unwrap_or_default();
+    let out = String::from_utf8(out).map_err(|_| "git 输出不是有效 UTF-8".to_string())?;
+    let err = String::from_utf8_lossy(&err).into_owned();
+    Ok((out, err, status.success()))
 }
 
-/// 仓库根。不是 git 仓库或 git 不可用时返回 `None`。
-pub fn repository_root(start: &Path) -> Option<PathBuf> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .current_dir(start)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+fn run_git(repo: &Path, args: &[&str]) -> Result<String, String> {
+    let (stdout, stderr, success) = run_git_raw(repo, args, GIT_TIMEOUT)?;
+    if !success {
+        return Err(stderr.trim().to_string());
     }
-    let text = String::from_utf8(output.stdout).ok()?;
-    let trimmed = text.trim();
-    (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+    Ok(stdout)
+}
+
+/// 仓库根。`Ok(None)` 表示不是 git 仓库，`Err` 表示 git 本身出了问题
+/// （未安装、超时等），两者在界面上应该区分开。
+pub fn repository_root(start: &Path) -> Result<Option<PathBuf>, String> {
+    let (stdout, _stderr, success) =
+        run_git_raw(start, &["rev-parse", "--show-toplevel"], GIT_TIMEOUT)?;
+    if !success {
+        // git 能跑但目录不是仓库：正常的空状态。
+        return Ok(None);
+    }
+    let trimmed = stdout.trim();
+    Ok((!trimmed.is_empty()).then(|| PathBuf::from(trimmed)))
 }
 
 /// 工作区状态。
@@ -620,28 +682,38 @@ fn parse_status(text: &str) -> Vec<GitChange> {
         let Some(y) = chars.next() else { continue };
         let path = &entry[3..];
 
+        // 冲突状态必须按两列的组合识别。单看某个字符会把 `UU` 读成
+        // 「暂存区未改、工作区未合并」，用户看不出这是需要手工解决的冲突。
+        let is_conflicted = matches!(
+            (x, y),
+            ('D', 'D') | ('A', 'U') | ('U', 'D') | ('U', 'A') | ('D', 'U') | ('A', 'A')
+        ) || (x == 'U' && y == 'U');
+
         // `??` 表示未跟踪：两列都是 `?`，但它只在工作区里，暂存区没有这项。
         // 直接按字符解析会让同一个文件同时出现在「已暂存」和「未暂存」里，
         // 计数也会翻倍。
         let is_untracked = x == '?' || y == '?';
-        let staged = if is_untracked {
-            None
+
+        let (staged, unstaged) = if is_conflicted {
+            (None, Some(GitStatus::Unmerged))
+        } else if is_untracked {
+            (None, Some(GitStatus::Untracked))
         } else {
-            GitStatus::from_char(x)
-        };
-        let unstaged = if is_untracked {
-            Some(GitStatus::Untracked)
-        } else {
-            GitStatus::from_char(y)
+            (GitStatus::from_char(x), GitStatus::from_char(y))
         };
 
-        // 重命名/复制在 -z 模式下紧接着一个原路径字段，跳过它。
-        if matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C') {
-            let _ = fields.next();
-        }
+        // 重命名/复制在 -z 模式下紧接着一个原路径字段，顺序是「新路径 \0 旧路径」。
+        // 丢掉它会导致重命名的 diff 只能看到新路径，git 会把整篇当成新增。
+        let old_path = if matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C') {
+            fields.next().map(PathBuf::from)
+        } else {
+            None
+        };
+        let old_path = old_path.filter(|old| old.as_os_str() != path);
 
         changes.push(GitChange {
             path: PathBuf::from(path),
+            old_path,
             staged,
             unstaged,
         });
@@ -764,13 +836,19 @@ fn parse_name_status(text: &str) -> Vec<GitChange> {
             break;
         };
         // 重命名/复制多一个字段：原路径在前，新路径在后。
-        let path = if matches!(status_char, 'R' | 'C') {
-            fields.next().unwrap_or(first_path)
+        let (path, old_path) = if matches!(status_char, 'R' | 'C') {
+            let old_path = first_path;
+            let new_path = fields.next().unwrap_or(old_path);
+            (new_path, Some(old_path))
         } else {
-            first_path
+            (first_path, None)
         };
+        let old_path = old_path
+            .map(PathBuf::from)
+            .filter(|old| old.as_os_str() != path);
         changes.push(GitChange {
             path: PathBuf::from(path),
+            old_path,
             // 历史里的状态只有一个维度，放在 staged 位表示"这次提交里的改动"。
             staged: Some(status),
             unstaged: None,
@@ -805,27 +883,68 @@ pub fn commit_diff(repo: &Path, hash: &str, path: Option<&Path>) -> Result<GitDi
 ///
 /// 用 `diff HEAD` 而不是裸 `diff`：后者只显示未暂存的改动，暂存之后
 /// diff 视图会突然变空，看起来像文件没变化。
-pub fn working_diff(repo: &Path, path: &Path) -> Result<GitDiff, String> {
+///
+/// 两种情况要特殊处理：
+/// - 未跟踪文件不在索引里，`diff HEAD` 对它没有任何输出，改用
+///   `--no-index /dev/null <path>` 才能看到内容；
+/// - 重命名需要 `-M` 且**两边路径都要传**，否则 git 只看新路径，
+///   会把整个文件当成新增。
+pub fn working_diff(repo: &Path, change: &GitChange) -> Result<GitDiff, String> {
+    let path = &change.path;
+    let is_untracked = change.unstaged == Some(GitStatus::Untracked) && change.staged.is_none();
+    if is_untracked {
+        return untracked_diff(repo, path);
+    }
+
     let path_text = path.to_string_lossy().into_owned();
-    let text = run_git(
-        repo,
-        &[
-            "diff",
-            "HEAD",
-            "--no-color",
-            "--no-ext-diff",
-            "--",
-            &path_text,
-        ],
-    )?;
+    let old_text = change
+        .old_path
+        .as_ref()
+        .filter(|old| *old != path)
+        .map(|old| old.to_string_lossy().into_owned());
+
+    let mut args = vec!["diff", "HEAD", "-M", "--no-color", "--no-ext-diff", "--"];
+    args.push(&path_text);
+    if let Some(old) = old_text.as_deref() {
+        args.push(old);
+    }
+    let text = run_git(repo, &args)?;
     Ok(GitDiff {
         text: text.trim_start_matches('\n').to_string(),
     })
 }
 
+/// 未跟踪文件的完整内容，伪装成「从 /dev/null 新增」的 diff。
+///
+/// `git diff --no-index` 在「有差异」时退出码是 1，那不是错误。
+fn untracked_diff(repo: &Path, path: &Path) -> Result<GitDiff, String> {
+    let path_text = path.to_string_lossy().into_owned();
+    // 不能直接用 run_git：`--no-index` 在「有差异」时退出码是 1，
+    // 那是正常结果而不是错误，需要拿到原始 stdout 才判断得了。
+    let (stdout, stderr, success) = run_git_raw(
+        repo,
+        &[
+            "diff",
+            "--no-index",
+            "--no-color",
+            "--no-ext-diff",
+            "--",
+            "/dev/null",
+            &path_text,
+        ],
+        GIT_TIMEOUT,
+    )?;
+    if !success && !stderr.trim().is_empty() {
+        return Err(stderr.trim().to_string());
+    }
+    Ok(GitDiff {
+        text: stdout.trim_start_matches('\n').to_string(),
+    })
+}
+
 /// 整个工作区相对 HEAD 的改动，供自动刷新重新读取。
 pub fn working_diff_all(repo: &Path) -> Result<String, String> {
-    let text = run_git(repo, &["diff", "HEAD", "--no-color", "--no-ext-diff"])?;
+    let text = run_git(repo, &["diff", "HEAD", "-M", "--no-color", "--no-ext-diff"])?;
     Ok(text.trim_start_matches('\n').to_string())
 }
 
@@ -846,7 +965,41 @@ pub fn commit(repo: &Path, message: &str, stage_all: bool) -> Result<String, Str
     }
     args.push("-m");
     args.push(message);
-    run_git(repo, &args).map(|text| text.trim().to_string())
+
+    // `git commit` 在「没有可提交内容」时**退出码仍是 0**，只把说明打到
+    // stdout/stderr。按退出码判断会让界面显示提交成功，实际什么都没发生。
+    // 提交要写索引、跑 hook，比只读命令慢，给更长的超时；
+    // 但仍然不能没有上限，否则 hook 卡住会拖死调用方线程。
+    let (stdout, stderr, success) = run_git_raw(repo, &args, GIT_COMMIT_TIMEOUT)?;
+
+    // 「无内容可提交」要单独识别：git 的说明打在 stdout，退出码视情况为 0 或 1，
+    // 直接透传会得到空错误文本。
+    if !committed_something(&stdout, &stderr) {
+        return Err("没有可提交的改动。未跟踪文件需要先暂存。".to_string());
+    }
+    if !success {
+        let message = if stderr.trim().is_empty() {
+            stdout.trim()
+        } else {
+            stderr.trim()
+        };
+        return Err(message.to_string());
+    }
+    Ok(stdout.trim().to_string())
+}
+
+/// 判断这次 `git commit` 是否真的产生了提交。
+///
+/// git 的空提交提示可能出现在 stdout 或 stderr，措辞有几种变体。
+fn committed_something(stdout: &str, stderr: &str) -> bool {
+    const EMPTY_MARKERS: [&str; 4] = [
+        "nothing to commit",
+        "nothing added to commit",
+        "no changes added to commit",
+        "nothing staged to commit",
+    ];
+    let combined = format!("{stdout}\n{stderr}");
+    !EMPTY_MARKERS.iter().any(|marker| combined.contains(marker))
 }
 
 /// 把某个文件加入暂存区（`git add`）。
@@ -874,10 +1027,21 @@ pub fn unstage_file(repo: &Path, path: &Path) -> Result<(), String> {
 ///
 /// 注意这里不加 `--staged`：同时还原工作区和暂存区，符合「放弃这处改动」
 /// 的直觉。只想撤销暂存的话应该用 `git restore --staged`，那是另一个动作。
-pub fn discard_change(repo: &Path, path: &Path, untracked: bool) -> Result<(), String> {
+///
+/// `change` 是调用方手里的那条变更记录。冲突文件上 `git restore` 会报
+/// "path is unmerged" 失败，只能改用 `checkout --ours`，所以需要状态信息；
+/// 由调用方传入而不是自己再跑一次 `git status`——后者要扫整个仓库。
+pub fn discard_change(repo: &Path, change: &GitChange) -> Result<(), String> {
+    let path = &change.path;
     let path_text = path.to_string_lossy().into_owned();
-    if untracked {
+    if change.unstaged == Some(GitStatus::Untracked) {
         run_git(repo, &["clean", "-f", "--", &path_text])?;
+    } else if change.unstaged == Some(GitStatus::Unmerged) {
+        // 取本方内容，这是「放弃我的修改」最接近的语义，且不留冲突标记。
+        run_git(repo, &["checkout", "--ours", "--", &path_text])?;
+        // `checkout --ours` 只改工作区，文件仍在冲突状态；
+        // 显式 add 让冲突解决完成，否则列表里还是红色 U。
+        run_git(repo, &["add", "--", &path_text])?;
     } else {
         run_git(repo, &["restore", "--", &path_text])?;
     }
@@ -1068,14 +1232,32 @@ mod tests {
         std::fs::write(dir.join("tracked.txt"), "base\nmodified\n").unwrap();
         std::fs::write(dir.join("untracked.txt"), "new\n").unwrap();
 
-        discard_change(&dir, Path::new("tracked.txt"), false).unwrap();
+        discard_change(
+            &dir,
+            &GitChange {
+                path: PathBuf::from("tracked.txt"),
+                old_path: None,
+                staged: None,
+                unstaged: Some(GitStatus::Modified),
+            },
+        )
+        .unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.join("tracked.txt")).unwrap(),
             "base\n",
             "已跟踪文件应还原到 HEAD 内容"
         );
 
-        discard_change(&dir, Path::new("untracked.txt"), true).unwrap();
+        discard_change(
+            &dir,
+            &GitChange {
+                path: PathBuf::from("untracked.txt"),
+                old_path: None,
+                staged: None,
+                unstaged: Some(GitStatus::Untracked),
+            },
+        )
+        .unwrap();
         assert!(!dir.join("untracked.txt").exists(), "未跟踪文件应被删除");
 
         std::fs::remove_dir_all(dir).unwrap();
@@ -1390,6 +1572,186 @@ rename to new_name.rs
 
         assert_eq!(file.path, "new_name.rs");
         assert_eq!(file.old_path.as_deref(), Some("old_name.rs"));
+    }
+
+    /// 只有未跟踪文件时 `git commit -a` 退出码是 0 但没提交任何东西，
+    /// 必须在 API 层识别成错误，否则界面会假装成功。
+    #[test]
+    fn commit_with_only_untracked_files_reports_an_error() {
+        let dir = std::env::temp_dir().join(format!(
+            "con-git-empty-commit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .expect("git 应当可用")
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@t"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(dir.join("base.txt"), "base\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "init"]);
+
+        // 只有一个未跟踪文件：`-a` 不会带上它。
+        std::fs::write(dir.join("new.txt"), "new\n").unwrap();
+        let error = commit(&dir, "尝试提交", true).unwrap_err();
+        assert!(
+            error.contains("没有可提交的改动"),
+            "应给出明确提示，实际: {error}"
+        );
+
+        // 未跟踪文件确实还在工作区，没有被吞掉。
+        assert!(dir.join("new.txt").exists());
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// 有真实改动时正常提交，不能误报。
+    #[test]
+    fn commit_with_real_changes_succeeds() {
+        let dir = std::env::temp_dir().join(format!(
+            "con-git-real-commit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .expect("git 应当可用")
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@t"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(dir.join("base.txt"), "base\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "init"]);
+
+        std::fs::write(dir.join("base.txt"), "base\nmore\n").unwrap();
+        let output = commit(&dir, "真实提交", true).unwrap();
+        assert!(output.contains("真实提交"), "输出里应包含提交信息");
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// 超时必须返回错误而不是永久挂起。
+    #[test]
+    fn run_git_times_out_instead_of_hanging() {
+        let started = std::time::Instant::now();
+        let result = run_git_raw(
+            Path::new("/tmp"),
+            &["-c", "alias.hang=!sleep 5", "hang"],
+            std::time::Duration::from_millis(200),
+        );
+        assert!(result.is_err(), "超时应当返回错误");
+        assert!(result.unwrap_err().contains("超时"));
+        // 200ms 超时 + 轮询粒度，远小于它要 sleep 的 5 秒。
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "不应该等到子进程自然结束"
+        );
+    }
+
+    /// 冲突状态按两列组合识别，不能拆成单个字符。
+    #[test]
+    fn merge_conflicts_are_parsed_as_unmerged() {
+        let text = "UU f.txt\0AA g.txt\0DU h.txt\0";
+        let changes = parse_status(text);
+        assert_eq!(changes.len(), 3);
+        for change in &changes {
+            assert_eq!(
+                change.unstaged,
+                Some(GitStatus::Unmerged),
+                "{} 应识别为冲突",
+                change.path.display()
+            );
+            assert!(
+                !change.is_staged(),
+                "{} 冲突时不属于暂存区",
+                change.path.display()
+            );
+        }
+    }
+
+    /// 冲突文件上的「放弃更改」不能直接报错，且要真正解决冲突。
+    #[test]
+    fn discard_resolves_conflict_with_ours() {
+        let dir = std::env::temp_dir().join(format!(
+            "con-git-conflict-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .expect("git 应当可用")
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@t"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(dir.join("f.txt"), "a\nb\nc\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "base"]);
+        git(&["checkout", "-qb", "other"]);
+        std::fs::write(dir.join("f.txt"), "a\nOTHER\nc\n").unwrap();
+        git(&["commit", "-qam", "other"]);
+        git(&["checkout", "-q", "-"]);
+        std::fs::write(dir.join("f.txt"), "a\nMINE\nc\n").unwrap();
+        git(&["commit", "-qam", "mine"]);
+        git(&["merge", "other"]);
+
+        let before = status(&dir).unwrap();
+        assert!(
+            before
+                .iter()
+                .any(|c| c.unstaged == Some(GitStatus::Unmerged)),
+            "前置条件：应当处于冲突状态"
+        );
+
+        discard_change(
+            &dir,
+            &GitChange {
+                path: PathBuf::from("f.txt"),
+                old_path: None,
+                staged: None,
+                unstaged: Some(GitStatus::Unmerged),
+            },
+        )
+        .unwrap();
+
+        let content = std::fs::read_to_string(dir.join("f.txt")).unwrap();
+        assert_eq!(content, "a\nMINE\nc\n", "应保留本方内容");
+        assert!(!content.contains("<<<<<<<"), "不能留下冲突标记");
+
+        let after = status(&dir).unwrap();
+        assert!(
+            after
+                .iter()
+                .all(|c| c.unstaged != Some(GitStatus::Unmerged)),
+            "放弃后不应再是冲突状态"
+        );
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// 暂存与取消暂存要能来回切换，且不影响工作区内容。

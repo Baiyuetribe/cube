@@ -1,7 +1,5 @@
 use super::*;
 
-pub(super) const PANE_SCOPE_GAP: f32 = 4.0;
-
 impl ConWorkspace {
     pub(super) fn toggle_left_panel(
         &mut self,
@@ -71,10 +69,6 @@ impl ConWorkspace {
         });
         self.save_session(cx);
         cx.notify();
-    }
-
-    pub(super) fn active_pane_layout(&self, cx: &App) -> PaneLayoutState {
-        self.tabs[self.active_tab].pane_tree.to_state(cx, false)
     }
 
     pub(super) fn clear_restored_terminal_history(

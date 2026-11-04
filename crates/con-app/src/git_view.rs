@@ -30,8 +30,26 @@ pub struct OpenDiff {
     pub text: String,
     /// 仓库根目录，diff 里的路径都相对它。
     pub root: PathBuf,
-    /// 单文件 diff 的文件路径（相对仓库根）。整提交 diff 为 None。
-    pub path: Option<PathBuf>,
+    /// 单文件 diff 对应的变更。整提交 diff 为 None。
+    ///
+    /// 带完整状态而不只是路径：自动刷新时 `working_diff` 要靠
+    /// `unstaged == Untracked` 判断是否走 `--no-index` 分支。
+    pub change: Option<con_core::git::GitChange>,
+    /// 是否来自工作区（可自动刷新）。提交 diff 是历史快照，恒为 false。
+    pub is_working_tree: bool,
+}
+
+/// 一次刷新读到的数据：变更列表、提交历史（仅全量刷新时有）、
+/// 以及当前选中提交的文件列表。
+type RefreshPayload = (Vec<GitChange>, Option<Vec<GitCommit>>, Vec<GitChange>);
+
+/// 刷新范围。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RefreshScope {
+    /// 变更 + 历史。
+    All,
+    /// 只读变更列表。
+    ChangesOnly,
 }
 
 /// 变更列表的两个分组。
@@ -54,8 +72,9 @@ impl ChangeGroup {
 /// 用事件而不是直接执行：放弃不可撤销，需要先弹确认。面板自己持有待确认
 /// 状态，确认后才真正调用 git。
 pub struct DiscardChangeRequested {
-    pub path: PathBuf,
-    pub untracked: bool,
+    /// 待放弃的变更。带完整状态：冲突文件要用 `checkout --ours`，
+    /// 未跟踪文件要用 `clean`，不能只看路径。
+    pub change: con_core::git::GitChange,
 }
 
 pub struct GitView {
@@ -71,6 +90,8 @@ pub struct GitView {
     error: Option<String>,
     /// 每次刷新递增，用来丢弃过期的后台结果。
     generation: u64,
+    /// 是否有一次「只刷新变更」正在排队，用来合并连续的保存事件。
+    changes_refresh_pending: bool,
     /// 提交历史的泳道布局，随 commits 一起刷新。
     graph: con_core::git_graph::GitGraphLayout,
     /// 等待用户确认的放弃改动请求。
@@ -115,6 +136,7 @@ impl GitView {
             commit_error: None,
             error: None,
             generation: 0,
+            changes_refresh_pending: false,
             graph: Default::default(),
             pending_discard: None,
             staged_open: true,
@@ -126,23 +148,72 @@ impl GitView {
     }
 
     /// 切换工作区根。不是 git 仓库时清空并显示空状态。
+    ///
+    /// `rev-parse` 也要跑子进程，不能在 UI 线程同步等——它要访问磁盘，
+    /// 慢盘上会卡住整个界面。解析放到后台，回来再设根。
     pub fn set_root(&mut self, root: PathBuf, cx: &mut Context<Self>) {
-        let resolved = git::repository_root(&root);
-        if self.root == resolved {
-            self.refresh(cx);
-            return;
-        }
-        self.root = resolved;
-        self.selected_commit = None;
-        self.commit_files.clear();
-        self.refresh(cx);
+        // 解析是异步的：连续切换目录时，先发出的那次可能后返回。
+        // 用 generation 丢弃过期结果，避免根被旧值覆盖。
+        self.generation = self.generation.wrapping_add(1);
+        let generation = self.generation;
+        cx.spawn(async move |this, cx| {
+            let resolved = cx
+                .background_executor()
+                .spawn(async move { git::repository_root(&root) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                let resolved = match resolved {
+                    Ok(resolved) => resolved,
+                    Err(error) => {
+                        // git 本身有问题（未安装、超时）：清空并说明原因，
+                        // 不要和「不是仓库」混为一谈。
+                        this.root = None;
+                        this.changes.clear();
+                        this.commits.clear();
+                        this.error = Some(error);
+                        cx.notify();
+                        return;
+                    }
+                };
+                if this.root == resolved {
+                    this.refresh(cx);
+                    return;
+                }
+                this.root = resolved;
+                this.selected_commit = None;
+                this.commit_files.clear();
+                this.refresh(cx);
+            });
+        })
+        .detach();
     }
 
-    /// 重新读取当前分页需要的数据。
+    /// 重新读取变更和历史。
     ///
     /// git 命令会阻塞，放到后台线程；`generation` 保证只有最新一次的结果
     /// 会落到界面上，避免快速切换时旧结果覆盖新结果。
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.refresh_inner(RefreshScope::All, cx);
+    }
+
+    /// 只重新读取变更列表，不碰历史。
+    ///
+    /// 保存文件后只需要更新「更改」分组，历史不会变；
+    /// 读 200 条 log 在多分支仓库上开销明显。
+    pub fn refresh_changes(&mut self, cx: &mut Context<Self>) {
+        // 连续保存（自动格式化、多文件写入）会打出成串事件，
+        // 合并成一次：已有排队就不再重复 spawn。
+        if self.changes_refresh_pending {
+            return;
+        }
+        self.changes_refresh_pending = true;
+        self.refresh_inner(RefreshScope::ChangesOnly, cx);
+    }
+
+    fn refresh_inner(&mut self, scope: RefreshScope, cx: &mut Context<Self>) {
         self.generation = self.generation.wrapping_add(1);
         let generation = self.generation;
 
@@ -155,28 +226,36 @@ impl GitView {
         };
 
         let commit = self.selected_commit.clone();
+        let include_history = scope == RefreshScope::All;
 
         cx.spawn(async move |this, cx| {
-            let read =
-                move || -> Result<(Vec<GitChange>, Vec<GitCommit>, Vec<GitChange>), String> {
-                    // 变更和历史上下同屏，两部分一起读。
-                    let changes = git::status(&root)?;
-                    let commits = git::log(&root, HISTORY_LIMIT)?;
-                    let files = match &commit {
-                        Some(commit) => git::commit_files(&root, &commit.hash)?,
-                        None => Vec::new(),
-                    };
-                    Ok((changes, commits, files))
+            let read = move || -> Result<RefreshPayload, String> {
+                let changes = git::status(&root)?;
+                // 只有全量刷新才读历史：它既慢又基本不会变。
+                let commits = if include_history {
+                    Some(git::log(&root, HISTORY_LIMIT)?)
+                } else {
+                    None
                 };
+                let files = match &commit {
+                    Some(commit) => git::commit_files(&root, &commit.hash)?,
+                    None => Vec::new(),
+                };
+                Ok((changes, commits, files))
+            };
             let result = cx.background_executor().spawn(async move { read() }).await;
             let _ = this.update(cx, |this, cx| {
+                // 被更新的刷新取代时也要清标志，否则节流会永久卡住。
+                this.changes_refresh_pending = false;
                 if this.generation != generation {
                     return;
                 }
                 match result {
                     Ok((changes, commits, files)) => {
                         this.changes = changes;
-                        this.commits = commits;
+                        if let Some(commits) = commits {
+                            this.commits = commits;
+                        }
                         this.commit_files = files;
                         this.error = None;
                     }
@@ -206,11 +285,13 @@ impl GitView {
         let path = change.path.clone();
         let title = format!("{} (工作区)", path.display());
         let emit_root = root.clone();
-        let emit_path = path.clone();
+        let emit_change = change.clone();
+        // 移进异步任务：用克隆体，`change` 后面的 emit 还要用 emit_change。
+        let work_change = change.clone();
         cx.spawn(async move |this, cx| {
             let diff = cx
                 .background_executor()
-                .spawn(async move { git::working_diff(&root, &path) })
+                .spawn(async move { git::working_diff(&root, &work_change) })
                 .await;
             let _ = this.update(cx, |_, cx| {
                 if let Ok(diff) = diff {
@@ -218,7 +299,8 @@ impl GitView {
                         title,
                         text: diff.text,
                         root: emit_root,
-                        path: Some(emit_path),
+                        change: Some(emit_change),
+                        is_working_tree: true,
                     });
                 }
             });
@@ -235,7 +317,13 @@ impl GitView {
             None => format!("提交 {}", commit.short_hash),
         };
         let emit_root = root.clone();
-        let emit_path = path.clone();
+        // 提交 diff 不自动刷新，`change` 只用来携带路径。
+        let emit_change = path.as_ref().map(|path| con_core::git::GitChange {
+            path: path.clone(),
+            old_path: None,
+            staged: None,
+            unstaged: None,
+        });
         cx.spawn(async move |this, cx| {
             let hash = commit.hash.clone();
             let diff = cx
@@ -248,7 +336,8 @@ impl GitView {
                         title,
                         text: diff.text,
                         root: emit_root,
-                        path: emit_path,
+                        change: emit_change,
+                        is_working_tree: false,
                     });
                 }
             });
@@ -621,6 +710,7 @@ impl GitView {
             (status.letter(), status_color(status, theme))
         });
         let is_untracked = change.unstaged == Some(GitStatus::Untracked);
+        let is_conflicted = change.unstaged == Some(GitStatus::Unmerged);
 
         let name = change
             .path
@@ -727,21 +817,24 @@ impl GitView {
                 this.open_working_diff(&change_for_click, cx);
             }))
             .context_menu({
-                // 未跟踪文件的放弃方式是「删除」，已跟踪的是「还原」。
-                let path = change.path.clone();
+                // 三种放弃语义不同：未跟踪要删文件，冲突要取本方内容，
+                // 其余是还原到 HEAD。具体走哪条由 `discard_change` 按状态判断。
                 let label = if is_untracked {
                     "删除未跟踪文件"
+                } else if is_conflicted {
+                    "放弃冲突，保留本方修改"
                 } else {
                     "放弃更改"
                 };
                 let entity = cx.entity().downgrade();
                 let stage_entity = entity.clone();
                 let stage_path = change.path.clone();
+                let discard_change = change.clone();
                 move |menu, _window, _cx| {
-                    let path = path.clone();
                     let entity = entity.clone();
                     let stage_path = stage_path.clone();
                     let stage_entity = stage_entity.clone();
+                    let discard_change = discard_change.clone();
                     menu.item(
                         PopupMenuItem::new(if is_staged {
                             "取消暂存"
@@ -757,11 +850,10 @@ impl GitView {
                     )
                     .separator()
                     .item(PopupMenuItem::new(label).on_click(move |_, _, app| {
-                        let path = path.clone();
+                        let discard_change = discard_change.clone();
                         let _ = entity.update(app, |this, cx| {
                             this.pending_discard = Some(DiscardChangeRequested {
-                                path: path.clone(),
-                                untracked: is_untracked,
+                                change: discard_change.clone(),
                             });
                             cx.notify();
                         });
@@ -778,16 +870,19 @@ impl GitView {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let pending = self.pending_discard.as_ref()?;
-        let verb = if pending.untracked {
+        let verb = if pending.change.unstaged == Some(GitStatus::Untracked) {
             "删除这个未跟踪文件"
+        } else if pending.change.unstaged == Some(GitStatus::Unmerged) {
+            "放弃这个冲突，保留本方修改"
         } else {
             "放弃这个文件的改动"
         };
         let name = pending
+            .change
             .path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| pending.path.display().to_string());
+            .unwrap_or_else(|| pending.change.path.display().to_string());
 
         Some(
             div()
@@ -839,12 +934,11 @@ impl GitView {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let path = pending.path.clone();
-        let untracked = pending.untracked;
+        let change = pending.change.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { git::discard_change(&root, &path, untracked) })
+                .spawn(async move { git::discard_change(&root, &change) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if let Err(error) = result {

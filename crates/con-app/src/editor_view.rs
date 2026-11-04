@@ -326,6 +326,24 @@ enum EditorTabKind {
     Image,
 }
 
+/// 打开一个 diff 标签所需的全部信息。
+///
+/// 参数本来就多，打包成结构体：调用方按字段写，每个值的作用一目了然。
+#[derive(Clone)]
+pub struct DiffRequest {
+    /// 标签的去重 key。调用方负责生成（工作区 diff 用合成 key，
+    /// 提交 diff 用标题+时间戳），保证同一内容不会开两个标签。
+    pub path: PathBuf,
+    pub title: String,
+    pub raw_diff: String,
+    /// 仓库根，diff 里的路径相对它。
+    pub root: PathBuf,
+    /// 单文件 diff 的变更信息。整提交 diff 为 None。
+    pub change: Option<con_core::git::GitChange>,
+    /// 是否来自工作区。只有工作区 diff 会自动刷新。
+    pub is_working_tree: bool,
+}
+
 /// 编辑器标签里展示的 git diff。
 #[derive(Clone)]
 pub(crate) struct DiffDocument {
@@ -337,6 +355,8 @@ pub(crate) struct DiffDocument {
     pub(crate) source_path: Option<PathBuf>,
     /// 自动刷新信息。提交 diff 为 None。
     pub(crate) reload: Option<crate::diff_view::DiffReload>,
+    /// 打开时的原始 diff 文本，自动刷新时用来比对是否真的变了。
+    pub(crate) raw: String,
 }
 
 impl DiffDocument {
@@ -349,6 +369,7 @@ impl DiffDocument {
             root: None,
             source_path: None,
             reload: None,
+            raw: String::new(),
         }
     }
 }
@@ -441,16 +462,6 @@ impl EditorTab {
             snapshot_title: None,
             diff: None,
             diff_view: None,
-        }
-    }
-
-    /// 只读快照标签：内容来自内存（diff 之类），保存无意义，也不对应磁盘文件。
-    fn read_only(path: PathBuf, title: String, text: String) -> Self {
-        Self {
-            save_enabled: false,
-            snapshot: true,
-            snapshot_title: Some(title),
-            ..Self::new(path, EditorBuffer::from_text(text))
         }
     }
 
@@ -693,57 +704,39 @@ impl EditorView {
         cx.notify();
     }
 
-    /// 打开一段只读内容（git diff 等）。
+    /// 打开一个 git diff 标签，正文交给 `DiffView` 渲染。
     ///
     /// 内容不来自磁盘，保存无意义，因此标签是只读的。`path` 只用于标签标题
     /// 和语法高亮判断，不会去读文件。
-    /// 打开一个 git diff 标签。正文交给 `DiffView` 渲染。
     ///
-    /// 与 `open_read_only_snapshot` 的区别只在于渲染方式：这里按 diff 语义
-    /// 着色并分行号，而不是当成普通文本。
-    pub fn open_diff(
-        &mut self,
-        path: PathBuf,
-        title: String,
-        raw_diff: String,
-        cx: &mut Context<Self>,
-    ) {
-        // 这个入口拿不到仓库根，`path` 可能是真实文件也可能是合成 key
-        // （`标题#时间戳`），猜出来的路径不可靠，索性不提供跳转。
-        let document = DiffDocument {
-            title: title.clone(),
-            diff: con_core::git::parse_diff(&raw_diff),
-            root: None,
-            source_path: None,
-            reload: None,
-        };
-        self.open_diff_document(path, title, raw_diff, document, cx);
-    }
-
-    /// 带仓库上下文的 diff。行号点击可跳回源文件。
-    pub fn open_diff_with_context(
-        &mut self,
-        path: PathBuf,
-        title: String,
-        raw_diff: String,
-        root: PathBuf,
-        source_path: Option<PathBuf>,
-        cx: &mut Context<Self>,
-    ) {
-        // 工作区单个文件的改动才值得自动刷新；整个提交是历史快照。
-        let reload = source_path
-            .as_ref()
-            .map(|path| crate::diff_view::DiffReload {
+    /// `root` + `change` 让行号能点回源文件。
+    ///
+    /// `is_working_tree` 决定是否自动刷新：只有工作区的改动会随文件变化
+    /// 重新读取；提交 diff 是历史快照，监视它只会把工作区内容盖到快照上。
+    pub fn open_diff_with_context(&mut self, request: DiffRequest, cx: &mut Context<Self>) {
+        let DiffRequest {
+            path,
+            title,
+            raw_diff,
+            root,
+            change,
+            is_working_tree,
+        } = request;
+        let reload = change.as_ref().filter(|_| is_working_tree).map(|change| {
+            crate::diff_view::DiffReload {
                 root: root.clone(),
-                path: Some(path.clone()),
+                change: Some(change.clone()),
                 signal: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            });
+            }
+        });
+        let source_path = change.as_ref().map(|change| change.path.clone());
         let document = DiffDocument {
             title: title.clone(),
             diff: con_core::git::parse_diff(&raw_diff),
             root: Some(root),
             source_path,
             reload,
+            raw: raw_diff.clone(),
         };
         self.open_diff_document(path, title, raw_diff, document, cx);
     }
@@ -786,36 +779,6 @@ impl EditorView {
                 view.set_reload(Some(reload));
                 view.start_auto_reload(cx);
             });
-        }
-        cx.notify();
-    }
-
-    pub fn open_read_only_snapshot(
-        &mut self,
-        path: PathBuf,
-        title: String,
-        content: String,
-        cx: &mut Context<Self>,
-    ) {
-        // 同名快照每次都新建标签：diff 带提交哈希，重复打开同一提交时
-        // 直接切到已有标签反而更自然，但内容可能已变，所以按路径去重即可。
-        let title_for_tab = title.clone();
-        let apply = Self::apply_loaded_file_tab(
-            &mut self.tabs,
-            &mut self.active_tab,
-            path.clone(),
-            true,
-            false,
-            FileOpenMode::Kept,
-            |path| EditorTab::read_only(path, title_for_tab, content),
-        );
-        if apply.activated {
-            self.file_tab_reveal_pending = true;
-            self.dirty_close_blocked_tab = None;
-            self.scroll_handle = UniformListScrollHandle::new();
-        }
-        if apply.active_file_changed {
-            cx.emit(ActiveFileChanged);
         }
         cx.notify();
     }

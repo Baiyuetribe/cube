@@ -157,24 +157,33 @@ fn complete_schema() -> Result<Value> {
     Ok(schema)
 }
 
+/// 往 schema 的嵌套对象里写值。
+///
+/// 路径来自 `NATIVE` 常量表，理论上是自洽的；但配置解析不该因为一张
+/// 静态表写错就 panic，所以遇到结构不符时安静跳过而不是 unwrap。
 fn insert(root: &mut Value, path: &str, value: Value, list: bool) {
     let mut at = root;
     let parts: Vec<_> = path.split('.').collect();
     for part in &parts[..parts.len() - 1] {
-        at = at
-            .as_object_mut()
-            .unwrap()
+        let Some(object) = at.as_object_mut() else {
+            return;
+        };
+        at = object
             .entry((*part).to_owned())
             .or_insert_with(|| Value::Object(Map::new()));
     }
-    let map = at.as_object_mut().unwrap();
     let leaf = parts[parts.len() - 1];
+    let Some(map) = at.as_object_mut() else {
+        return;
+    };
     if list {
-        map.entry(leaf)
+        if let Some(array) = map
+            .entry(leaf)
             .or_insert_with(|| Value::Array(vec![]))
             .as_array_mut()
-            .unwrap()
-            .push(value);
+        {
+            array.push(value);
+        }
     } else {
         map.insert(leaf.to_owned(), value);
     }

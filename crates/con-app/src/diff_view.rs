@@ -99,6 +99,8 @@ pub struct DiffView {
     reload_timer_started: bool,
     /// 用户试图在窄窗口切并排时的提示。下次切换排布时清掉。
     hint_too_narrow: bool,
+    /// 上一次读取到的原始 diff 文本。自动刷新时用来跳过无变化的重算。
+    last_raw: Option<String>,
 }
 
 /// 自动刷新 diff 所需的信息。
@@ -107,8 +109,8 @@ pub struct DiffView {
 #[derive(Clone)]
 pub struct DiffReload {
     pub root: PathBuf,
-    /// `None` 表示整个仓库的工作区 diff。
-    pub path: Option<PathBuf>,
+    /// 目标文件信息。`None` 表示整个仓库的工作区 diff。
+    pub change: Option<con_core::git::GitChange>,
     /// 文件变更信号。监视线程推、DiffView 拉。
     pub signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -200,6 +202,8 @@ impl DiffView {
     pub fn new(document: crate::editor_view::DiffDocument) -> Self {
         let title = document.title;
         let diff = document.diff;
+        // 记住打开时的文本，自动刷新第一次比对就能命中，不会白重建一次。
+        let last_raw = Some(document.raw.clone());
         let mut view = Self {
             title,
             root: document.root,
@@ -217,6 +221,7 @@ impl DiffView {
             reload: None,
             reload_timer_started: false,
             hint_too_narrow: false,
+            last_raw,
         };
         view.rebuild_rows();
         view
@@ -422,9 +427,9 @@ impl DiffView {
         // 直接对每个事件重跑 git 会在保存时打好几次 diff。
         let signal = reload.signal.clone();
         let watch_target = reload
-            .path
+            .change
             .as_ref()
-            .map(|path| reload.root.join(path))
+            .map(|change| reload.root.join(&change.path))
             .unwrap_or_else(|| reload.root.clone());
 
         // 监视线程靠 stop 标志退出：标签关掉后轮询任务结束，
@@ -488,12 +493,12 @@ impl DiffView {
         let scroll = self.scroll_handle.offset();
         cx.spawn(async move |this, cx| {
             let root = reload.root.clone();
-            let path = reload.path.clone();
+            let change = reload.change.clone();
             let text = cx
                 .background_executor()
                 .spawn(async move {
-                    match path {
-                        Some(path) => con_core::git::working_diff(&root, &path).map(|d| d.text),
+                    match change {
+                        Some(change) => con_core::git::working_diff(&root, &change).map(|d| d.text),
                         None => con_core::git::working_diff_all(&root),
                     }
                 })
@@ -502,6 +507,12 @@ impl DiffView {
                 return;
             };
             let _ = this.update(cx, |this, cx| {
+                // 文本没变就不重算：语法高亮和 rebuild_rows 都不便宜，
+                // 而且重建会把滚动位置打回原处。
+                if this.last_raw.as_deref() == Some(text.as_str()) {
+                    return;
+                }
+                this.last_raw = Some(text.clone());
                 this.diff = con_core::git::parse_diff(&text);
                 this.highlighted_with = None;
                 this.rebuild_rows();
@@ -930,12 +941,39 @@ fn inline_spans_for(content: &[&DiffLine]) -> Vec<Vec<InlineSpan>> {
             let old = &content[removed_start + pair];
             let new = &content[added_start + pair];
             let (old_spans, new_spans) = con_core::git::inline_diff(&old.text, &new.text);
+            // 配对不看内容，两个不相干的行也会被强行对应，字符级高亮铺满整行
+            // 反而看不出重点。未改动部分占比太低就不配对，交给整行着色。
+            if !mostly_unchanged(&old_spans, &new_spans, &old.text, &new.text) {
+                continue;
+            }
             spans[removed_start + pair] = old_spans;
             spans[added_start + pair] = new_spans;
         }
         // 没有配对的行保持为空 —— 渲染时按整行高亮。
     }
     spans
+}
+
+/// 两行的未改动部分是否占多数。
+///
+/// `inline_diff` 给的区间是字节偏移，直接按字节算比例即可——比例判断
+/// 不需要精确到字符，多字节字符在两侧的权重是一致的。
+fn mostly_unchanged(
+    old_spans: &[InlineSpan],
+    new_spans: &[InlineSpan],
+    old: &str,
+    new: &str,
+) -> bool {
+    let longest = old.len().max(new.len());
+    if longest == 0 {
+        return false;
+    }
+    let changed_old: usize = old_spans.iter().map(|span| span.end - span.start).sum();
+    let changed_new: usize = new_spans.iter().map(|span| span.end - span.start).sum();
+    // 两侧各取「未改动字节」的较大者，和最长行比。
+    let unchanged_old = old.len().saturating_sub(changed_old);
+    let unchanged_new = new.len().saturating_sub(changed_new);
+    unchanged_old.max(unchanged_new) * 10 >= longest * 3
 }
 
 /// 给一批按行号对齐的内容算逐行语法高亮。
@@ -1787,6 +1825,48 @@ diff --git a/b.rs b/b.rs
             view.split_rows[split[0]],
             SplitRow::FileHeader { .. }
         ));
+    }
+
+    /// 完全不相干的两行不该被强行配对（否则整行都被标成改动）。
+    #[test]
+    fn unrelated_lines_are_not_paired_for_inline_marks() {
+        let raw = "\
+diff --git a/a.rs b/a.rs
+--- a/a.rs
++++ b/a.rs
+@@ -1,1 +1,1 @@
+-fn completely_different_thing() {}
++let x = 42;
+";
+        let view = make(raw);
+        // 没有配对 → 两行都没有行内区间。
+        let has_inline = view.rows.iter().any(|row| {
+            matches!(
+                row,
+                FlatRow::Line { inline, .. } if !inline.is_empty()
+            )
+        });
+        assert!(!has_inline, "不相似的行不应产生字符级高亮");
+    }
+
+    /// 只改了几个字符的行应当配对。
+    #[test]
+    fn similar_lines_are_paired_for_inline_marks() {
+        let raw = "\
+diff --git a/a.rs b/a.rs
+--- a/a.rs
++++ b/a.rs
+@@ -1,1 +1,1 @@
+-let value = 1;
++let value = 2;
+";
+        let view = make(raw);
+        let inline_count = view
+            .rows
+            .iter()
+            .filter(|row| matches!(row, FlatRow::Line { inline, .. } if !inline.is_empty()))
+            .count();
+        assert_eq!(inline_count, 2, "删行和增行都应带字符级高亮");
     }
 
     /// 展开后重新收起，行数回到展开前。

@@ -33,10 +33,6 @@ pub(crate) fn ui_density_scale(theme: &Theme) -> f32 {
     density_scale(ui_font_scale(theme))
 }
 
-pub(crate) fn mono_density_scale(theme: &Theme) -> f32 {
-    density_scale(mono_font_scale(theme))
-}
-
 pub(crate) fn ui_icon_px(theme: &Theme, base_px: f32) -> Pixels {
     px(base_px * icon_scale(ui_font_scale(theme)))
 }
@@ -55,10 +51,6 @@ pub(crate) fn mono_px(theme: &Theme, base_px: f32) -> Pixels {
 
 pub(crate) fn ui_space_px(theme: &Theme, base_px: f32) -> Pixels {
     px(base_px * ui_density_scale(theme))
-}
-
-pub(crate) fn mono_space_px(theme: &Theme, base_px: f32) -> Pixels {
-    px(base_px * mono_density_scale(theme))
 }
 
 fn font_scale(current_px: f32, default_px: f32, min_scale: f32, max_scale: f32) -> f32 {

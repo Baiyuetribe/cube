@@ -721,6 +721,9 @@ mod tests {
 
     /// 用户 rc 里把 `ssh` 定义成函数时（Ghostty shell 集成就这么做），
     /// 连接命令必须绕开它——否则函数里的包装可能指向不存在的二进制。
+    ///
+    /// 只验证命令文本带 `command ` 前缀，**不真的执行 ssh**：
+    /// 真实建连在离线环境下会永久阻塞（Command::output 没有超时）。
     #[test]
     fn shell_command_bypasses_a_user_defined_ssh_function() {
         let mut c = connection("箱", "host");
@@ -729,13 +732,13 @@ mod tests {
         let command = c.shell_command_with_askpass(&script);
         std::fs::remove_dir_all(script.parent().unwrap()).unwrap();
 
-        let output = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(format!("ssh() {{ echo HIJACKED; }}; {command}"))
-            .output()
-            .unwrap();
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(!stdout.contains("HIJACKED"), "{stdout}");
+        // `command` 是 shell 内建，会跳过同名函数和别名直接找 PATH 上的二进制。
+        assert!(
+            command.contains("command 'ssh'") || command.contains("command ssh"),
+            "连接命令必须用 command 前缀绕开函数：{command}"
+        );
+        // 顺带确认 askpass 是通过环境变量传的，没有落进命令行明文。
+        assert!(command.contains("SSH_ASKPASS="), "{command}");
     }
 
     #[test]

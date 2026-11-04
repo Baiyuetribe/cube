@@ -236,11 +236,6 @@ pub(super) struct NSOperatingSystemVersion {
     pub(super) patch_version: isize,
 }
 
-pub(super) enum LocalPathCompletion {
-    Inline(String),
-    Candidates(Vec<String>),
-}
-
 #[derive(Clone)]
 pub(super) struct ResolvedPaneTarget {
     pub(super) pane: TerminalPane,

@@ -193,8 +193,6 @@ impl Render for ConWorkspace {
             return div().size_full().into_any_element();
         }
 
-        let active_terminal = self.try_active_terminal().cloned();
-
         // If a modal was dismissed internally (escape/backdrop), restore terminal focus
         let is_modal_open = self.is_modal_open(cx);
         let needs_ghostty_hidden = false;
@@ -368,7 +366,6 @@ impl Render for ConWorkspace {
 
         let theme = cx.theme();
         let ui_surface_opacity = self.ui_surface_opacity();
-        let elevated_ui_surface_opacity = self.elevated_ui_surface_opacity();
         let terminal_background = self.terminal_theme.background;
         let terminal_surface_color: Hsla = Rgba {
             r: f32::from(terminal_background.r) / 255.0,
@@ -443,14 +440,6 @@ impl Render for ConWorkspace {
             sidebar_content_width
         };
         let left_panel_width = full_left_panel_width * left_panel_progress;
-        let terminal_content_left = left_panel_width;
-        let terminal_content_width =
-            (window_width - terminal_content_left - agent_panel_outer_width).max(0.0);
-        #[cfg(target_os = "macos")]
-        let (terminal_content_left, terminal_content_width) = {
-            let (inset, width) = frame::input_island_geometry(terminal_content_width, canvas_depth);
-            (terminal_content_left + inset, width)
-        };
         let pane_tree_rendered = {
             let workspace = cx.weak_entity();
             let begin_drag_cb =
@@ -844,18 +833,6 @@ impl Render for ConWorkspace {
                             ),
                         ),
                 );
-            }
-            #[cfg(target_os = "macos")]
-            {
-                let width = (window_width - left_panel_width - agent_panel_outer_width).max(0.0);
-                let island = theme
-                    .title_bar
-                    .blend(if theme.is_dark() {
-                        theme.foreground.opacity(0.10 * canvas_depth)
-                    } else {
-                        gpui::white().opacity(0.55 * canvas_depth)
-                    })
-                    .opacity(ui_surface_opacity);
             }
         }
 

@@ -44,6 +44,9 @@ impl ConWorkspace {
     /// Hook kept for call-site symmetry after recording a new shell command.
     pub(super) fn after_shell_command_recorded(&self, _cx: &App) {}
 
+    /// 记录一条输入历史。当前没有调用方，但历史会随会话持久化
+    /// （`session_state.rs` 读写 `global_input_history`），保留写入入口。
+    #[allow(dead_code)]
     pub(super) fn record_input_history(&mut self, input: &str) {
         let trimmed = input.trim();
         if trimmed.is_empty() {
@@ -63,6 +66,7 @@ impl ConWorkspace {
         }
     }
 
+    #[allow(dead_code)]
     pub(super) fn recent_input_history(&self, limit: usize) -> Vec<String> {
         self.global_input_history
             .iter()

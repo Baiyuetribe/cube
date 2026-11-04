@@ -410,6 +410,7 @@ impl PaneTree {
         }
     }
 
+    #[allow(dead_code)]
     pub fn to_state(&self, cx: &App, capture_screen_text: bool) -> PaneLayoutState {
         self.to_persisted_state(cx, capture_screen_text)
             .unwrap_or_else(|| PaneLayoutState::Leaf {
@@ -979,6 +980,7 @@ impl PaneTree {
         result
     }
 
+    #[allow(dead_code)]
     pub fn active_surface_id_for_pane(&self, pane_id: PaneId) -> Option<SurfaceId> {
         Self::find_active_surface_id(&self.root, pane_id)
     }
@@ -1052,6 +1054,7 @@ impl PaneTree {
     }
 
     /// Check if a given terminal belongs to a specific pane ID
+    #[allow(dead_code)]
     pub fn terminal_has_pane_id(&self, terminal: &TerminalPane, pane_id: PaneId) -> bool {
         Self::check_terminal_pane_id(&self.root, terminal.entity_id(), pane_id)
     }
@@ -3126,6 +3129,7 @@ impl PaneTree {
         }
     }
 
+    #[allow(dead_code)]
     fn check_terminal_pane_id(node: &PaneNode, entity_id: EntityId, pane_id: PaneId) -> bool {
         match node {
             PaneNode::Leaf {
@@ -3276,6 +3280,7 @@ impl PaneTree {
         }
     }
 
+    #[allow(dead_code)]
     fn find_active_surface_id(node: &PaneNode, pane_id: PaneId) -> Option<SurfaceId> {
         match node {
             PaneNode::Leaf {

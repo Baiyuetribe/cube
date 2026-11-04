@@ -158,6 +158,9 @@ fn conservative_unshifted_codepoint(text: &str, shift: bool) -> Option<char> {
 /// This intentionally covers the classic byte layer only. Modern protocols
 /// such as Kitty keyboard / modifyOtherKeys belong in libghostty-vt's key
 /// encoder, not in a growing Rust-side terminal keyboard table.
+// 只被 ctrl_chord_to_c0 和单元测试使用；保留是因为它定义了 C0 字节映射表，
+// 是终端按键行为的可读参考，删掉会让规则散落到测试里。
+#[allow(dead_code)]
 pub fn ctrl_key_to_c0(key: &str) -> Option<u8> {
     let key = key.trim();
     if key.eq_ignore_ascii_case("space") {
@@ -194,6 +197,7 @@ pub fn ctrl_key_to_c0(key: &str) -> Option<u8> {
     }
 }
 
+#[allow(dead_code)]
 pub fn ctrl_chord_to_c0(key: &str) -> Option<u8> {
     let key = key.trim();
     let lower = key.to_ascii_lowercase();
