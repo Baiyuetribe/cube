@@ -56,6 +56,101 @@ build:
 build-release:
     cargo build --release -p cube -p cube-cli
 
+# [macOS] 打无签名 DMG：release 构建 + .app 包 + 拖拽安装磁盘映像
+# 输出：dist/cube-{version}-macos-{arch}.dmg
+# 不签名、不公证：首次打开需右键 → 打开，或在终端执行
+#   xattr -dr com.apple.quarantine /Applications/cube.app
+# 资源（图标、主题、字体）全部 rust-embed 内嵌在二进制里，.app 只含
+# Info.plist + 两个可执行文件 + 图标；没有 Sparkle.framework，故不带自动更新。
+release-dmg arch=arch:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    resolved_arch="{{ arch }}"
+    if [[ -z "${resolved_arch}" ]]; then
+        resolved_arch="$(uname -m | sed 's/aarch64/arm64/')"
+    fi
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        echo "release-dmg 只能在 macOS 上运行" >&2
+        exit 1
+    fi
+
+    version="$(cargo pkgid -p cube | sed 's/.*[#@]//')"
+    dist="dist"
+    app="${dist}/cube.app"
+    dmg="${dist}/cube-${version}-macos-${resolved_arch}.dmg"
+
+    echo "==> 构建 release 二进制 (${resolved_arch})"
+    cargo build --release -p cube -p cube-cli
+
+    echo "==> 组装 .app"
+    rm -rf "${app}"
+    mkdir -p "${app}/Contents/MacOS" "${app}/Contents/Resources"
+
+    cp target/release/cube      "${app}/Contents/MacOS/cube"
+    # cube-cli 必须与主二进制同目录：控制面握手会在 current_exe() 旁边找它。
+    cp target/release/cube-cli  "${app}/Contents/MacOS/cube-cli"
+    chmod 755 "${app}/Contents/MacOS/cube" "${app}/Contents/MacOS/cube-cli"
+
+    # 图标：优先用已生成的 .icns，没有就从 1024 PNG 现做一份。
+    icon_png="assets/Cube-macOS-Dark-1024x1024@1x.png"
+    icon_icns="${app}/Contents/Resources/cube.icns"
+    if [[ ! -f "${icon_png}" ]]; then
+        echo "找不到图标源 ${icon_png}" >&2
+        exit 1
+    fi
+    iconset="$(mktemp -d)/cube.iconset"
+    mkdir -p "${iconset}"
+    for size in 16 32 64 128 256 512; do
+        sips -z $size $size               "${icon_png}" --out "${iconset}/icon_${size}x${size}.png"      >/dev/null
+        sips -z $((size*2)) $((size*2))   "${icon_png}" --out "${iconset}/icon_${size}x${size}@2x.png"   >/dev/null
+    done
+    iconutil -c icns "${iconset}" -o "${icon_icns}"
+    rm -rf "$(dirname "${iconset}")"
+
+    # 用 printf 而不是 heredoc：just 会把 heredoc 正文当配方文本解析，
+    # plist 里的尖括号和双花括号都会破坏语法。
+    cat_info_plist() {
+        local target="$1" ver="$2"
+        printf '%s\n' \
+            '<?xml version="1.0" encoding="UTF-8"?>' \
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+            '<plist version="1.0">' \
+            '<dict>' \
+            '    <key>CFBundleDevelopmentRegion</key><string>en</string>' \
+            '    <key>CFBundleExecutable</key><string>cube</string>' \
+            '    <key>CFBundleIconFile</key><string>cube.icns</string>' \
+            '    <key>CFBundleIdentifier</key><string>co.nowledge.cube</string>' \
+            '    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>' \
+            '    <key>CFBundleName</key><string>cube</string>' \
+            '    <key>CFBundleDisplayName</key><string>Cube</string>' \
+            '    <key>CFBundlePackageType</key><string>APPL</string>' \
+            "    <key>CFBundleShortVersionString</key><string>${ver}</string>" \
+            "    <key>CFBundleVersion</key><string>${ver}</string>" \
+            '    <key>LSMinimumSystemVersion</key><string>13.0</string>' \
+            '    <key>NSHighResolutionCapable</key><true/>' \
+            '    <key>NSSupportsAutomaticGraphicsSwitching</key><true/>' \
+            '</dict>' \
+            '</plist>' > "$target"
+    }
+    cat_info_plist "${app}/Contents/Info.plist" "${version}"
+
+    echo "==> 打包 DMG"
+    rm -f "${dmg}"
+    staging="$(mktemp -d)"
+    cp -R "${app}" "${staging}/"
+    ln -s /Applications "${staging}/Applications"
+    hdiutil create \
+        -volname "Cube" \
+        -srcfolder "${staging}" \
+        -ov -format UDZO \
+        "${dmg}" >/dev/null
+    rm -rf "${staging}"
+
+    echo "完成：${dmg}"
+    echo "未签名；首次打开请右键 → 打开，或执行："
+    echo "  xattr -dr com.apple.quarantine /Applications/cube.app"
+
 # 构建完成后，替换，然后 chmod +x "/Applications/cube Beta.app/Contents/MacOS/cube-cli"
 
 # 从源码运行 —— 当前平台（先构建 cube-cli，确保 handoff 能找到它）
