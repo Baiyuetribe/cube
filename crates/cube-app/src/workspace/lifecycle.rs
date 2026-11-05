@@ -577,6 +577,9 @@ impl CubeWorkspace {
         cx.spawn(async move |this, cx| {
             let agent_cli_poll_interval = std::time::Duration::from_millis(300);
             let mut last_agent_cli_refresh: Option<std::time::Instant> = None;
+            // 连续空闲轮数。空闲越久睡眠越长，避免空转烧 CPU；
+            // 任何一次有变化都会立刻回到 4ms 的响应档位。
+            let mut idle_rounds: u32 = 0;
             loop {
                 let mut got_event = false;
 
@@ -627,12 +630,24 @@ impl CubeWorkspace {
                     // is still capped at the GPUI vsync rate
                     // (typically 60 Hz) so this doesn't actually
                     // double the paint work.
+                    // 有事件时立刻回到 4ms：PTY 输出到上屏的延迟要尽量短。
+                    // 空闲时逐级拉长到 100ms —— 用户看不到任何变化，
+                    // 但每秒唤醒次数从 125 降到 10，空闲 CPU 明显下降。
+                    // 100ms 仍是 1 秒 agent 检测间隔的十倍余量。
+                    let delay_ms = if got_event {
+                        idle_rounds = 0;
+                        4
+                    } else {
+                        idle_rounds = idle_rounds.saturating_add(1);
+                        match idle_rounds {
+                            0..=3 => 8,
+                            4..=15 => 16,
+                            16..=63 => 40,
+                            _ => 100,
+                        }
+                    };
                     cx.background_executor()
-                        .timer(std::time::Duration::from_millis(if got_event {
-                            4
-                        } else {
-                            8
-                        }))
+                        .timer(std::time::Duration::from_millis(delay_ms))
                         .await;
                 }
             }
