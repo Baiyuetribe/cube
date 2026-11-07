@@ -1,8 +1,14 @@
 # cube
 
-GPU 加速的终端模拟器，使用 Rust 编写。
+GPU 加速的终端模拟器，使用 Rust 编写。终端功能类似Tabby，自带文件查看，Git查看。
 
 本仓库是个人自用分支：上游的内置 AI 助手（Agent 面板、AI 补全、会话交接）已全部移除，只保留纯终端能力。
+
+## 效果图
+
+| 终端模式 | 文件模式 | Git 模式 |
+|---|---|---|
+| ![终端模式](example/terminal.png) | ![文件模式](example/files.png) | ![Git 模式](example/git.png) |
 
 ## 现状
 
@@ -14,13 +20,41 @@ GPU 加速的终端模拟器，使用 Rust 编写。
 
 ## 功能
 
+### 终端
+
 - 单窗口多标签页，垂直/水平标签栏
-- 分屏（pane tree，任意嵌套）
+- 分屏（pane tree，任意嵌套），顶部标题栏显示当前 pane
 - 内嵌 Ghostty 完整 VT 解析、回滚、Kitty 键盘协议、OSC 133 shell 集成
-- 256 色 / 真彩色，Flexoki Light / Dark 主题
-- 集成编辑器（语法高亮、LSP、Markdown 预览、文件树）
+- 256 色 / 真彩色；Flexoki Light/Dark 内置，另附 97 套 Tabby 主题与 Catppuccin、TokyoNight
 - 命令面板、快捷键自定义、工作区布局保存与恢复
 - 会话持久化（标签页、cwd、shell 历史）
+
+### SSH
+
+- 内置远程服务器连接管理（默认 `⌘⇧S`，或菜单 →「远程服务器」）
+- 连接列表按分组归类，支持分组下拉选择
+- 密钥认证（`identity_file`）或密码认证；密码经 `SSH_ASKPASS` 传入，不进入命令行
+- 连接信息存在 `connections.json`，选中后新开标签执行 `ssh`
+- 分屏时基于同一连接信息另开独立会话
+- SSH 会话的标签自动识别并显示独立图标
+
+### Git
+
+- 侧边栏 Git 面板：**变更与提交历史同屏**，中间可拖动分隔条
+- 变更列表按「已暂存 / 未暂存」分组，显示每文件的增删行数
+- 提交历史带泳道图（lane graph），支持 merge 分支可视化，默认加载最近 200 条
+- diff 预览：工作区改动、单提交、单文件；支持行内词级高亮
+- 暂存 / 取消暂存 / 提交（含 stage all）
+- 右键菜单还原改动到 HEAD，带确认弹窗
+- 提交历史详情：查看某次提交涉及的文件与完整 diff
+
+### 编辑器
+
+- 集成编辑器：语法高亮、LSP、Markdown 预览
+- 文件树（感知 `.gitignore`）、工作区搜索
+
+### 控制面
+
 - `cube-cli`：通过 Unix socket 暴露控制面（`tabs.*` / `panes.*` / `surfaces.*` / `tmux.*`）
 
 ## 架构
@@ -48,7 +82,7 @@ cube (二进制, crates/cube-app)
 - `cmake`
 - **Zig 0.16.0（精确版本）** —— `crates/cube-ghostty/build.rs` 会校验，版本不符直接 panic
 
-Zig 可通过 [mise](https://mise.jdx.dev/) 安装，或从 <https://ziglang.org/download/0.16.0/> 下载后加入 `PATH`，也可用 `CON_ZIG_BIN=/path/to/zig` 指定。
+Zig 可通过 [mise](https://mise.jdx.dev/) 安装，或从 <https://ziglang.org/download/0.16.0/> 下载后加入 `PATH`，也可用 `CUBE_ZIG_BIN=/path/to/zig` 指定。
 
 > 注意：仓库根目录已无 `mise.toml`，版本锁由使用者自行保证。
 
@@ -70,12 +104,7 @@ cargo run -p cube
 cargo test --workspace
 ```
 
-Windows 上 `CON` 是 DOS 保留设备名，须用 `.cargo/config.toml` 里的 `cargo w*` 别名：
-
-```bash
-cargo wbuild -p cube     # → con-app.exe
-cargo wrun -p cube
-```
+`CUBE` 不是 DOS 保留设备名，Windows 与 macOS/Linux 用同一套 `cargo build` / `cargo run`。
 
 `cube-cli` 必须与 app 可执行文件放在同一目录，否则控制面无法启动。
 
@@ -83,8 +112,10 @@ cargo wrun -p cube
 
 ## 配置
 
-macOS: `~/Library/Application Support/con/con.conf`
+macOS: `~/Library/Application Support/cube/cube.conf`
 Windows: `%APPDATA%\cube-terminal\cube-terminal.conf`
+
+旧 `con` 目录会在首次启动时自动复制迁移。
 
 采用 Ghostty 行内语法，Cube 自有配置放在 `cube.*` 下：
 
@@ -107,10 +138,11 @@ cube.keybindings.new_tab = "secondary-t"
 - Windows / Linux 路径未在本分支验证
 - `just` 中 `macos-*` / `linux-*` / `flatpak-*` 打包配方依赖已删除的 `scripts/`，不可用
 - `cargo clippy -- -D warnings` 存在若干既有告警
+- SSH 连接密码按用户选择**明文**存入 `connections.json`，仅适合个人机器
 
 ## 上游
 
-本项目派生自 [nowledge-co/cube-terminal](https://github.com/nowledge-co/cube-terminal)，移除了全部 AI 相关能力。上游采用 MIT 许可。
+本项目派生自 [nowledge-co/con-terminal](https://github.com/nowledge-co/con-terminal)，移除了全部 AI 相关能力。上游采用 MIT 许可。
 
 ## 致谢
 
