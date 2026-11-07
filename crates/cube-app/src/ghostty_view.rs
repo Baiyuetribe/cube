@@ -477,6 +477,16 @@ pub fn init(cx: &mut App) {
     ]);
 }
 
+/// 请求一次重绘。
+///
+/// `Window::request_animation_frame` 内部会读 `Window::current_view()`，而
+/// 那个方法只在 prepaint / paint 阶段可用（否则 panic）。原生宿主视图的
+/// 几何更新既可能发生在绘制回调里，也可能从控制面命令触发，所以统一走
+/// `on_next_frame`：它没有阶段前置条件，并且同样会唤醒平台帧源。
+pub(crate) fn request_repaint(window: &Window) {
+    window.on_next_frame(|_, cx| cx.refresh_windows());
+}
+
 impl GhosttyView {
     pub fn new(
         app: Arc<GhosttyApp>,
@@ -1941,7 +1951,7 @@ impl GhosttyView {
                 }
             }
             if changed {
-                window.request_native_surface_presentation_sync();
+                request_repaint(window);
                 unsafe {
                     cube_terminal_canvas_apply_clip(view as *mut c_void);
                 }
@@ -1970,7 +1980,7 @@ impl GhosttyView {
                         f64::from(color.a),
                     )
                 } {
-                    window.request_native_surface_presentation_sync();
+                    request_repaint(window);
                 }
             }
         }
@@ -1999,7 +2009,7 @@ impl GhosttyView {
         let started = perf_trace_enabled().then(Instant::now);
         self.last_bounds = Some(bounds);
         self.native_canvas_generation = canvas_generation;
-        window.request_native_surface_presentation_sync();
+        request_repaint(window);
         self.sync_native_backing_background();
 
         // Keep libghostty's framebuffer/PTY metadata ahead of every AppKit
@@ -3565,7 +3575,12 @@ mod tests {
                     gpui::point(px(0.0), px(0.0)),
                     gpui::size(px(200.0), px(120.0)),
                 );
-                view.set_pane_clip(bounds, 8.0, window);
+                // gpui-pre 0.3.11 起 `set_pane_clip` 内部的 `request_animation_frame`
+                // 需要 prepaint/paint 上下文（它会读 `Window::current_view()`）。
+                // 生产代码在 `on_prepaint` 里调用，测试脚手架没有该上下文，
+                // 这里只设置 clip 状态并直接走原生剪裁应用，跳过重绘请求。
+                view.native_pane_clip = Some((bounds, 8.0));
+                view.apply_pane_clip(window);
                 let layer: cocoa::base::id = msg_send![host, layer];
                 let mask: cocoa::base::id = msg_send![layer, mask];
                 assert!(

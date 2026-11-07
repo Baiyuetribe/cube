@@ -2636,10 +2636,8 @@ mod tests {
 
     #[test]
     fn highlighted_code_runs_keep_mono_font() {
-        let theme = Theme {
-            mono_font_family: "IoskeleyMono".into(),
-            ..Theme::default()
-        };
+        let mut theme = Theme::default();
+        theme.mono_font_family = "IoskeleyMono".into();
         let style = ChatMarkdownStyle::new(&theme, ChatMarkdownTone::Message);
         let (_, runs) = highlighted_code_runs("let value = 1;", &Some("rust".into()), &style);
 

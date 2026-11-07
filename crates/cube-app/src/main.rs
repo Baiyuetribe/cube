@@ -1545,7 +1545,7 @@ struct BindingSpec {
     key: SharedString,
     action: TypeId,
     scope: BindingScope,
-    to_key_binding: fn(&str, Option<&str>) -> KeyBinding,
+    to_key_binding: fn(&str, Option<&str>, &mut App) -> KeyBinding,
     action_name: fn() -> SharedString,
 }
 
@@ -1564,11 +1564,26 @@ impl BindingSpec {
         key: impl Into<SharedString>,
         scope: BindingScope,
     ) -> Self {
+        // gpui-pre 0.3.11 起 `KeyBinding::new` 只接受 `&'static str`；
+        // 我们的绑定键来自运行时配置，改用 `load`（内部按平台解析）。
         fn make<A: Action + Default + Clone + 'static>(
             key: &str,
             scope: Option<&str>,
+            cx: &mut App,
         ) -> KeyBinding {
-            KeyBinding::new(key, A::default(), scope)
+            let context = scope.map(|context| {
+                std::rc::Rc::new(
+                    gpui::KeyBindingContextPredicate::parse(context)
+                        .expect("binding scope predicate"),
+                )
+            });
+            KeyBinding::load(key, Box::new(A::default()), context, false, None, cx).unwrap_or_else(
+                |error| {
+                    // 绑定串写错时保留一条空绑定占位，但要让人能查到原因。
+                    log::warn!("ignoring unparsable binding {key:?}: {error}");
+                    KeyBinding::new("", A::default(), scope)
+                },
+            )
         }
         fn action_name<A: Action + Default + Clone + 'static>() -> SharedString {
             gpui::Action::name(&A::default()).into()
@@ -1583,20 +1598,35 @@ impl BindingSpec {
         }
     }
 
-    fn to_key_binding(&self) -> KeyBinding {
-        (self.to_key_binding)(self.key.as_ref(), self.scope.name())
+    fn to_key_binding(&self, cx: &mut App) -> KeyBinding {
+        (self.to_key_binding)(self.key.as_ref(), self.scope.name(), cx)
     }
 
     fn action_name(&self) -> SharedString {
         (self.action_name)()
     }
 
-    fn to_unbind_key_binding(&self) -> KeyBinding {
-        KeyBinding::new(
+    fn to_unbind_key_binding(&self, cx: &mut App) -> KeyBinding {
+        let context = self.scope.name().map(|context| {
+            std::rc::Rc::new(
+                gpui::KeyBindingContextPredicate::parse(context).expect("binding scope predicate"),
+            )
+        });
+        KeyBinding::load(
             self.key.as_ref(),
-            gpui::Unbind(self.action_name()),
-            self.scope.name(),
+            Box::new(gpui::Unbind(self.action_name())),
+            context,
+            false,
+            None,
+            cx,
         )
+        .unwrap_or_else(|error| {
+            log::warn!(
+                "ignoring unparsable unbind for {:?}: {error}",
+                self.key.as_ref()
+            );
+            KeyBinding::new("", gpui::Unbind(self.action_name()), self.scope.name())
+        })
     }
 }
 
@@ -1750,12 +1780,12 @@ fn binding_specs(kb: &KeybindingConfig) -> Vec<BindingSpec> {
 }
 
 fn bind_specs(cx: &mut App, specs: Vec<BindingSpec>) {
-    cx.bind_keys(
-        specs
-            .into_iter()
-            .map(|spec| spec.to_key_binding())
-            .collect::<Vec<_>>(),
-    );
+    // 先收集再 bind：`to_key_binding` 需要 `&mut App`，不能和 `bind_keys` 同时借用。
+    let bindings = specs
+        .into_iter()
+        .map(|spec| spec.to_key_binding(cx))
+        .collect::<Vec<_>>();
+    cx.bind_keys(bindings);
 }
 
 #[derive(Clone)]
@@ -1783,7 +1813,7 @@ fn validated_file_sidebar_shortcut(label: &str, binding: &str) -> Option<String>
 
     let mut strokes = trimmed.split_whitespace();
     let stroke = strokes.next()?;
-    if strokes.next().is_some() || Keystroke::parse(stroke).is_err() {
+    if strokes.next().is_some() || crate::keycaps::parse_keystroke(stroke).is_none() {
         log::warn!("{label}: expected a single parseable shortcut, ignoring {binding:?}");
         return None;
     }
@@ -1811,7 +1841,7 @@ fn keystroke_matches_single_binding(keystroke: &Keystroke, binding: &str) -> boo
         return false;
     }
 
-    let Ok(target) = Keystroke::parse(stroke) else {
+    let Some(target) = crate::keycaps::parse_keystroke(stroke) else {
         return false;
     };
     let target = KeybindingKeystroke::from_keystroke(target);
@@ -1925,7 +1955,7 @@ pub(crate) fn rebind_app_keybindings(cx: &mut App, old: &KeybindingConfig, new: 
             if is_fixed_configurable_app_keybinding(spec.key.as_ref(), &spec.action_name()) {
                 None
             } else {
-                Some(spec.to_unbind_key_binding())
+                Some(spec.to_unbind_key_binding(cx))
             }
         })
         .collect::<Vec<_>>();
@@ -2231,8 +2261,8 @@ mod tests {
         } else {
             "secondary-shift-e"
         };
-        let focus = Keystroke::parse(focus_binding).unwrap();
-        let search = Keystroke::parse("secondary-shift-f").unwrap();
+        let focus = crate::keycaps::parse_keystroke(focus_binding).unwrap();
+        let search = crate::keycaps::parse_keystroke("secondary-shift-f").unwrap();
 
         assert!(keystroke_matches_single_binding(&focus, focus_binding));
         assert!(keystroke_matches_single_binding(
@@ -2252,7 +2282,7 @@ mod tests {
         } else {
             "secondary-shift-e"
         };
-        let focus = Keystroke::parse(focus_binding).unwrap();
+        let focus = crate::keycaps::parse_keystroke(focus_binding).unwrap();
         let chord = format!("secondary-k {focus_binding}");
 
         assert!(!keystroke_matches_single_binding(&focus, &chord));

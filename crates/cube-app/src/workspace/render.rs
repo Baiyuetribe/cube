@@ -606,7 +606,7 @@ impl Render for CubeWorkspace {
                 }
                 #[cfg(target_os = "macos")]
                 if let Some(workspace) = &native_tab_handoff {
-                    _window.request_native_surface_presentation_sync();
+                    _window.request_animation_frame();
                     let _ = workspace.update(_cx, |workspace, cx| {
                         workspace.commit_native_tab_handoff(cx);
                     });

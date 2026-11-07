@@ -29,18 +29,18 @@ cube-process = { path = "crates/cube-process" }
 # Pin them exactly to the snapshot gpui-component was released against and bump
 # both together: any snapshot may change GPUI's API, and two snapshots in one
 # tree are incompatible types.
-gpui = { package = "gpui-pre", version = "=0.3.7" }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.7", features = [
+gpui = { package = "gpui-pre", version = "=0.3.11" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", features = [
     "font-kit",
     "runtime_shaders",
     "wayland",
     "x11",
 ] }
-reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.7" }
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.11" }
 
 # UI Components — upstream gpui-component, never local 3pp paths
-gpui-component = "=0.7.0"
-gpui-kit-assets = "=0.7.0"
+gpui-component = "=0.9.0"
+gpui-kit-assets = "=0.9.0"
 
 # Async
 # 精确特性而非 "full"："full" 会带上 process / fs / signal / macros 等
@@ -125,9 +125,10 @@ strip = "symbols"
 # （前者 panic 越过 C ABI 边界是未定义行为），abort 会让这两层失效。
 # 实测能再省约 12MB，但代价是崩溃隔离没了。
 
-# Temporary reviewed presentation fix; remove after a compatible official release.
-# See docs/design/native-terminal-presentation.md for provenance and exit criteria.
+# 官方接法（gpui-fast 仓库 compat/README.md）：仓库自带与 gpui-pre 同名的
+# 兼容 crate，把 gpui-pre 的位置重定向到 gpui-fast，下游零改动。
+# 上游 compat 包版本是 0.3.9，而 gpui-component 0.9.0 要求 =0.3.11，
+# 直接 patch 会被 Cargo 忽略，所以本地 vendor 一份壳声明 0.3.11。
 [patch.crates-io]
-gpui-pre = { git = "https://github.com/wey-gu/zed", rev = "655ce8bbc10e1f1ef3d1d5bdf5a3405008157792" }
-gpui-pre-apple = { git = "https://github.com/wey-gu/zed", rev = "94f3f2c80f3e55170d485b228ad8e5107922b90b" }
-gpui-pre-macos = { git = "https://github.com/wey-gu/zed", rev = "655ce8bbc10e1f1ef3d1d5bdf5a3405008157792" }
+gpui-pre = { path = "vendor/gpui-pre-compat" }
+gpui-pre-platform = { path = "vendor/gpui-pre-platform-compat" }

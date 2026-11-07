@@ -111,7 +111,7 @@ image = { version = "0.25", default-features = false, features = ["png", "ico"] 
 # Layout tests use gpui's visual test harness (debug_bounds, TestAppContext).
 gpui = { workspace = true, features = ["test-support"] }
 # Inspect the theme projection consumed by the component library's primitives.
-gpui-base = "=0.7.0"
+gpui-base = "=0.9.0"
 
 [build-dependencies]
 cc = "1"

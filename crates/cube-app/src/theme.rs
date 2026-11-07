@@ -661,12 +661,10 @@ mod tests {
                 (ThemeMode::Light, 17.0, 17.0, 14.0),
             ] {
                 Theme::set_scrollbar_mode(ScrollbarMode::Scrolling, cx);
-                let mut config = ThemeConfig {
-                    mode,
-                    font_size: Some(11.0),
-                    mono_font_size: Some(9.0),
-                    ..Default::default()
-                };
+                let mut config = ThemeConfig::default();
+                config.mode = mode;
+                config.font_size = Some(11.0);
+                config.mono_font_size = Some(9.0);
                 config.colors.scrollbar = Some("#A03050".into());
                 let config = Rc::new(config);
                 apply_theme(

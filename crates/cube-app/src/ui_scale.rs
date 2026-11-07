@@ -113,10 +113,8 @@ mod tests {
         for (font_size, label_size, icon_size) in
             [(12.0, 8.25, 14.4), (16.0, 11.0, 16.0), (24.0, 16.5, 21.6)]
         {
-            let theme = gpui_component::Theme {
-                font_size: gpui::px(font_size),
-                ..Default::default()
-            };
+            let mut theme = gpui_component::Theme::default();
+            theme.font_size = gpui::px(font_size);
             assert_eq!(ui_px(&theme, 11.0), gpui::px(label_size));
             assert!((ui_icon_px(&theme, 16.0).as_f32() - icon_size).abs() < 0.0001);
         }

@@ -118,8 +118,11 @@ Cube 自有配置全部在 `cube.*` 命名空间下。`config.rs` 中的 `normal
 
 ## 依赖版本约束
 
-- `gpui-pre-*` 和 `gpui-component` / `gpui-kit-assets` **精确锁定（`=`)并成组升级**。混用两个 GPUI 快照会产生不兼容类型。
-- `[patch.crates-io]` 里有指向 `wey-gu/zed` 的个人 fork（固定 revision），用于 macOS 原生呈现修复。不要替换成不兼容的官方 Zed 包。
+- `gpui-pre-*` 和 `gpui-component` / `gpui-base` / `gpui-kit-assets` **精确锁定（`=`)并成组升级**。混用两个 GPUI 快照会产生不兼容类型。当前组合：`gpui-pre =0.3.11` + component/base/kit-assets `=0.9.0`。
+- **实际渲染层是 [gpui-fast](https://github.com/longbridge/gpui-fast)**，不是上游 GPUI。`[patch.crates-io]` 把 `gpui-pre` / `gpui-pre-platform` 指向 `vendor/` 下两个薄壳（`pub use gpui_fast::*`），转发到 crates.io 的 `gpui-fast 0.1.13`。见 `vendor/README.md`。
+  - 上游仓库自带 `compat/gpui-pre` 等兼容 crate，但版本写死 0.3.9，不满足 component 的 `=0.3.11`，Cargo 会静默忽略 patch——这就是需要本地 vendor 壳的原因。
+  - 升级 gpui-fast 时，同步改 `vendor/*/Cargo.toml` 里的 `version` 与 `gpui-fast` 依赖版本。
+- 之前的 `wey-gu/zed` 个人 fork（macOS 原生呈现修复）已移除：官方 0.3.11 已包含该修复，且 gpui-fast 基于 0.3.11。原 fork 特有的 `request_native_surface_presentation_sync` 已由 `ghostty_view::request_repaint` 替代（走 `on_next_frame`，避免 `current_view()` 的阶段断言）。
 
 ## UI 约束
 

@@ -1411,6 +1411,7 @@ mod chrome_tests {
         let (view, cx) = cx.add_window_view(|_, _| TabLayoutView::new(160.0));
         let root = cx.debug_bounds("layout-root").unwrap();
         cx.simulate_event(gpui::ScrollWheelEvent {
+            source: gpui::ScrollSource::Pointer,
             position: root.center(),
             delta: gpui::ScrollDelta::Lines(gpui::point(0.0, -4.0)),
             modifiers: Default::default(),
@@ -1425,6 +1426,7 @@ mod chrome_tests {
         cx.run_until_parked();
         assert_eq!(cx.update(|_, cx| view.read(cx).scroll.offset()), offset);
         cx.simulate_event(gpui::ScrollWheelEvent {
+            source: gpui::ScrollSource::Pointer,
             position: root.center(),
             delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(30.0))),
             modifiers: Default::default(),

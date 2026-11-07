@@ -114,7 +114,7 @@ fn parse_global_hotkey(binding: &str) -> Option<Keystroke> {
         return None;
     }
 
-    let keystroke = Keystroke::parse(binding).ok()?;
+    let keystroke = crate::keycaps::parse_keystroke(binding)?;
     if keystroke.key.is_empty() || !keystroke.modifiers.modified() || keystroke.modifiers.function {
         return None;
     }

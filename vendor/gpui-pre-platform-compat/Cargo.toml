@@ -1,0 +1,21 @@
+[package]
+name = "gpui-pre-platform"
+version = "0.3.11"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "gpui_platform"
+path = "src/lib.rs"
+doctest = false
+
+[features]
+default = []
+font-kit = ["gpui_fast_platform/font-kit"]
+runtime_shaders = ["gpui_fast_platform/runtime_shaders"]
+wayland = ["gpui_fast_platform/wayland"]
+x11 = ["gpui_fast_platform/x11"]
+screen-capture = ["gpui_fast_platform/screen-capture"]
+
+[dependencies]
+gpui_fast_platform = { package = "gpui-fast-platform", version = "=0.1.13" }

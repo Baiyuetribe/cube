@@ -809,7 +809,7 @@ pub(super) fn prepare_native_canvas(bounds: Bounds<Pixels>, radius: f32, window:
         )
     };
     if changed {
-        window.request_native_surface_presentation_sync();
+        crate::ghostty_view::request_repaint(window);
     }
 }
 
@@ -832,7 +832,7 @@ fn prepare_native_safe_area(height: f32, color: Hsla, window: &Window) {
             color.a as f64,
         )
     } {
-        window.request_native_surface_presentation_sync();
+        crate::ghostty_view::request_repaint(window);
     }
 }
 

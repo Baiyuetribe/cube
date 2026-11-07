@@ -156,7 +156,7 @@ pub(crate) fn keycaps_for_stroke(stroke: &Keystroke, theme: &gpui_component::The
 }
 
 pub(crate) fn keycaps_for_binding(binding: &str, theme: &gpui_component::Theme) -> AnyElement {
-    if let Ok(stroke) = Keystroke::parse(binding) {
+    if let Some(stroke) = parse_keystroke(binding) {
         keycaps_for_stroke(&stroke, theme).into_any_element()
     } else {
         div()
@@ -174,6 +174,25 @@ pub(crate) fn first_action_keystroke(action: &dyn Action, window: &Window) -> Op
         .keystrokes()
         .first()
         .map(|keystroke| keystroke.as_keystroke().clone())
+}
+
+/// 解析快捷键字符串，失败返回 `None`。
+///
+/// gpui-pre 0.3.11 起 `Keystroke::parse` 只接受 `&'static str`（内部会缓存
+/// 静态字符串指针）。配置里的绑定来自运行时字符串，所以走 `parse_with_os`
+/// 并显式给出当前平台。
+pub(crate) fn parse_keystroke(source: &str) -> Option<gpui::Keystroke> {
+    gpui::Keystroke::parse_with_os(source, current_operating_system()).ok()
+}
+
+fn current_operating_system() -> gpui::OperatingSystem {
+    if cfg!(target_os = "macos") {
+        gpui::OperatingSystem::Mac
+    } else if cfg!(target_os = "windows") {
+        gpui::OperatingSystem::Windows
+    } else {
+        gpui::OperatingSystem::Linux
+    }
 }
 
 #[cfg(test)]
