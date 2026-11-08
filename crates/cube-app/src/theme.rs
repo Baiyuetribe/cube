@@ -559,7 +559,49 @@ fn hex_rgb(r: u8, g: u8, b: u8) -> String {
 
 /// Whether the OS currently asks for dark chrome. The Settings panel and the
 /// workspace both resolve `appearance.color_scheme` against this value.
+///
+/// macOS 上直接问 AppKit 的 `effectiveAppearance`，不走 GPUI 缓存的
+/// `window.appearance()`。那个缓存只在 `viewDidChangeEffectiveAppearance`
+/// 回调里刷新，而这个回调挂在 GPUIView 上——Cube 的终端 host NSView 会盖住
+/// 它，系统换浅/深色时事件可能根本传不到，缓存就一直停在旧值。读实时值可以
+/// 让任何一次采样（渲染、设置面板）都拿到当下正确的系统外观。
 pub fn system_is_dark(window: &gpui::Window, cx: &gpui::App) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use objc::{class, msg_send, runtime::Object, sel, sel_impl};
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+        let _ = cx;
+        if let Ok(handle) = HasWindowHandle::window_handle(window)
+            && let RawWindowHandle::AppKit(appkit) = handle.as_raw()
+        {
+            let ns_view = appkit.ns_view.as_ptr().cast::<Object>();
+            if !ns_view.is_null() {
+                let ns_window: *mut Object = unsafe { msg_send![ns_view, window] };
+                if !ns_window.is_null() {
+                    // `effectiveAppearance` 返回 `NSAppearance` 对象，不是字符串。
+                    // 先取它的 `name`（"NSAppearanceNameAqua" /
+                    // "NSAppearanceNameDarkAqua" / "…VibrantDark" 等）再判断。
+                    // 直接对 appearance 发 `isEqualToString:` 会抛
+                    // NSInvalidArgumentException 并终止进程。
+                    let appearance: *mut Object =
+                        unsafe { msg_send![ns_window, effectiveAppearance] };
+                    if !appearance.is_null() {
+                        let name: *mut Object = unsafe { msg_send![appearance, name] };
+                        if !name.is_null() {
+                            // 所有深色变体（DarkAqua / VibrantDark）都带 "Dark"，
+                            // 用它一次覆盖，避免只认单个常量名漏掉复合外观。
+                            let needle: *mut Object = unsafe {
+                                msg_send![class!(NSString), stringWithUTF8String: c"Dark".as_ptr()]
+                            };
+                            let is_dark: bool = unsafe { msg_send![name, containsString: needle] };
+                            return is_dark;
+                        }
+                    }
+                }
+            }
+        }
+    }
     let _ = cx;
     ThemeMode::from(window.appearance()).is_dark()
 }

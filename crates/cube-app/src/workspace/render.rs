@@ -189,6 +189,12 @@ impl Render for CubeWorkspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.flush_pending_create_pane_requests(window, cx);
 
+        // 每帧核对一次系统浅/深色。`system_is_dark` 在 macOS 上直接读
+        // AppKit 的 `effectiveAppearance`，不依赖 GPUI 的外观回调——那个回调
+        // 会被终端 host NSView 挡掉，导致系统换色后界面迟迟不跟随。
+        // 主题没变时该方法内部直接返回，不会 notify，因此不会触发额外重绘。
+        self.sync_color_scheme_appearance(window, cx);
+
         if !self.has_active_tab() {
             return div().size_full().into_any_element();
         }

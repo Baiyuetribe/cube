@@ -574,9 +574,14 @@ impl CubeWorkspace {
         });
 
         // Poll terminal presentation and control-plane requests.
+        let appearance_window_handle = window.window_handle();
         cx.spawn(async move |this, cx| {
             let agent_cli_poll_interval = std::time::Duration::from_millis(300);
             let mut last_agent_cli_refresh: Option<std::time::Instant> = None;
+            // 系统浅/深色外观的最后一次核对时间。GPUI 的外观回调会被终端
+            // host NSView 挡掉，不能指望它；这里按秒核对一次
+            // `effectiveAppearance`，保证系统切换后界面能跟上。
+            let mut last_system_appearance_check: Option<std::time::Instant> = None;
             // 连续空闲轮数。空闲越久睡眠越长，避免空转烧 CPU；
             // 任何一次有变化都会立刻回到 4ms 的响应档位。
             let mut idle_rounds: u32 = 0;
@@ -610,6 +615,24 @@ impl CubeWorkspace {
                     }
                 })
                 .ok();
+
+                // 系统外观每秒核对一次，放在 `this.update` 之外：`sync_color_scheme_appearance`
+                // 需要 window，而窗口更新不能嵌套在实体更新的闭包里。
+                // 该方法内部短路，主题没变时不会 notify，不会造成空转。
+                {
+                    let now = std::time::Instant::now();
+                    let due = last_system_appearance_check.is_none_or(|last| {
+                        now.saturating_duration_since(last) >= Duration::from_secs(1)
+                    });
+                    if due {
+                        last_system_appearance_check = Some(now);
+                        let _ = appearance_window_handle.update(cx, |_, window, cx| {
+                            let _ = this.update(cx, |workspace, cx| {
+                                workspace.sync_color_scheme_appearance(window, cx);
+                            });
+                        });
+                    }
+                }
 
                 {
                     // Yield even while busy: an always-ready agent/PTY producer
