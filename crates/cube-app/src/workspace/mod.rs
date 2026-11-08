@@ -92,7 +92,7 @@ use crate::{
     OpenWorkspaceLayoutWindow, Paste, PreviousSurface, PreviousTab, Quit, RenameSurface,
     SearchFiles, SelectAll, SelectTab1, SelectTab2, SelectTab3, SelectTab4, SelectTab5, SelectTab6,
     SelectTab7, SelectTab8, SelectTab9, SplitDown, SplitLeft, SplitRight, SplitUp, ToggleLeftPanel,
-    TogglePaneZoom, Undo,
+    TogglePaneZoom, ToggleWindowFloating, Undo,
 };
 use cube_core::config::{
     AppearanceConfig, Config, TabsOrientation, TerminalConfig, sanitize_app_icon,
@@ -157,6 +157,9 @@ pub struct CubeWorkspace {
     /// which must never be fully closed — closing the last tab
     /// should reinitialize a fresh tab and hide the window instead.
     is_quick_terminal: bool,
+    /// 本窗口是否置顶。只反映我们最后一次成功设置的层级，不读回原生窗口，
+    /// 以免与系统或用户手动调整的层级打架。
+    is_window_floating: bool,
     terminal_font_family: String,
     terminal_font_fallback: Vec<String>,
     ui_font_family: String,

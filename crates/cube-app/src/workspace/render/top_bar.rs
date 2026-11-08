@@ -2865,6 +2865,33 @@ impl CubeWorkspace {
                 })),
             );
         }
+        // 置顶只在 macOS 上生效：直接切换原生窗口层级，窗口类型不变，
+        // 标题栏、焦点、IME 等仍按普通窗口处理。
+        #[cfg(target_os = "macos")]
+        {
+            let floating_tooltip = if self.is_window_floating {
+                "Unpin window"
+            } else {
+                "Keep window on top"
+            };
+            tab_controls = tab_controls.child(
+                chrome_button(
+                    "toggle-window-floating",
+                    if self.is_window_floating {
+                        "phosphor/push-pin-fill.svg"
+                    } else {
+                        "phosphor/push-pin.svg"
+                    },
+                    Some(self.is_window_floating),
+                    floating_tooltip,
+                    Some(Box::new(ToggleWindowFloating)),
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.toggle_window_floating(&ToggleWindowFloating, window, cx);
+                })),
+            );
+        }
         // Settings stays in the chrome on every platform. macOS also has
         // `App → Settings…` (⌘,), but the icon is the discoverable entry point
         // this fork's users reach for first.

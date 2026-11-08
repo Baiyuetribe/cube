@@ -1152,6 +1152,7 @@ impl Render for CubeWorkspace {
             .on_action(cx.listener(Self::close_tab))
             .on_action(cx.listener(Self::close_pane))
             .on_action(cx.listener(Self::toggle_pane_zoom))
+            .on_action(cx.listener(Self::toggle_window_floating))
             .on_action(cx.listener(Self::split_right))
             .on_action(cx.listener(Self::split_down))
             .on_action(cx.listener(Self::split_left))

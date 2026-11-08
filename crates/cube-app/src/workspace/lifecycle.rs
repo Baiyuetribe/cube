@@ -690,6 +690,7 @@ impl CubeWorkspace {
             active_tab,
             last_editor_tab_id: None,
             is_quick_terminal: false,
+            is_window_floating: false,
             terminal_font_family,
             terminal_font_fallback,
             ui_font_family,

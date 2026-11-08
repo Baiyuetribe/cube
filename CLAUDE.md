@@ -135,3 +135,7 @@ Cube 自有配置全部在 `cube.*` 命名空间下。`config.rs` 中的 `normal
 
 - `cargo clippy -- -D warnings` 有若干既有告警（`chunks_exact` 常量参数、`useless_conversion` 等），非本次改动引入。
 - `cube-process::macos::tests::observes_current_process_and_group` 在 `target` 是符号链接（mbx 缓存）时必然失败，因为它比对 `current_exe()` 与进程记录的路径。
+
+## 开发要求
+
+一般改动仅check和关联test通过即可，非必要不要run程序

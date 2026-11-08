@@ -291,6 +291,30 @@ impl CubeWorkspace {
         self.open_tab_with_label(None, None, window, cx);
     }
 
+    /// 切换本窗口置顶。
+    ///
+    /// 用当前窗口的原生层级实现，不新建 `NSPanel`：窗口类型不变，
+    /// 标题栏、键盘焦点、IME、失焦隐藏等仍遵循普通窗口语义。
+    pub(super) fn toggle_window_floating(
+        &mut self,
+        _: &crate::ToggleWindowFloating,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        #[cfg(target_os = "macos")]
+        {
+            let target = !self.is_window_floating;
+            if crate::macos_windowing::set_window_floating(window, target) {
+                self.is_window_floating = target;
+                cx.notify();
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (window, cx, self.is_window_floating);
+        }
+    }
+
     /// 在当前目录开一个新标签并激活，返回它的终端。
     ///
     /// `user_label` 非空时作为标签显示名（远程连接用它显示服务器名）。

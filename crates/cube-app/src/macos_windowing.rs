@@ -11,6 +11,46 @@ pub fn cycle_app_window(reverse: bool) {
     unsafe { cube_cycle_app_window(reverse) };
 }
 
+/// AppKit 的窗口层级常量。`NSWindowLevel` 是有符号整数。这里直接写字面值，
+/// 避免为一个常量引入 objc2-app-kit 依赖。
+const NS_NORMAL_WINDOW_LEVEL: i64 = 0;
+const NS_FLOATING_WINDOW_LEVEL: i64 = 3;
+
+/// 切换当前窗口的置顶状态。
+///
+/// 只改窗口层级，不换窗口类：窗口仍是 `NSWindow`，标题栏、焦点、
+/// IME、失焦自动隐藏等行为全部保持普通窗口语义。返回 `false` 表示
+/// 取不到原生窗口，调用方不应更新自己的状态位。
+pub fn set_window_floating(window: &gpui::Window, floating: bool) -> bool {
+    use objc::{msg_send, runtime::Object, sel, sel_impl};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return false;
+    };
+    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+        return false;
+    };
+    let ns_view = appkit.ns_view.as_ptr().cast::<Object>();
+    if ns_view.is_null() {
+        return false;
+    }
+    // GPUI 交给我们的视图在窗口内容视图里，取其所属 NSWindow。
+    let ns_window: *mut Object = unsafe { msg_send![ns_view, window] };
+    if ns_window.is_null() {
+        return false;
+    }
+    let level = if floating {
+        NS_FLOATING_WINDOW_LEVEL
+    } else {
+        NS_NORMAL_WINDOW_LEVEL
+    };
+    unsafe {
+        let _: () = msg_send![ns_window, setLevel: level];
+    }
+    true
+}
+
 /// AppKit can leave a window mostly off-screen after a display swap when it
 /// still intersects a remaining screen. Recheck placement after the change.
 pub fn install_offscreen_window_recovery(cx: &mut gpui::App) {

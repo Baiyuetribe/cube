@@ -147,6 +147,7 @@ actions!(
         CloseTab,
         ClosePane,
         TogglePaneZoom,
+        ToggleWindowFloating,
         SplitRight,
         SplitDown,
         SplitLeft,
@@ -2996,6 +2997,8 @@ fn main() {
                 name: "窗口".into(),
                 items: vec![
                     MenuItem::action("最小化", Minimize),
+                    MenuItem::separator(),
+                    MenuItem::action("置顶窗口", ToggleWindowFloating),
                     MenuItem::separator(),
                     MenuItem::action("下一个窗口", NextWindow),
                     MenuItem::action("上一个窗口", PreviousWindow),
